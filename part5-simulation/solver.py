@@ -297,7 +297,8 @@ def evaluate(case_id: int, out: Path) -> dict:
     import run_car as rc
     B = json.loads(BATCH.read_text())
     c = next(x for x in B["cases"] if x["id"] == case_id)
-    args = ["--out", str(out), "--cfd", "--res", "medium", "--np", "4", "--body-json", json.dumps(c["params"])]
+    args = ["--out", str(out), "--cfd", "--cfd-if-legal", "--res", "medium", "--np", "4",
+            "--body-json", json.dumps(c["params"])]
     args += _layout_args(c.get("layout", {}))
     for part, flag in pattern.PART_FLAGS.items():
         if c.get("parts", {}).get(part):
@@ -307,13 +308,14 @@ def evaluate(case_id: int, out: Path) -> dict:
     row = dict(c, ok=False, round=B["round"], phase=B["phase"])
     try:
         S = rc.main(args)
-        ci = S["cfd_initial"]
         failed = S["legality"]["summary"]["failed"]
         if c.get("skin_mm") is not None:          # a fixed skin is not sized
             failed = [f for f in failed if f != "T3.6_mass"]
-        row.update(T_s=ci["T_at_target_s"], D20_N=ci["D20_N"], converged=ci["converged"], failed=failed,
-                   mass_g=S["mass"]["manufactured_mass_g"], skin=S["body"]["build"].get("skin_offset_mm"),
-                   ok=bool(ci["converged"] and not failed))
+        row.update(failed=failed, mass_g=S["mass"]["manufactured_mass_g"], skin=S["body"]["build"].get("skin_offset_mm"))
+        ci = S.get("cfd_initial")                 # none if the car broke a rule: see --cfd-if-legal
+        if ci is not None:
+            row.update(T_s=ci["T_at_target_s"], D20_N=ci["D20_N"], converged=ci["converged"],
+                       ok=bool(ci["converged"] and not failed))
     except (Exception, SystemExit) as exc:  # noqa: BLE001 -- a car that fails is a result
         row["error"] = f"{type(exc).__name__}: {exc}"[:300]
     out.mkdir(parents=True, exist_ok=True)

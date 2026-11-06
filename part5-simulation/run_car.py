@@ -351,6 +351,8 @@ def parse_args(argv=None):
     ap.add_argument("--trust-mm", type=float, default=1.0)
     ap.add_argument("--smooth-mm", type=float, default=0.0)
     ap.add_argument("--keep-runs", action="store_true")
+    ap.add_argument("--cfd-if-legal", action="store_true",
+                    help="skip the CFD if the car already broke a rule: an hour of a machine for a car the search must drop")
     ap.add_argument("--stage-timeout-s", type=int, default=None,
                     help="per OpenFOAM stage; fine meshes need more than the 7200 s default")
     ap.add_argument("--cfd-json", default=None,
@@ -396,7 +398,12 @@ def main(argv=None):
     S["legality"] = {"checks": chk, "summary": legality.summary(chk)}
     moi = asm["wheel_moi_kg_m2"]
 
-    if a.cfd:
+    # A fixed skin is not sized for T3.6, so that one rule cannot count against it.
+    broken = [f for f in S["legality"]["summary"]["failed"]
+              if not (f == "T3.6_mass" and getattr(a, "skin_mm", None) is not None)]
+    if a.cfd and a.cfd_if_legal and broken:
+        log(f"4 CFD skipped: the car broke {broken}")
+    elif a.cfd:
         log("4 CFD: forward, all patches")
         # The same decimated STL the optimiser's gate would mesh.
         gate = b.run_quality_gates(copy.deepcopy(geom), "initial", str(out / "gates"))

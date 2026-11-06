@@ -162,6 +162,22 @@ def test_a_layout_step_that_wins_is_kept(tmp_state):
     assert c["car"]["layout"]["W"] == pattern.LAYOUT_START["W"] + 2.0 and c["T"] == 1.59
 
 
+def test_an_illegal_car_is_a_result_without_any_cfd(tmp_state, monkeypatch):
+    import run_car as rc
+    solver.init(1)
+    seen = {}
+
+    def fake_main(args):
+        seen["args"] = args
+        return {"legality": {"summary": {"failed": ["P4.T9.7_front_view"]}},
+                "mass": {"manufactured_mass_g": 48.2}, "body": {"build": {"skin_offset_mm": 3.0}}}
+
+    monkeypatch.setattr(rc, "main", fake_main)
+    row = solver.evaluate(0, tmp_state / "out")
+    assert "--cfd-if-legal" in seen["args"]
+    assert row["ok"] is False and row["failed"] == ["P4.T9.7_front_view"] and "error" not in row
+
+
 def test_the_report_refuses_to_claim_a_proof(tmp_state):
     solver.init(1)
     state = json.loads(solver.STATE.read_text())
