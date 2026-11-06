@@ -74,6 +74,10 @@ FLOOR = {"ft_h": (3.0, 0.0, 10.0), "ft_w": (3.0, 3.2, 14.0), "ft_x0": (15.0, 30.
          "ft_x1": (15.0, 100.0, 190.0), "ft_ramp": (10.0, 5.0, 60.0)}
 FLOOR_START = {"ft_h": 3.0}
 PART_FLAGS = {"fw": "--fwing-json", "sup": "--support-json", "nose": "--nose-json"}
+# The car's layout: name: (step, lo, hi), and run_car's defaults and flags.
+LAYOUT = {"W": (2.0, 120.3, 140.0), "x_front": (2.0, 46.0, 56.0), "d_halo": (5.0, 25.0, 75.0)}
+LAYOUT_START = {"W": 120.3, "x_front": 46.0, "d_halo": 43.72}
+LAYOUT_FLAGS = {"W": "--W", "x_front": "--x-front", "d_halo": "--d-halo"}
 
 
 def _pb():
@@ -82,6 +86,8 @@ def _pb():
 
 
 def step0(name: str) -> float:
+    if name in LAYOUT:
+        return LAYOUT[name][0]
     if name in PARTS:
         return PARTS[name][0]
     if name.startswith("mode"):
@@ -99,6 +105,8 @@ def step0(name: str) -> float:
 
 def bounds(name: str) -> tuple:
     pb = _pb()
+    if name in LAYOUT:
+        return LAYOUT[name][1:]
     if name in PARTS:
         return PARTS[name][1:]
     if name.startswith("mode"):
@@ -138,7 +146,10 @@ def _part_default(name: str) -> float:
 
 
 def get(d: dict, name: str) -> float:
-    """d = {"params": body dict, "parts": {"fw": {...}, "sup": {...}, "nose": {...}}}."""
+    """d = {"params": body dict, "parts": {"fw": {...}, "sup": {...}, "nose": {...}},
+    "layout": {"W": ..} (optional)}."""
+    if name in LAYOUT:
+        return float(d.get("layout", {}).get(name, LAYOUT_START[name]))
     if name in PARTS:
         part, key = name.split(".")
         return float(d["parts"].get(part, {}).get(key, _part_default(name)))
@@ -148,11 +159,13 @@ def get(d: dict, name: str) -> float:
 
 
 def put(d: dict, name: str, v: float) -> dict:
+    if name in LAYOUT:
+        return dict(d, layout=dict(d.get("layout", {}), **{name: float(v)}))
     if name in PARTS:
         part, key = name.split(".")
         parts = {k: dict(x) for k, x in d["parts"].items()}
         parts.setdefault(part, {})[key] = bool(round(v)) if key == "strip" else float(v)
-        return {"params": d["params"], "parts": parts}
+        return dict(d, parts=parts)
     from dataclasses import replace
     bp = _pb().BodyParams.from_dict(d["params"])
     seq, i = _indexed(name)
@@ -162,7 +175,7 @@ def put(d: dict, name: str, v: float) -> dict:
         bp = replace(bp, **{seq: tuple(vals)})
     else:
         bp = replace(bp, **{name: float(v)})
-    return {"params": bp.as_dict(), "parts": d["parts"]}
+    return dict(d, params=bp.as_dict())
 
 
 def _indexed(name: str):

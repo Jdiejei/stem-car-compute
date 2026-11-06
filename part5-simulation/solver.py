@@ -70,7 +70,7 @@ def body_settings() -> list:
 
 
 def all_settings() -> list:
-    return body_settings() + list(pattern.PARTS)
+    return body_settings() + list(pattern.PARTS) + list(pattern.LAYOUT)
 
 
 # ------------------------------------------------------------------- slopes
@@ -244,11 +244,16 @@ def random_start(seed: int) -> dict:
 
 
 def _case(i: int, chain: int, tag: str, d: dict, skin=None) -> dict:
-    return {"id": i, "chain": chain, "tag": tag, "params": d["params"], "parts": d["parts"], "skin_mm": skin}
+    return {"id": i, "chain": chain, "tag": tag, "params": d["params"], "parts": d["parts"],
+            "layout": d.get("layout", {}), "skin_mm": skin}
 
 
 def _d(c: dict) -> dict:
-    return {"params": c["car"]["params"], "parts": c["car"]["parts"]}
+    return {"params": c["car"]["params"], "parts": c["car"]["parts"], "layout": c["car"].get("layout", {})}
+
+
+def _layout_args(layout: dict) -> list:
+    return [x for k, flag in pattern.LAYOUT_FLAGS.items() if k in layout for x in (flag, str(layout[k]))]
 
 
 def _save(state: dict, cases: list) -> None:
@@ -293,6 +298,7 @@ def evaluate(case_id: int, out: Path) -> dict:
     B = json.loads(BATCH.read_text())
     c = next(x for x in B["cases"] if x["id"] == case_id)
     args = ["--out", str(out), "--cfd", "--res", "medium", "--np", "4", "--body-json", json.dumps(c["params"])]
+    args += _layout_args(c.get("layout", {}))
     for part, flag in pattern.PART_FLAGS.items():
         if c.get("parts", {}).get(part):
             args += [flag, json.dumps(c["parts"][part])]
@@ -323,7 +329,7 @@ def adjoint(chain_id: int, out: Path) -> dict:
     state = json.loads(STATE.read_text())
     c = next(x for x in state["chains"] if x["id"] == chain_id)
     out.mkdir(parents=True, exist_ok=True)
-    argv = ["--out", str(out), "--body-json", json.dumps(c["car"]["params"])]
+    argv = ["--out", str(out), "--body-json", json.dumps(c["car"]["params"])] + _layout_args(c["car"].get("layout", {}))
     for part, flag in pattern.PART_FLAGS.items():
         if c["car"].get("parts", {}).get(part):
             argv += [flag, json.dumps(c["car"]["parts"][part])]
@@ -379,6 +385,16 @@ def _steps_from(state: dict, chain_slopes: dict) -> None:
             for move in STEPS_MM:
                 m = move * c["scale"]
                 cases.append(_case(len(cases), c["id"], f"step{m:g}", plan_step(_d(c), g, speeds, m)))
+        if state["slopes"] == "adjoint":
+            # The adjoint cannot price moving whole parts, so the layout is tried directly:
+            # six more cars, judged like any other step. Measured slopes already cover it.
+            d = _d(c)
+            for n in pattern.LAYOUT:
+                lo, hi = pattern.bounds(n)
+                for sign in (1, -1):
+                    v = float(np.clip(pattern.get(d, n) + sign * c["scale"] * pattern.step0(n), lo, hi))
+                    if v != pattern.get(d, n):
+                        cases.append(_case(len(cases), c["id"], f"step {n}={v:g}", pattern.put(d, n, v)))
     state["phase"] = "steps"
     _save(state, cases)
 
@@ -551,7 +567,7 @@ def advance(root: Path) -> str:
             best = min(steps, key=lambda r: r["T_s"]) if steps else None
             entry = {"round": state["round"], "T": T0, "noise": noise}
             if best is not None and best["T_s"] < T0 - 2 * noise:
-                c["car"] = {"params": best["params"], "parts": best["parts"]}
+                c["car"] = {"params": best["params"], "parts": best["parts"], "layout": best.get("layout", {})}
                 c["T"], c["skin_mm"], c["noise"] = best["T_s"], best.get("skin"), noise
                 entry.update(accepted=best["tag"], gain_ms=(T0 - best["T_s"]) * 1e3)
                 msg.append(f"chain {c['id']}: accepted {best['tag']}, {(T0 - best['T_s']) * 1e3:.2f} ms")

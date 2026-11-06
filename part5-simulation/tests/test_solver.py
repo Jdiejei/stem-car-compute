@@ -122,13 +122,44 @@ def test_a_chain_moves_only_on_a_gain_above_the_noise(tmp_state):
     (res / "slopes_0_0.json").write_text(json.dumps({"chain": 0, "round": 0, "phase": "adjoint", "slopes": sl}))
     solver.advance(res)
     B = json.loads(solver.BATCH.read_text())
-    assert B["phase"] == "steps" and len(B["cases"]) == 2 + len(solver.STEPS_MM)
+    # The start car sits at the low end of W and x_front, so those only go up: 4 layout moves.
+    assert B["phase"] == "steps" and len(B["cases"]) == 2 + len(solver.STEPS_MM) + 4
+    assert {c["tag"].split("=")[0] for c in B["cases"]} >= {"step W", "step x_front", "step d_halo"}
 
     tie = [dict(c, ok=True, T_s=1.5995 if c["tag"].startswith("step") else 1.600, skin=1.0) for c in B["cases"]]
     _write_results(tmp_state / "r2", "steps", 0, tie)
     solver.advance(tmp_state / "r2")
     c = json.loads(solver.STATE.read_text())["chains"][0]
     assert c["history"][-1]["accepted"] is None and c["scale"] == 0.5       # 0.5 ms is inside the noise
+
+
+def test_layout_survives_every_kind_of_setting_change():
+    import param_body as pb
+    d = {"params": pb.BodyParams().as_dict(), "parts": {}, "layout": {"W": 130.0}}
+    assert pattern.get(d, "W") == 130.0 and pattern.get(d, "x_front") == pattern.LAYOUT_START["x_front"]
+    for name, v in (("mode6", 1.0), ("fw.aoa_deg", 3.0), ("d_halo", 50.0)):
+        d = pattern.put(d, name, v)
+        assert pattern.get(d, "W") == 130.0 and pattern.get(d, name) == v
+    case = solver._case(0, 0, "x", d)
+    assert solver._layout_args(case["layout"]) == ["--W", "130.0", "--d-halo", "50.0"]
+
+
+def test_a_layout_step_that_wins_is_kept(tmp_state):
+    solver.init(1)
+    state = json.loads(solver.STATE.read_text())
+    state.update(phase="adjoint", sign=1.0)
+    state["chains"][0].update(T=1.6, noise=5e-4)
+    solver._save(state, [])
+    res = tmp_state / "r1"
+    res.mkdir()
+    solver.advance(res)                         # no slopes this time: the layout moves still run
+    B = json.loads(solver.BATCH.read_text())
+    assert B["phase"] == "steps"
+    rows = [dict(c, ok=True, skin=1.0, T_s=1.59 if c["tag"].startswith("step W") else 1.6) for c in B["cases"]]
+    _write_results(tmp_state / "r2", "steps", 0, rows)
+    solver.advance(tmp_state / "r2")
+    c = json.loads(solver.STATE.read_text())["chains"][0]
+    assert c["car"]["layout"]["W"] == pattern.LAYOUT_START["W"] + 2.0 and c["T"] == 1.59
 
 
 def test_the_report_refuses_to_claim_a_proof(tmp_state):
