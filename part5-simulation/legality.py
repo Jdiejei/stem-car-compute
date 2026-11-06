@@ -116,6 +116,22 @@ def manufactured_checks(assembly: dict) -> dict:
                                                    engine="manifold").volume))
     r["block_body_inside_official_block"] = _absent(outside, f"{outside:.1f} mm3 outside the block")
 
+    place = assembly.get("cargo_placement")
+    if place:
+        import ballast
+        from virtual_cargo import (CARGO_HEIGHT_MM, CARGO_LENGTH_MM, CARGO_NARROW_WIDTH_MM,
+                                   CARGO_WIDE_WIDTH_MM)
+        x0, z0 = place["x_start_m"] * 1e3, place["z_base_m"] * 1e3
+        L_, a, b = CARGO_LENGTH_MM, CARGO_WIDE_WIDTH_MM / 2.0, CARGO_NARROW_WIDTH_MM / 2.0
+        if place.get("flip"):
+            a, b = b, a
+        wedge = trimesh.creation.extrude_polygon(
+            Polygon([(x0, -a), (x0 + L_, -b), (x0 + L_, b), (x0, a)]), CARGO_HEIGHT_MM)
+        wedge.apply_translation([0.0, 0.0, z0])
+        # The rule lets the cargo share space with the ballast container, nothing else.
+        missing = abs(wedge.volume) - _volume_in(body, wedge) - ballast.capsule_volume_m3() * 1e9
+        r["T4.2_cargo_inside_body"] = _absent(max(missing, 0.0), f"{max(missing, 0.0):.1f} mm3 missing")
+
     printed = {k: m for k, m in solids.items() if k != "machined_body"}
     hits = {k: _volume_in(body, m) for k, m in printed.items()}
     hits = {k: v for k, v in hits.items() if v > _ROUND_OFF_MM3}

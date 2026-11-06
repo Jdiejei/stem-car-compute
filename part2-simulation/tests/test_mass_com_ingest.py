@@ -35,14 +35,14 @@ def test_mass_weighted_com_matches_hand_calculation():
     fixed = _fixed_hardware(
         co2_mass=0.02115,
         co2_com=(0.0, 0.0, 0.0),
-        rear_mass=0.977,
+        rear_mass=0.97885,
         rear_com=(2.0, 0.0, 0.0),
         wheels_mass=1.0,
         wheels_com=(1.0, 0.0, 0.0),
     )
     result = ingest_mass_com(machined, fixed)
     assert math.isclose(result.total_mass_kg, 4.0)
-    assert math.isclose(result.com_x_m, (1.0 + 0.977 * 2.0 + 1.0) / 4.0)
+    assert math.isclose(result.com_x_m, (1.0 + 0.97885 * 2.0 + 1.0) / 4.0)
     assert math.isclose(result.com_y_m, 0.0)
     assert math.isclose(result.com_z_m, 0.0)
 

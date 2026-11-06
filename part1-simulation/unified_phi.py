@@ -186,7 +186,7 @@ class UnifiedGeometry:
 # Any of those is a genuine placement clash that leaves the mandatory keep-solid
 # volume unfilled, and find_cargo_placement guards none of them (only the halo
 # pocket).
-CARGO_MAX_ERODED_FRACTION = 0.05
+CARGO_MAX_ERODED_FRACTION = 0.005   # T4.2 wants all of it: this is grid round-off only
 
 
 def model_block_slot_mask(region) -> np.ndarray:
@@ -445,7 +445,8 @@ def build_unified_geometry(
         compute_default_fixed_hardware_inputs,
         place_fixed_hardware,
     )
-    from virtual_cargo import build_virtual_cargo_solid_mask, find_cargo_placement
+    from virtual_cargo import (CARGO_Z_BASE_MM, build_virtual_cargo_solid_mask,
+                               find_cargo_placement)
 
     re = rule_envelope or default_rule_envelope()
 
@@ -507,7 +508,7 @@ def build_unified_geometry(
     for comp in ("main_body", "sidepod", "rearpod"):
         zone = build_t79_forbidden_mask(
             comp, region.origin_m, region.shape,
-            W_mm, x_front_mm, wheel_x_half_width_mm,
+            W_mm, x_front_mm,
         )
         if zone is not None:
             hard_air |= zone
@@ -596,8 +597,17 @@ def build_unified_geometry(
     if with_cargo:
         # cargo_placement lets Stage 1 inject a COM-scored (position, flip);
         # None falls back to the geometric default (corridor-centre, wide-fwd).
+        def _cargo_fits(x_start_m, flip):
+            cargo = build_virtual_cargo_solid_mask(
+                region.origin_m, region.shape, x_start_m,
+                max(mm_to_m(CARGO_Z_BASE_MM), region.origin_m[2]), flip=flip)
+            eaten, requested = measure_cargo_erosion(
+                cargo, hard_air, region, bv.ref_plane_A_m, d_halo_mm)
+            return requested > 0 and eaten / requested <= CARGO_MAX_ERODED_FRACTION
+
         placement = cargo_placement or find_cargo_placement(
             x_front_mm, W_mm, bv.ref_plane_A_m, d_halo_mm, re.z_floor_m,
+            is_valid=_cargo_fits,
         )
         # Clamp the cargo base to the grid floor. find_cargo_placement derives
         # z_base from the rule envelope's z_floor + margin (0.001 m), but the
@@ -716,6 +726,7 @@ def build_unified_geometry(
             "front_axle_m": mm_to_m(x_front_mm),
             "rear_axle_m": mm_to_m(x_front_mm) + mm_to_m(W_mm),
             "rear_face_m": bv.rearpod.x_max_m(),
+            "cargo_placement": placement if with_cargo else None,
         },
         bv=bv,
         W_mm=W_mm,

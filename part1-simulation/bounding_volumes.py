@@ -375,7 +375,7 @@ def compute_bounding_volumes(
     # T7.9.2/T7.9.3: wedge-shaped keep-clear zones at the sidepod's front and
     # rear inner corners so each wheel stays visible from top/bottom views.
     sidepod_t79_forbidden = build_t79_forbidden_mask(
-        "sidepod", sidepod_origin_m, sidepod_shape, W_mm, x_front_mm, wheel_x_half_width_mm,
+        "sidepod", sidepod_origin_m, sidepod_shape, W_mm, x_front_mm,
     )
     sidepod = BoundingRegion(
         component    = "sidepod",
@@ -416,7 +416,7 @@ def compute_bounding_volumes(
     )
     # T7.9.4: keep-clear rectangle immediately aft of the rear wheel.
     rearpod_t79_forbidden = build_t79_forbidden_mask(
-        "rearpod", rearpod_origin_m, rearpod_shape, W_mm, x_front_mm, wheel_x_half_width_mm,
+        "rearpod", rearpod_origin_m, rearpod_shape, W_mm, x_front_mm,
     )
     rearpod = BoundingRegion(
         component    = "rearpod",
@@ -441,7 +441,7 @@ def compute_bounding_volumes(
     )
     # T7.9.1: keep-clear rectangle immediately forward of the front wheel.
     main_body_t79_forbidden = build_t79_forbidden_mask(
-        "main_body", main_body_origin_m, main_body_shape, W_mm, x_front_mm, wheel_x_half_width_mm,
+        "main_body", main_body_origin_m, main_body_shape, W_mm, x_front_mm,
     )
     # T4.4.4: halo mounting pocket, positioned by d_halo aft of Ref Plane A.
     main_body_halo_forbidden = build_halo_pocket_forbidden_mask(

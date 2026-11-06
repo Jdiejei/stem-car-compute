@@ -215,8 +215,13 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     ys = (r.origin_m[1] + np.arange(r.shape[1]) * d) * 1e3
     zs = (r.origin_m[2] + np.arange(r.shape[2]) * d) * 1e3
     X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
-    phi0 = phi_mm(bp, X, Y, Z, base.landmarks["ref_plane_A_m"] * 1e3,
-                  base.landmarks["rear_face_m"] * 1e3)
+    x_ref_a = base.landmarks["ref_plane_A_m"] * 1e3
+    phi0 = phi_mm(bp, X, Y, Z, x_ref_a, base.landmarks["rear_face_m"] * 1e3)
+    # T8.5.1: anything ahead of Ref A stays within 15 mm of the centreline and 25 mm
+    # of the track, and the nose cone takes its root from the body 1 mm aft of Ref A.
+    # A heavy skin offset pushed that section over the limit, so the body is capped
+    # there, 0.5 mm inside the rule.
+    base.phi.hard_mask_air |= (X <= x_ref_a + 1.0) & ((np.abs(Y) > 14.5) | (Z > 24.5))
 
     def make(offset_mm):
         import copy

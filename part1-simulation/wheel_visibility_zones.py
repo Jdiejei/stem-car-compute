@@ -35,7 +35,7 @@ from __future__ import annotations
 from typing import Optional
 import numpy as np
 
-from geometry_contract import GRID_SPACING_M, mm_to_m
+from geometry_contract import GRID_SPACING_M, R_WHEEL_M, mm_to_m
 
 # T7.2 minimum inner gaps between opposing wheels. Half of each gap is the
 # distance from centerline to the wheel's inner track-contact edge, at the
@@ -148,7 +148,6 @@ def build_t79_forbidden_mask(
     shape: tuple,
     W_mm: float,
     x_front_mm: float,
-    wheel_x_half_width_mm: float = 8.0,
     front_inner_gap_mm: float = FRONT_INNER_GAP_ACTUAL_MM,
     rear_inner_gap_mm: float = REAR_INNER_GAP_ACTUAL_MM,
 ) -> Optional[np.ndarray]:
@@ -167,7 +166,9 @@ def build_t79_forbidden_mask(
     """
     x_front_m = mm_to_m(x_front_mm)
     W_m = mm_to_m(W_mm)
-    wheel_half_m = mm_to_m(wheel_x_half_width_mm)
+    # The wheel's own edge. Zones were offset by the body's keep-clear margin, which
+    # moved T7.9.2 and T7.9.3 a millimetre away from where the scrutineer's tool sits.
+    wheel_half_m = R_WHEEL_M
     z_max_m = mm_to_m(T79_ZONE_HEIGHT_MM)
 
     front_wheel_fwd_m = x_front_m - wheel_half_m           # leading edge of front wheel

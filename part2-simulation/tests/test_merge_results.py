@@ -170,7 +170,7 @@ def test_ranking_uses_T_penalized_and_drops_underweight_cars():
                                        com_x_m=0.12, com_y_m=0.0, com_z_m=0.03))
 
     with tempfile.TemporaryDirectory() as td:
-        # Fastest on RAW time, but 2 g underweight -> must not win, must not rank.
+        # Fastest on RAW time, but underweight -> must not win, must not rank.
         write_candidate_record(rec("illegal", 44.0, 1.4754, 1.6834, 68.97), td)
         # Slower raw, better penalised, and legal.
         write_candidate_record(rec("legal_a", 16.0, 1.4811, 1.5095, 71.14), td)
@@ -185,4 +185,4 @@ def test_ranking_uses_T_penalized_and_drops_underweight_cars():
         "the underweight car must not be the answer")
     assert "EXCLUDED" in r.stdout and "underweight" in r.stdout, (
         f"exclusion must be reported, not silent:\n{r.stdout}")
-    assert "45.97" in r.stdout, "the excluded car's mass should be shown"
+    assert "47.82" in r.stdout, "the excluded car's mass should be shown"

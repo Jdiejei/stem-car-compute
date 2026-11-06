@@ -56,8 +56,10 @@ def test_rect_mask_respects_y_min():
 
 def _trapezoid(near_mm, angle, direction):
     y_in = mm_to_m(19.0)
+    d = GRID_SPACING_M * 1e3
     return _trapezoid_forbidden_mask(
-        (0.0, 0.0, 0.0), (300, 250, 10), x_at_wheel_m=mm_to_m(100.0), near_x_m=mm_to_m(near_mm),
+        (0.0, 0.0, 0.0), (int(200 / d), int(80 / d), 10), x_at_wheel_m=mm_to_m(100.0),
+        near_x_m=mm_to_m(near_mm),
         angle_deg=angle, direction=direction, y_inner_m=y_in,
         y_outer_m=y_in + mm_to_m(T79_WIDTH_Y_MM), z_max_m=mm_to_m(65.0))
 
@@ -73,7 +75,7 @@ def test_t792_is_the_drawn_trapezoid():
     assert _at(m, 100 + 13, 19 + 1), "inside, near the inner edge"
     assert not _at(m, 100 + 20, 19 + 1), "beyond the 15 mm at the inner edge"
     assert _at(m, 100 + 30, 19 + 29), "the outer edge reaches about 32 mm aft"
-    assert not _at(m, 100 + 36, 19 + 29), "beyond the sloped far side"
+    assert not _at(m, 100 + 38, 19 + 29), "beyond the sloped far side"
     _pass("test_t792_is_the_drawn_trapezoid")
 
 
@@ -83,7 +85,7 @@ def test_t793_is_the_drawn_trapezoid():
     assert _at(m, 100 - 4, 19 + 1), "inside, near the inner edge"
     assert not _at(m, 100 - 10, 19 + 1), "beyond the 5 mm at the inner edge"
     assert _at(m, 100 - 32, 19 + 29), "the outer edge reaches about 35 mm forward"
-    assert not _at(m, 100 - 38, 19 + 29), "beyond the sloped far side"
+    assert not _at(m, 100 - 41, 19 + 29), "beyond the sloped far side"
     _pass("test_t793_is_the_drawn_trapezoid")
 
 

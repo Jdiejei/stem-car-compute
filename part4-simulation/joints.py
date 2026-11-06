@@ -390,6 +390,16 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
     if joints:
         body_full = _drop_dust(_bool("difference", [body_full] + [j.cut_full for j in joints]),
                                1e-9)
+    # The block arrives with its bore. The 1 mm grid draws it slightly small, so the
+    # exact one is cut here: this file is the car, and it must fit the real block.
+    from geometry_contract import CHAMBER_AXIS_Z_MM, MODEL_BLOCK_BORE_DIA_MM
+    bore_end = assembly["x_front_mm"] + assembly["W_mm"] + 56.0
+    bore = trimesh.creation.cylinder(radius=MODEL_BLOCK_BORE_DIA_MM / 2e3,
+                                     height=(MODEL_BLOCK_BORE_DEPTH_MM + 2.0) / 1e3, sections=96)
+    bore.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [0, 1, 0]))
+    bore.apply_translation([(bore_end - MODEL_BLOCK_BORE_DEPTH_MM / 2.0 + 1.0) / 1e3, 0.0,
+                            CHAMBER_AXIS_Z_MM / 1e3])
+    body_full = _bool("difference", [body_full, bore])
     made = {"machined_body": (body_full, FOAM_G_CM3, 1)}
     clean_body = _full(milled)
 
