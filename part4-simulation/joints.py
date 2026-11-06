@@ -474,8 +474,11 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
             pieces = sorted(u.split(only_watertight=False), key=lambda q: -abs(q.volume))
             made[f"printed_support_{tag}"] = (pieces[0], pa12, 1)
             if len(pieces) > 1:       # a guide the support does not reach is its own part
-                made[f"printed_tether_{tag}"] = (trimesh.util.concatenate(pieces[1:]),
-                                                  DENSITY_G_CM3["tethers"], len(pieces) - 1)
+                # Without its crumbs, as the file will be: counting them expected 4 pieces
+                # in a file of 2, which rejected a good car.
+                rest = _drop_crumbs(trimesh.util.concatenate(pieces[1:]))
+                made[f"printed_tether_{tag}"] = (rest, DENSITY_G_CM3["tethers"],
+                                                  len(rest.split(only_watertight=False)))
     for tag, path in assembly.get("info", {}).get("hubcap_stls", {}).items():
         cap = trimesh.load(path, force="mesh")           # right side; the left is its mirror
         left = cap.copy()
