@@ -185,3 +185,17 @@ def test_the_report_refuses_to_claim_a_proof(tmp_state):
     solver._save(state, [])
     text = solver.report()
     assert "Not established" in text and "global maximum" in text
+
+
+def test_a_dead_machine_keeps_the_car_and_an_illegal_car_is_redrawn(tmp_state):
+    solver.init(2)
+    before = json.loads(solver.STATE.read_text())["chains"]
+    root = tmp_state / "results"
+    root.mkdir()
+    # Chain 1 built and was illegal. Chain 0's machines left nothing.
+    for i in (2, 3):
+        (root / f"car_0_start_{i}.json").write_text(json.dumps({"round": 0, "phase": "start", "chain": 1, "ok": False}))
+    solver.advance(root)
+    after = json.loads(solver.STATE.read_text())["chains"]
+    assert after[0]["car"] == before[0]["car"] and after[0]["starts"] == 2
+    assert after[1]["car"] != before[1]["car"] and after[1]["starts"] == 2

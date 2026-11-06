@@ -26,8 +26,10 @@ jobs:
     outputs:
       kind: ${{ steps.jobs.outputs.kind }}
       ids: ${{ steps.jobs.outputs.ids }}
+      sha: ${{ steps.jobs.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with: { ref: main }
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install $PY_DEPS
@@ -49,6 +51,7 @@ jobs:
           cat /tmp/jobs.json
           echo "kind=$(python -c "import json;print(json.load(open('/tmp/jobs.json'))['kind'])")" >> "$GITHUB_OUTPUT"
           echo "ids=$(python -c "import json;print(json.dumps(json.load(open('/tmp/jobs.json'))['ids']))")" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   work:
     needs: plan
@@ -64,9 +67,12 @@ jobs:
       OMPI_MCA_rmaps_base_oversubscribe: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}   # the commit with the batch; one code for a whole stage
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - name: Libraries
+        timeout-minutes: 20
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
@@ -93,10 +99,11 @@ jobs:
 
   advance:
     needs: [plan, work]
-    if: ${{ always() && needs.plan.outputs.kind != 'done' && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.outputs.kind != 'done' && needs.plan.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with: { ref: main }
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install $PY_DEPS

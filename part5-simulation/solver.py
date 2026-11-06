@@ -469,14 +469,19 @@ def advance(root: Path) -> str:
         for c in state["chains"]:
             if c["T"] is not None or c["stopped"]:
                 continue
-            good = [r for r in rows if r["chain"] == c["id"] and r["ok"]]
+            mine = [r for r in rows if r["chain"] == c["id"]]
+            good = [r for r in mine if r["ok"]]
             if len(good) == 2:
                 c["T"] = float(np.mean([r["T_s"] for r in good]))
                 c["noise"] = max(abs(good[0]["T_s"] - good[1]["T_s"]), NOISE_S)
                 c["skin_mm"] = good[0].get("skin")
-            elif c["starts"] < 4:               # an illegal random start: draw another
-                c["car"], c["starts"] = random_start(state["next_seed"]), c["starts"] + 1
-                state["next_seed"] += 1
+            elif c["starts"] < 4:
+                c["starts"] += 1
+                # An illegal random start: draw another. No result at all is a machine that
+                # died, which says nothing about the car, so the same car runs again.
+                if len(good) < len(mine):
+                    c["car"] = random_start(state["next_seed"])
+                    state["next_seed"] += 1
             else:
                 c["stopped"] = "no legal start in 4 draws"
         pending = _start_cases(state)
