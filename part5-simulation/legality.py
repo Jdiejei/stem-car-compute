@@ -51,7 +51,7 @@ def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = N
     pts = np.array([(x, r * math.sin(a), axis_z_mm + r * math.cos(a))
                     for x in xs for r in rs for a in ang]) / 1e3
     pts[:, 1] = np.maximum(pts[:, 1], 1e-6)
-    inside = body_half.contains(pts)
+    inside = _contains(body_half, pts)
     return float(inside.mean())
 
 
@@ -62,6 +62,18 @@ CARTRIDGE_LENGTH_MIN_MM = 64.5     # Appendix vi: 65.00 -0.5
 MESH_MAX_EDGE_MM = 8.0             # measured 1.9-7.6 after the remesh, 106 before it
 MESH_MAX_SLIVER_BODY_PCT = 4.0     # measured 0.4-3.2 % after (highest at 0.3 mm), 3.3 % before
 MESH_MAX_SLIVER_PRINTED_PCT = 12.0 # 5.7-11 % after, 25 % before: a wing's sharp trailing edge
+
+
+def _contains(mesh, pts, chunk: int = 300):
+    """mesh.contains in small batches. All at once, 8000 points took 7 GB on a 1 mm car and
+    killed the 16 GB machine on a 0.5 mm one, when the ray cast gathered every candidate."""
+    pts = np.asarray(pts)
+    return np.concatenate([mesh.contains(pts[i:i + chunk]) for i in range(0, len(pts), chunk)])
+
+
+def _nearest_gap_m(mesh, pts, chunk: int = 300) -> float:
+    pts = np.asarray(pts)
+    return min(float(mesh.nearest.on_surface(pts[i:i + chunk])[1].min()) for i in range(0, len(pts), chunk))
 
 
 def _volume_in(mesh, region) -> float:
@@ -357,9 +369,9 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
         v = np.vstack([v, trimesh.sample.sample_surface(m, 4000, seed=1)[0]])
         # Embedded counts: an extruded strut has vertices only at its ends,
         # 2 mm inside the body and nowhere near its surface.
-        gap = 0.0 if body.contains(v).any() else float(body.nearest.on_surface(v)[1].min()) * 1e3
+        gap = 0.0 if _contains(body, v).any() else _nearest_gap_m(body, v) * 1e3
         if name == "fwing" and "nose" in parts:      # printed as one with the nose
-            gap = min(gap, float(parts["nose"].nearest.on_surface(v)[1].min()) * 1e3)
+            gap = min(gap, _nearest_gap_m(parts["nose"], v) * 1e3)
         r[f"attached_{name}"] = _entry(0.3 - gap, f"closest {gap:.2f} mm to the body")
 
     # T5.5 chamber wall (probe points inside the body).
@@ -401,7 +413,7 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
                                            if not n.startswith("wheel")]:
             for piece in m.split(only_watertight=False):
                 if piece.is_watertight:
-                    hit += int(piece.contains(pts).sum())
+                    hit += int(_contains(piece, pts).sum())
                 else:
                     skipped.append(name)
         note = f"{hit} of {len(pts)} claw points blocked"

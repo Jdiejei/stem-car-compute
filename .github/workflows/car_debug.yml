@@ -1,0 +1,24 @@
+name: car_debug
+
+# One stress car rebuilt in the open: what each file is on a CI machine.
+on:
+  workflow_dispatch:
+    inputs:
+      seed: { required: true }
+      only: { required: true }
+
+permissions:
+  contents: read
+
+jobs:
+  car:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: sudo apt-get update -q && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install numpy scipy pandas trimesh scikit-image shapely rtree mapbox-earcut manifold3d fast_simplification jax jaxlib matplotlib pymeshlab
+      - working-directory: part5-simulation
+        run: python -W ignore checks/stress_cars.py --seed ${{ inputs.seed }} --only ${{ inputs.only }} 2>&1 | grep --line-buffered -E '^car |Error|Traceback'

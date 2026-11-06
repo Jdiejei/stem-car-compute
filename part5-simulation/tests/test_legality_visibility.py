@@ -60,3 +60,12 @@ def test_a_hub_behind_the_tread_does_not_hide_the_wheel(tmp_path):
     assert r["T7.11_front_wheel_seen_from_front"]["pass"]
     side = _box((45, 40, 5), (55, 50, 25))
     assert legality._visibility_checks(_assembly(tmp_path), {"printed_hubcaps_front": side})["T7.10_wheelF_seen_from_side"]["pass"]
+
+
+def test_batched_contains_and_gap_match_the_plain_answers():
+    import numpy as np
+    box = _box((0, 0, 0), (10, 10, 10))
+    pts = np.random.default_rng(0).uniform(-5, 15, (1000, 3))
+    assert (legality._contains(box, pts, chunk=70) == box.contains(pts)).all()
+    outside = pts[~box.contains(pts)]
+    assert abs(legality._nearest_gap_m(box, outside, chunk=70) - box.nearest.on_surface(outside)[1].min()) < 1e-12

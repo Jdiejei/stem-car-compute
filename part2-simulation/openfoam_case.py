@@ -100,7 +100,7 @@ class OpenFOAMRunConfig:
     underbody_refinement_level: int = 1
     # Per-stage subprocess timeout. Was hardcoded at 7200 s inside run_stages
     # with no way to change it; a big case silently burned 2 h and then died.
-    stage_timeout_s: int = 7200
+    stage_timeout_s: int = 18000
     # Pitching moment is reported about this point (SPEC "pitching moment about
     # car reference point"). Pinned here to close audit P2-12; the STL arrives
     # in Part 1 world coords with x=0 at the nose tip, so (0,0,0) is the nose

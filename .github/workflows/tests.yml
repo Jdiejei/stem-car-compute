@@ -47,7 +47,7 @@ jobs:
 
   car:
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
@@ -63,6 +63,8 @@ jobs:
           - { id: fine03, allow_mass: true, args: "--body-json '{}' --cfd-mm 0.3 --skin-mm 3.5" }
           # The same car again on a wall-resolved mesh: does the score hold?
           - { id: start_resolved, cfd: true, args: "--body-json '{}' --cfd --res resolved --np 4 --keep-runs" }
+          # One level finer than the search's mesh: the mesh study most likely to finish in time.
+          - { id: start_fine, cfd: true, args: "--body-json '{}' --cfd --res fine --np 4 --keep-runs" }
     env:
       OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
       OMPI_MCA_rmaps_base_oversubscribe: "1"

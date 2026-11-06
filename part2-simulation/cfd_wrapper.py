@@ -206,7 +206,7 @@ def run_half_car_cfd(
     resolution: str = "medium",
     n_subdomains: int = 1,
     keep_run_dir: bool = False,
-    stage_timeout_s: int = 7200,
+    stage_timeout_s: int = 18000,
     underbody_refinement_level: int = 1,
     extra_surfaces: tuple = (),
     domain_reference_bounds=None,

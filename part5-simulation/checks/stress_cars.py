@@ -117,6 +117,31 @@ def build_one(c: dict) -> dict:
     return row
 
 
+def _describe(c: dict) -> None:
+    """One car in the open: what each file it wrote is, on this machine."""
+    import numpy as np
+    import run_car as rc
+    import trimesh
+    args = ["--out", tempfile.mkdtemp(), "--skin-mm", FIXED_SKIN_MM, "--support", "beam",
+            "--body-json", json.dumps(c["car"]["params"])]
+    for key, flag in (("W", "--W"), ("x_front", "--x-front"), ("d_halo", "--d-halo")):
+        if key in c.get("layout", {}):
+            args += [flag, str(c["layout"][key])]
+    for part, flag in pattern.PART_FLAGS.items():
+        if c["car"]["parts"].get(part):
+            args += [flag, json.dumps(c["car"]["parts"][part])]
+    S = rc.main(args)
+    print("car failed:", S["legality"]["summary"]["failed"], flush=True)
+    for k, v in S["manufactured"].items():
+        if "file" in v:
+            m = trimesh.load(v["file"], force="mesh")
+            _, n = np.unique(m.edges_sorted, axis=0, return_counts=True)
+            print(f"car file {k}: watertight {m.is_watertight} winding {m.is_winding_consistent} volume {m.is_volume} "
+                  f"cm3 {float(m.volume) / 1e3:.3f} pieces {len(m.split(only_watertight=False))} expected "
+                  f"{v.get('pieces_expected')} bad_edges {(n != 2).sum()} faces {len(m.faces)} reported {v.get('closed')} "
+                  f"remeshed {v.get('remeshed')}", flush=True)
+
+
 def _build_and_write(c: dict, path: Path) -> None:
     path.write_text(json.dumps(build_one(c), indent=1, default=str))
 
@@ -158,6 +183,7 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=10)
     ap.add_argument("--out", default="stress")
     ap.add_argument("--summary", default=None)
+    ap.add_argument("--only", type=int, default=None, help="rebuild just this car of the seed, and describe its files")
     a = ap.parse_args()
     if a.summary:
         summary(Path(a.summary))
@@ -173,6 +199,10 @@ def main() -> None:
         # From a few settings moved to all of them: failures from one setting alone
         # are easy to trace, and only all of them together reach the far corners.
         c = random_car(rng, rng.choice((0.05, 0.2, 0.5, 1.0)))
+        if a.only is not None:
+            if i == a.only:
+                _describe(c)
+            continue
         path = out / f"car_{a.seed}_{i}.json"
         t0 = time.time()
         state, peak = guarded(_build_and_write, (c, path), CAR_LIMIT_S, CAR_LIMIT_GB)
