@@ -29,6 +29,7 @@ from pathlib import Path
 import paths  # noqa: F401
 
 PARTS = paths.PARTS
+MAX_BODY_FACES = 400_000
 
 
 def log(msg: str) -> None:
@@ -144,6 +145,8 @@ def export_body(geom, path: Path) -> dict:
     from scipy.ndimage import label
     half = up.extract_half_surface(geom)
     half.vertices[half.vertices[:, 1] < 0, 1] = 0.0
+    if len(half.faces) > MAX_BODY_FACES:      # a 0.3 mm grid otherwise runs a 16 GB machine out of memory
+        half = half.simplify_quadric_decimation(face_count=MAX_BODY_FACES)
     half.export(str(path), file_type="stl_ascii")
     _, n = label(geom.phi.grid < 0)
     if not half.is_watertight:

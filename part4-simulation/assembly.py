@@ -227,6 +227,13 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, body_half_stl: str,
     for x in (x_front_mm - 5.0, x_rear + 5.0):
         m, meta = tether_guide(x)
         tg.append(m)
+        # A guide must be held by something (T6.3): where the floor is above the ring,
+        # a stalk takes it up into the body.
+        ring_top = meta["bottom_mm"] + meta["od_mm"]
+        up, _, _ = body.ray.intersects_location([[x / 1e3, 0.002, 0.0]], [[0.0, 0.0, 1.0]],
+                                                multiple_hits=False)
+        if len(up) and up[0, 2] * 1e3 > ring_top - 0.5:
+            tg.append(wg.box(x - 1.0, x + 1.0, 0.0, 1.5, ring_top - 0.5, up[0, 2] * 1e3 + 1.0))
         info.setdefault("tethers", []).append(meta)
     _export_half(trimesh.util.concatenate(tg), out / "tethers.stl")
     surfaces.append({"name": "tethers", "stl": str(out / "tethers.stl"), "rotating": None})

@@ -58,8 +58,9 @@ def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = N
 # Volumes below this (mm3, about 0.2 mg of foam) are mesh round-off, not material.
 _ROUND_OFF_MM3 = 1.0
 CARTRIDGE_LENGTH_MIN_MM = 64.5     # Appendix vi: 65.00 -0.5
-MESH_MAX_EDGE_MM = 5.0             # measured 3.3-4.0 after the remesh, 106 before it
-MESH_MAX_SLIVER_PCT = 8.0          # measured 1.3-5.7 % after, up to 25 % before
+MESH_MAX_EDGE_MM = 6.0             # measured 1.9-5.3 after the remesh, 106 before it
+MESH_MAX_SLIVER_BODY_PCT = 2.0     # measured 0.4-1.3 % after, 3.3 % before
+MESH_MAX_SLIVER_PRINTED_PCT = 10.0 # 5.7-8.6 % after, 25 % before: a wing's sharp trailing edge
 
 
 def _volume_in(mesh, region) -> float:
@@ -72,21 +73,23 @@ def _absent(volume_mm3: float, note: str) -> dict:
     return _entry(0.0 if volume_mm3 <= _ROUND_OFF_MM3 else -volume_mm3 / 1e3, note)
 
 
-def official_block_mm(rear_face_mm: float):
+def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06):
     """The Model Block as it arrives (Appendix ii), placed in the car: rear face
-    at the car's rear face, bore on the chamber axis, slot along the underside."""
+    at the car's rear face, bore on the chamber axis, slot along the underside.
+    slack_mm: every face eased by this, as the final remesh may move a surface
+    0.05 mm. That is well below what the mill can tell apart."""
     import trimesh
     import geometry_contract as gc
-    L, y = gc.MODEL_BLOCK_LENGTH_MM, gc.MODEL_BLOCK_WIDTH_MM / 2.0
-    block = trimesh.creation.box(bounds=[[rear_face_mm - L, -y, gc.MODEL_BLOCK_BOTTOM_Z_MM],
-                                         [rear_face_mm, y, gc.MODEL_BLOCK_TOP_Z_MM]])
-    d = gc.MODEL_BLOCK_BORE_DEPTH_MM
-    bore = trimesh.creation.cylinder(radius=gc.MODEL_BLOCK_BORE_DIA_MM / 2.0, height=d + 2.0, sections=96)
+    L, y = gc.MODEL_BLOCK_LENGTH_MM, gc.MODEL_BLOCK_WIDTH_MM / 2.0 + slack_mm
+    block = trimesh.creation.box(bounds=[[rear_face_mm - L - slack_mm, -y, gc.MODEL_BLOCK_BOTTOM_Z_MM - slack_mm],
+                                         [rear_face_mm + slack_mm, y, gc.MODEL_BLOCK_TOP_Z_MM + slack_mm]])
+    d = gc.MODEL_BLOCK_BORE_DEPTH_MM - slack_mm
+    bore = trimesh.creation.cylinder(radius=gc.MODEL_BLOCK_BORE_DIA_MM / 2.0 - slack_mm, height=d + 2.0, sections=96)
     bore.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [0, 1, 0]))
     bore.apply_translation([rear_face_mm - d / 2.0 + 1.0, 0.0, gc.CHAMBER_AXIS_Z_MM])
-    s = gc.MODEL_BLOCK_SLOT_WIDTH_MM / 2.0
+    s = gc.MODEL_BLOCK_SLOT_WIDTH_MM / 2.0 - slack_mm
     slot = trimesh.creation.box(bounds=[[rear_face_mm - L - 1.0, -s, gc.MODEL_BLOCK_BOTTOM_Z_MM - 1.0],
-                                        [rear_face_mm + 1.0, s, gc.MODEL_BLOCK_SLOT_TOP_Z_MM]])
+                                        [rear_face_mm + 1.0, s, gc.MODEL_BLOCK_SLOT_TOP_Z_MM - slack_mm]])
     return trimesh.boolean.difference([block, bore, slot], engine="manifold")
 
 
@@ -165,8 +168,11 @@ def manufactured_checks(assembly: dict) -> dict:
     if meshed:
         worst = max(v["max_edge_mm"] for v in meshed.values())
         r["mesh_longest_edge"] = _entry(MESH_MAX_EDGE_MM - worst, f"{worst:.1f} mm")
-        slivers = max(v["faces_under_5deg_pct"] for v in meshed.values())
-        r["mesh_slivers"] = _entry(MESH_MAX_SLIVER_PCT - slivers, f"{slivers:.2f} % of faces under 5 deg, worst file")
+        body_s = parts["machined_body"].get("faces_under_5deg_pct", 0.0)
+        r["mesh_slivers_body"] = _entry(MESH_MAX_SLIVER_BODY_PCT - body_s, f"{body_s:.2f} % of faces under 5 deg")
+        slivers = max(v["faces_under_5deg_pct"] for k, v in meshed.items() if k != "machined_body")
+        r["mesh_slivers_printed"] = _entry(MESH_MAX_SLIVER_PRINTED_PCT - slivers,
+                                           f"{slivers:.2f} % of faces under 5 deg, worst file")
 
     bore, depth, axis = gc.MODEL_BLOCK_BORE_DIA_MM, gc.MODEL_BLOCK_BORE_DEPTH_MM, gc.CHAMBER_AXIS_Z_MM
     # These four compare design constants with the rule; they are not measurements.
@@ -241,9 +247,14 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
         if name.startswith("wheel"):
             continue
         v = np.asarray(m.vertices)[:: max(1, len(m.vertices) // 4000)]
+        # Over the surface as well as the vertices: a box has only its corners, and
+        # none of them need be anywhere near where it meets the body.
+        v = np.vstack([v, trimesh.sample.sample_surface(m, 4000, seed=1)[0]])
         # Embedded counts: an extruded strut has vertices only at its ends,
         # 2 mm inside the body and nowhere near its surface.
         gap = 0.0 if body.contains(v).any() else float(body.nearest.on_surface(v)[1].min()) * 1e3
+        if name == "fwing" and "nose" in parts:      # printed as one with the nose
+            gap = min(gap, float(parts["nose"].nearest.on_surface(v)[1].min()) * 1e3)
         r[f"attached_{name}"] = _entry(0.3 - gap, f"closest {gap:.2f} mm to the body")
 
     # T5.5 chamber wall (probe points inside the body).

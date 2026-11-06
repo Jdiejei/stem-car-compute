@@ -57,13 +57,14 @@ LOFT = ([f"st_b{i}" for i in range(8)] + [f"st_zt{i}" for i in range(8)]
 PARTS = {
     "fw.aoa_deg": (2.0, -2.0, 14.0), "fw.z_chord_mm": (1.0, 6.5, 14.0),
     "fw.gap_to_wheel_mm": (1.0, 5.0, 10.0), "fw.half_span_mm": (2.0, 34.0, 42.5),
-    "fw.flap_chord_mm": (1.0, 8.0, 11.0), "fw.flap_aoa_deg": (5.0, 0.0, 45.0),
+    "fw.flap_chord_mm": (1.0, 8.0, 10.5), "fw.flap_aoa_deg": (5.0, 0.0, 45.0),
     "fw.camber": (0.02, 0.0, 0.08),
-    # one round-beam diameter: a 7 x 8 mm ellipse already has a 3.06 mm end
-    # radius, below the 3.125 mm cutter, so width and height cannot move apart
-    "sup.beam_d_mm": (1.0, 7.0, 12.0),
-    "sup.z_offset_mm": (1.0, -3.0, 3.0), "sup.disc_front": (1.0, 0.0, 1.0),
-    "sup.disc_r_mm": (1.0, 8.0, 12.0),
+    # The support (Part 4 beam_support), what the air sees of it: the plate and strip
+    # crossing the gap to the wheel, and where the disc stands. The pod's wall sets how
+    # much of the car's mass sits low in plastic instead of in a fatter body.
+    "sup.beam_w_mm": (2.0, 8.0, 24.0), "sup.beam_h_mm": (0.3, 0.7, 4.0),
+    "sup.strip": (1.0, 0.0, 1.0), "sup.strip_w_mm": (1.0, 4.0, 12.0),
+    "sup.disc_recess_mm": (1.0, -2.5, 1.5), "sup.pod_wall_mm": (0.5, 0.7, 3.0),
     "nose.length_mm": (5.0, 10.0, 40.0), "nose.k": (0.15, 0.3, 1.0),
     "nose.p": (0.5, 2.0, 4.0), "nose.tip_z_mm": (2.0, 4.0, 20.0),
 }
@@ -106,6 +107,8 @@ def bounds(name: str) -> tuple:
         return (6.0, 20.0)
     if name.startswith("st_zt"):
         return (14.0, 48.0)
+    if name in ("st_zb0", "st_zb1"):    # the nose stays under 25 mm (T8.5.1), so the floor must too
+        return (3.5, 15.0)
     if name.startswith("st_zb"):
         return (3.5, 23.0)
     if name == "blend_mm":
@@ -130,7 +133,6 @@ def _part_default(name: str) -> float:
     import nose as ns
     import wings as wg
     part, key = name.split(".")
-    key = "beam_w_mm" if key == "beam_d_mm" else key
     return float(getattr({"fw": wg.FrontWing(), "sup": bsm.BeamSupport(),
                           "nose": ns.NoseCone()}[part], key))
 
@@ -139,7 +141,6 @@ def get(d: dict, name: str) -> float:
     """d = {"params": body dict, "parts": {"fw": {...}, "sup": {...}, "nose": {...}}}."""
     if name in PARTS:
         part, key = name.split(".")
-        key = "beam_w_mm" if key == "beam_d_mm" else key
         return float(d["parts"].get(part, {}).get(key, _part_default(name)))
     bp = _pb().BodyParams.from_dict(d["params"])
     seq, i = _indexed(name)
@@ -150,9 +151,7 @@ def put(d: dict, name: str, v: float) -> dict:
     if name in PARTS:
         part, key = name.split(".")
         parts = {k: dict(x) for k, x in d["parts"].items()}
-        keys = ("beam_w_mm", "beam_h_mm") if key == "beam_d_mm" else (key,)
-        for k in keys:
-            parts.setdefault(part, {})[k] = bool(round(v)) if k == "disc_front" else float(v)
+        parts.setdefault(part, {})[key] = bool(round(v)) if key == "strip" else float(v)
         return {"params": d["params"], "parts": parts}
     from dataclasses import replace
     bp = _pb().BodyParams.from_dict(d["params"])

@@ -139,12 +139,18 @@ def build_front_wing(fw: FrontWing, x_front_mm: float, R_mm: float,
     z0, z1 = fw.z_chord_mm - 0.25 * t, fw.z_chord_mm + t / 2 + 4.0
     x_end = ref_a + 1.0
     if body_half_mesh is not None:
+        # Up to the body's floor at Ref A, so a high nose still has a mount to meet,
+        # within T8.5.1's 25 mm.
+        up, _, _ = body_half_mesh.ray.intersects_location(
+            [[(ref_a + 1.0) / 1e3, fw.mount_t_mm / 4e3, 0.0]], [[0.0, 0.0, 1.0]], multiple_hits=False)
+        if len(up):
+            z1 = max(z1, min(up[0, 2] * 1e3 + 1.5, cc.NOSE_SUPPORT_Z_MAX - 0.5))
         Y, Z = np.meshgrid(np.linspace(0.05, fw.mount_t_mm / 2, 3), np.linspace(z0, z1, 7))
         o = np.c_[np.full(Y.size, x_le), Y.ravel(), Z.ravel()] / 1e3
         hits, idx, _ = body_half_mesh.ray.intersects_location(
             o, np.tile([1.0, 0, 0], (len(o), 1)), multiple_hits=False)
-        if len(hits) == len(o):       # every ray must find the body
-            x_end = max(x_end, hits[:, 0].max() * 1e3 + 1.0)
+        if len(hits):                 # as far as the first body it meets, not along the slot
+            x_end = max(x_end, min(hits[:, 0].max() * 1e3 + 1.0, ref_a + 10.0))
     out["mount"] = box(x_le + 0.3 * fw.chord_mm, x_end, 0.0, fw.mount_t_mm / 2, z0, z1)
     if fw.endplate_h_mm > 0:
         out["endplate"] = box(x_le, x_le + fw.chord_mm, fw.half_span_mm,
@@ -212,7 +218,8 @@ class RearWing:
 def body_top_under(body_half_mesh, x0_mm, x1_mm, y1_mm, step_mm: float = 1.0) -> float:
     """Highest body point under a footprint (mm), by vertical ray casts."""
     xs = np.arange(x0_mm, x1_mm + 1e-9, step_mm)
-    ys = np.arange(0.0, y1_mm + 1e-9, step_mm)
+    # Not on y = 0: a ray down the symmetry plane's seam can skip the outer surface.
+    ys = np.arange(0.05, max(y1_mm, 0.05) + 1e-9, step_mm)
     X, Y = np.meshgrid(xs, ys)
     origins = np.c_[X.ravel(), Y.ravel(), np.full(X.size, 200.0)] / 1e3
     dirs = np.tile([0, 0, -1.0], (len(origins), 1))
@@ -224,7 +231,7 @@ def min_body_top_under(body_half_mesh, x0_mm, x1_mm, y1_mm, step_mm: float = 0.5
     """Lowest body top under a footprint (mm); the footprint is assumed to be
     over the body (points that miss it are ignored)."""
     xs = np.arange(x0_mm, x1_mm + 1e-9, step_mm)
-    ys = np.arange(0.0, y1_mm + 1e-9, step_mm)
+    ys = np.arange(0.05, max(y1_mm, 0.05) + 1e-9, step_mm)
     X, Y = np.meshgrid(xs, ys)
     origins = np.c_[X.ravel(), Y.ravel(), np.full(X.size, 200.0)] / 1e3
     dirs = np.tile([0, 0, -1.0], (len(origins), 1))
@@ -248,8 +255,12 @@ def build_rear_wing(rw: RearWing, x_front_mm: float, W_mm: float, body_half_mesh
                            xm + rw.pylon_chord_mm / 2, rw.pylon_t_mm / 2, step_mm=0.5)
     low = min_body_top_under(body_half_mesh, xm - rw.pylon_chord_mm / 2,
                              xm + rw.pylon_chord_mm / 2, rw.pylon_t_mm / 2)
+    # 2 mm into the body, but never through the T5.5 wall: this pylon stands right
+    # over the chamber, and a deeper one came out inside the cartridge bore.
+    from geometry_contract import CHAMBER_AXIS_Z_MM, MODEL_BLOCK_BORE_DIA_MM
+    wall_top = CHAMBER_AXIS_Z_MM + MODEL_BLOCK_BORE_DIA_MM / 2.0 + 3.0
     pylon = box(xm - rw.pylon_chord_mm / 2, xm + rw.pylon_chord_mm / 2, 0.0, rw.pylon_t_mm / 2,
-                min(under, low) - 2.0, z_chord)
+                max(min(under, low) - 2.0, wall_top), z_chord)
     return {"wing": wing, "pylon": pylon, "_body_top_mm": top, "_z_chord_mm": z_chord}
 
 

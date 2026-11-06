@@ -100,17 +100,15 @@ def test_pattern_parts_screen_carries_part_changes_to_the_confirm():
             pattern.STATE.write_text(json.dumps({"round": 4, "phase": "screen", "best": body,
                                                  "best_T": 1.57, "skin_mm": 1.0, "scale": 1.0,
                                                  "fails": 0, "history": [{"round": 3}],
-                                                 "parts": {"sup": {"beam_w_mm": 7.0, "beam_h_mm": 7.0,
-                                                         "disc_front": False}}}))
+                                                 "parts": {"sup": {"beam_w_mm": 8.0, "strip": False}}}))
             pattern.BATCH.write_text(json.dumps({"round": 3, "phase": "screen", "cases": []}))
             pattern.focus(["parts"])
             B = json.loads(pattern.BATCH.read_text())
             tags = {c["tag"]: c for c in B["cases"]}
             assert B["phase"] == "screen" and "fw.aoa_deg+" in tags and "nose.length_mm-" in tags
-            assert "sup.beam_d_mm-" not in tags                  # 7 mm is the lower bound
-            sup = tags["sup.beam_d_mm+"]["parts"]["sup"]
-            assert (sup["beam_w_mm"], sup["beam_h_mm"]) == (8.0, 8.0)
-            assert tags["sup.disc_front+"]["parts"]["sup"]["disc_front"] is True
+            assert "sup.beam_w_mm-" not in tags                  # 8 mm is the lower bound
+            assert tags["sup.beam_w_mm+"]["parts"]["sup"]["beam_w_mm"] == 10.0
+            assert tags["sup.strip+"]["parts"]["sup"]["strip"] is True
             assert tags["fw.aoa_deg+"]["parts"]["fw"]["aoa_deg"] == 8.0
             rows = [{"round": 4, "phase": "screen", "tag": c["tag"], "ok": True,
                      "params": c["params"], "parts": c["parts"],
