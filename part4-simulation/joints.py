@@ -471,6 +471,14 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
             if a_ is None:
                 continue
             u = _drop_dust(_bool("union", [a_, b_]), 1e-9) if b_ is not None else a_
+            # The line runs through the supports too: a keel low enough to cross it gets the
+            # guide's own bore, or the car is illegal for no reason (T6.1, 3 cars in 1600).
+            guides = assembly.get("info", {}).get("tethers", [])
+            if len(guides) == 2:
+                z = (guides[0]["bottom_mm"] + guides[0]["od_mm"] / 2.0) / 1e3
+                line = trimesh.creation.cylinder(radius=guides[0]["id_mm"] / 2e3, sections=32, segment=[
+                    (guides[0]["x_mm"] / 1e3 - 2e-3, 0.0, z), (guides[1]["x_mm"] / 1e3 + 2e-3, 0.0, z)])
+                u = _drop_dust(_bool("difference", [u, line]), 1e-9)
             pieces = _solid_shells(u)
             made[f"printed_support_{tag}"] = (pieces[0], pa12, 1)
             # A guide the support does not reach is its own part. A scrap of one under 1 % of

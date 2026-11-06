@@ -132,7 +132,11 @@ def _visibility_checks(assembly: dict, solids: dict) -> dict:
         z_seen = b[0, 2] + 4.0                     # the outlines stop 4 mm above its base
         r["T4.4.2_halo_seen_from_front"] = report(in_box((-50.0, -hy, z_seen), (x0, hy, zt)))
         r["T4.4.2_halo_seen_from_side"] = report(in_box((x0, hy, z_seen), (x1, 150.0, zt)))
-        r["T4.4.3_halo_seen_from_top"] = report(in_box((x0, -hy, b[0, 2]), (x1, hy, 150.0)))
+        # The pocket's walls stand on the halo's outline. On a very low body they are 0.3-1.4 mm
+        # tall, and 0.6 mm triangles round that step off (6 mm3 in a 150 mm rim failed a good
+        # car), so the outer 0.5 mm is not counted: far under what the 6.25 mm cutter can see.
+        rim = 0.5
+        r["T4.4.3_halo_seen_from_top"] = report(in_box((x0 + rim, -hy + rim, b[0, 2]), (x1 - rim, hy - rim, 150.0)))
 
     # Supports and hubcaps may cover a wheel from the side (T7.10); nothing else may.
     others = {k: m for k, m in solids.items() if not k.startswith(("printed_support", "printed_hubcaps"))}
