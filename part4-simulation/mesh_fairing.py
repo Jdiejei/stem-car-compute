@@ -100,3 +100,34 @@ def clean(mesh, max_move: float = 0.1):
     if mesh.is_watertight and not out.is_watertight:
         return mesh
     return out
+
+
+def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05) -> dict:
+    """Rewrite a manufacturing STL (mm) with even triangles, keeping its creases.
+    Boolean output is closed but full of long slivers (edges up to 106 mm, 25 % of
+    a printed part's faces under 5 deg), which slicers, CAM and CFD meshers all
+    handle badly. The surface may move at most max_move_mm. Returns what the file
+    holds afterwards; if the result is not a clean closed solid the file is left
+    as it was, and the report says so."""
+    import pymeshlab as ml
+    import trimesh
+    before = trimesh.load(str(path), force="mesh")
+    ms = ml.MeshSet()
+    ms.add_mesh(ml.Mesh(before.vertices, before.faces))
+    ms.apply_filter("meshing_isotropic_explicit_remeshing", iterations=6,
+                    targetlen=ml.PureValue(target_edge_mm), featuredeg=25.0, adaptive=False,
+                    checksurfdist=True, maxsurfdist=ml.PureValue(max_move_mm))
+    o = ms.current_mesh()
+    after = trimesh.Trimesh(o.vertex_matrix(), o.face_matrix(), process=False)
+    after.merge_vertices()
+    same = (after.is_watertight and len(after.split(only_watertight=False)) == len(before.split(only_watertight=False))
+            and abs(abs(after.volume) - abs(before.volume)) <= 0.002 * abs(before.volume))
+    if same:
+        after.export(str(path))
+    final = after if same else before
+    angles = np.degrees(final.face_angles).min(axis=1)
+    return {"remeshed": bool(same), "faces": len(final.faces),
+            "max_edge_mm": float(final.edges_unique_length.max()),
+            "faces_under_5deg_pct": float(100 * (angles < 5).mean()),
+            "file_cm3": abs(float(final.volume)) / 1e3, "closed": bool(final.is_watertight),
+            "pieces": len(final.split(only_watertight=False))}

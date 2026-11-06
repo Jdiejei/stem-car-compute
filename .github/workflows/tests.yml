@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  PY_DEPS: pytest numpy scipy pandas trimesh scikit-image shapely rtree mapbox-earcut manifold3d fast_simplification jax jaxlib matplotlib
+  PY_DEPS: pytest numpy scipy pandas trimesh scikit-image shapely rtree mapbox-earcut manifold3d fast_simplification jax jaxlib matplotlib pymeshlab
 
 jobs:
   tests:
@@ -52,6 +52,11 @@ jobs:
           - { id: round2, args: "--body-json \"$(cat checks/round2_car.json)\"" }
           - { id: parts, args: "--body-json \"$(cat checks/round2_car.json)\" --fwing-json '{\"aoa_deg\": 8.0}' --support-json '{\"disc_front\": true}' --nose-json '{\"length_mm\": 25.0, \"wall_mm\": 99.0}'" }
           - { id: start_cfd, cfd: true, args: "--body-json '{}' --cfd --res medium --np 4" }
+          # The same car with legal ballast, so the body can be smaller: which is faster?
+          - { id: ballast6_cfd, cfd: true, args: "--body-json '{}' --cfd --res medium --np 4 --ballast-g 6" }
+          # Finer grids. Sized at 0.5 mm; a single fixed skin at the 0.3 mm production grid.
+          - { id: fine05, args: "--body-json '{}' --cfd-mm 0.5" }
+          - { id: fine03, allow_mass: true, args: "--body-json '{}' --cfd-mm 0.3 --skin-mm 3.5" }
     env:
       OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
       OMPI_MCA_rmaps_base_oversubscribe: "1"
@@ -90,7 +95,14 @@ jobs:
           EOF
       - name: Fail if any rule check failed
         run: |
-          python -c "import json,sys; S=json.load(open('out/${{ matrix.id }}/summary.json')); sys.exit(S['legality']['summary']['n_failed'] > 0)"
+          python - <<'EOF'
+          import json, sys
+          failed = json.load(open("out/${{ matrix.id }}/summary.json"))["legality"]["summary"]["failed"]
+          if "${{ matrix.allow_mass }}" == "true":          # a fixed skin is not sized for T3.6
+              failed = [f for f in failed if f != "T3.6_mass"]
+          print("failed:", failed)
+          sys.exit(bool(failed))
+          EOF
       - uses: actions/upload-artifact@v4
         if: always()
         with:
