@@ -74,6 +74,81 @@ def _absent(volume_mm3: float, note: str) -> dict:
     return _entry(0.0 if volume_mm3 <= _ROUND_OFF_MM3 else -volume_mm3 / 1e3, note)
 
 
+def _visibility_checks(assembly: dict, solids: dict) -> dict:
+    """T4.4.2, T4.4.3, T7.10, T7.11, T8.8, measured on the files that get made (mm)."""
+    import math
+    import trimesh
+    stl = {s["name"]: s["stl"] for s in assembly.get("extra_surfaces", [])}
+    r = {}
+
+    def half(name):
+        m = trimesh.load(stl[name], force="mesh")
+        m.apply_scale(1e3)
+        return m
+
+    def in_box(lo, hi, among=solids):
+        box = trimesh.creation.box(bounds=[lo, hi])
+        hits = {k: _volume_in(m, box) for k, m in among.items()}
+        return {k: v for k, v in hits.items() if v > _ROUND_OFF_MM3}
+
+    def report(hits):
+        return _absent(sum(hits.values()), ", ".join(f"{k} {v:.1f} mm3" for k, v in hits.items()) or "clear")
+
+    if "halo" in stl:
+        b = half("halo").bounds
+        x0, x1, hy, zt = b[0, 0], b[1, 0], b[1, 1], b[1, 2]
+        z_seen = b[0, 2] + 4.0                     # the outlines stop 4 mm above its base
+        r["T4.4.2_halo_seen_from_front"] = report(in_box((-50.0, -hy, z_seen), (x0, hy, zt)))
+        r["T4.4.2_halo_seen_from_side"] = report(in_box((x0, hy, z_seen), (x1, 150.0, zt)))
+        r["T4.4.3_halo_seen_from_top"] = report(in_box((x0, -hy, b[0, 2]), (x1, hy, 150.0)))
+
+    # Supports and hubcaps may cover a wheel from the side (T7.10); nothing else may.
+    others = {k: m for k, m in solids.items() if not k.startswith(("printed_support", "printed_hubcaps"))}
+    for name in ("wheelF", "wheelR"):
+        if name not in stl:
+            continue
+        b = half(name).bounds
+        rad, xc, zc, yo = (b[1, 2] - b[0, 2]) / 2.0, b[:, 0].mean(), b[:, 2].mean(), b[1, 1]
+        cyl = trimesh.creation.cylinder(radius=rad, height=100.0, sections=64)
+        cyl.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [1, 0, 0]))
+        cyl.apply_translation([xc, yo + 50.0, zc])
+        hits = {k: _volume_in(m, cyl) for k, m in others.items()}
+        r[f"T7.10_{name}_seen_from_side"] = report({k: v for k, v in hits.items() if v > _ROUND_OFF_MM3})
+        if name == "wheelF":
+            # Ahead of the tread above 20 mm. A hub behind the tread is hidden by the wheel.
+            from shapely.geometry import Polygon
+            arc = [(xc - math.sqrt(max(rad ** 2 - (z - zc) ** 2, 0.0)), z) for z in np.linspace(20.0, b[1, 2], 24)]
+            ahead = trimesh.creation.extrude_polygon(Polygon([(-50.0, 20.0)] + arc + [(-50.0, b[1, 2])]), yo - b[0, 1])
+            ahead.apply_transform([[1, 0, 0, 0], [0, 0, 1, b[0, 1]], [0, 1, 0, 0], [0, 0, 0, 1.0]])
+            if ahead.volume < 0:
+                ahead.invert()
+            hits = {k: _volume_in(m, ahead) for k, m in solids.items()}
+            r["T7.11_front_wheel_seen_from_front"] = report({k: v for k, v in hits.items() if v > _ROUND_OFF_MM3})
+
+    # T8.8: nothing in front of the wing. A nose may split it (T8.6, T8.7's own figures),
+    # so only the wing outside the nose counts; it is one file with the nose, so the wing
+    # is taken from its own mesh and looks forward past the other parts.
+    if "fwing" in stl:
+        wing = half("fwing")
+        ahead = dict(solids)
+        ahead.pop("printed_front_assembly", None)
+        nose_y = half("nose").bounds[1, 1] if "nose" in stl else 0.0
+        if "nose" in stl:
+            ahead["nose"] = half("nose")
+        pts = trimesh.sample.sample_surface(wing, 3000, seed=2)[0]
+        pts = pts[pts[:, 1] > nose_y + 0.5]
+        seen = len(pts)
+        if seen:
+            dirs = np.tile([-1.0, 0.0, 0.0], (seen, 1))
+            blocked = np.zeros(seen, bool)
+            for k, m in ahead.items():
+                blocked |= m.ray.intersects_any(pts + dirs * 1e-3, dirs)
+            r["T8.8_front_wing_seen_from_front"] = _entry(
+                0.0 if blocked.mean() <= 0.005 else -float(blocked.mean()),
+                f"{100 * blocked.mean():.1f} % of the wing outside the nose is hidden")
+    return r
+
+
 def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06):
     """The Model Block as it arrives (Appendix ii), placed in the car: rear face
     at the car's rear face, bore on the chamber axis, slot along the underside.
@@ -165,6 +240,7 @@ def manufactured_checks(assembly: dict) -> dict:
         hm.apply_scale(1e3)
         lost = _volume_in(body, hm)
         r["T4.4.4_halo_fits_pocket"] = _absent(lost, f"{lost:.1f} mm3 of one half of the halo in the foam")
+    r.update(_visibility_checks(assembly, solids))
     nose_row = assembly["joints"]["parts"].get("nose")
     if nose_row is not None:     # a nose only surface-bonded at Ref A has no tenon holding it
         r["nose_has_tenon"] = _entry(0.0 if "pocket_cm3_per_side" in nose_row else -1.0, nose_row["joint"])
