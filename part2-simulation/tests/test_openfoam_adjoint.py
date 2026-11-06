@@ -625,3 +625,11 @@ def test_sensitivities_can_cover_every_part():
         oa.AdjointRunConfig(extra_surfaces=parts, sensitivity_on_all_parts=True), 1.0)
     assert "patches            (car);" in body_only
     assert "patches            (car fwing nose);" in every
+
+
+def test_adjoint_convection_gradients_are_limited():
+    """linearUpwind on an unlimited gradient is what blew the forward solve up."""
+    import openfoam_adjoint as oa
+    for name in ("gradUConv", "gradUaConv"):
+        assert f"{name}" in oa._FV_SCHEMES_ADJOINT.split("divSchemes")[0]
+    assert oa._FV_SCHEMES_ADJOINT.split("divSchemes")[0].count("cellLimited Gauss linear 1") == 2

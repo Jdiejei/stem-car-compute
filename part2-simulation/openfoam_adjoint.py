@@ -750,8 +750,6 @@ def run_adjoint_stages(run_dir: str, cfg: AdjointRunConfig, bashrc: str,
         # decompose the finished mesh. Decomposing first splits the 0/ fields
         # against the blockMesh, which has no `car` patch yet, and the solve
         # then dies with "Cannot find patchField entry for car".
-        # (n_subdomains is currently pinned to 1 for the adjoint anyway -- see
-        # AdjointRunConfig -- so this branch is future-proofing, not live.)
         oc._run("snappyHexMesh -overwrite", run, bashrc, "snappyHexMesh.log", timeout_s)
         checkmesh = oc._run("checkMesh", run, bashrc, "checkMesh.log", timeout_s)
         oc._run("decomposePar -force", run, bashrc, "decomposePar.log", timeout_s)
@@ -1176,6 +1174,10 @@ ddtSchemes
 gradSchemes
 {
     default         Gauss linear;
+    // Limited as in the forward case: one bad cell at a wing-to-nose junction blew the
+    // unlimited forward solve up to 2e22 N, and the primal here is the same flow.
+    gradUConv       cellLimited Gauss linear 1;
+    gradUaConv      cellLimited Gauss linear 1;
 }
 
 divSchemes
