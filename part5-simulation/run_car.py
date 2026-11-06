@@ -314,7 +314,7 @@ def write_report(out: Path, S: dict) -> None:
 
 
 # --------------------------------------------------------------------------- main
-def main(argv=None):
+def parse_args(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--W", type=float, default=120.3)
@@ -347,7 +347,11 @@ def main(argv=None):
                     help="per OpenFOAM stage; fine meshes need more than the 7200 s default")
     ap.add_argument("--cfd-json", default=None,
                     help='extra Part 2 run_half_car_cfd options, e.g. \'{"turbulence_model": "kOmegaSSTLM"}\'')
-    a = ap.parse_args(argv)
+    return ap.parse_args(argv)
+
+
+def main(argv=None):
+    a = parse_args(argv)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     import assembly as p4

@@ -614,3 +614,14 @@ def test_invoke_adjoint_raises_when_openfoam_absent():
                 raise AssertionError("expected OpenFOAMNotFoundError")
     finally:
         Path(stl).unlink(missing_ok=True)
+
+
+def test_sensitivities_can_cover_every_part():
+    """One solve must be able to price the wings, nose and supports, not just the body."""
+    import openfoam_adjoint as oa
+    parts = ({"name": "fwing", "stl": "x", "rotating": None}, {"name": "nose", "stl": "y", "rotating": None})
+    body_only = oa.build_optimisation_dict(oa.AdjointRunConfig(extra_surfaces=parts), 1.0)
+    every = oa.build_optimisation_dict(
+        oa.AdjointRunConfig(extra_surfaces=parts, sensitivity_on_all_parts=True), 1.0)
+    assert "patches            (car);" in body_only
+    assert "patches            (car fwing nose);" in every

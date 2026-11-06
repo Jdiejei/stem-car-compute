@@ -160,9 +160,11 @@ class AdjointRunConfig:
     turbulent_viscosity_ratio: Optional[float] = 5.0
     domain_reference_bounds: Optional[tuple] = None
     # See openfoam_case.OpenFOAMRunConfig.extra_surfaces. They join the drag
-    # OBJECTIVE (the body adjoint then sees wheel/wing interference drag) but
-    # are not design patches: sensitivities are still reported on `car` only.
+    # OBJECTIVE (the body adjoint then sees wheel/wing interference drag).
     extra_surfaces: tuple = ()
+    # Report sensitivities on the wings, nose, supports and so on as well as `car`,
+    # so one solve prices every setting of the car.
+    sensitivity_on_all_parts: bool = False
 
     def __post_init__(self):
         if self.resolution not in oc.RESOLUTION_REFINEMENT:
@@ -344,6 +346,7 @@ def build_optimisation_dict(cfg: AdjointRunConfig, ref_area_half: float) -> str:
     aref = 2.0 / (u * u)
     del ref_area_half
     objective_patches = " ".join(["car"] + [s["name"] for s in cfg.extra_surfaces])
+    sensitivity_patches = objective_patches if cfg.sensitivity_on_all_parts else "car"
     return oc._header("dictionary", "optimisationDict") + f"""
 optimisationManager singleRun;
 
@@ -490,7 +493,7 @@ optimisation
         // The face-based alternatives (`surface`, `shapeESI`, `shapeFI`) are
         // per-face and would not line up.
         sensitivityType    {SENSITIVITY_TYPE};
-        patches            (car);
+        patches            ({sensitivity_patches});
         // includeMeshMovement DEFAULTS TO TRUE (v2412
         // sensitivityShapeESI.C:110). Leaving it on adds the adjoint
         // mesh-movement field `ma` to the sensitivity chain, and on this
@@ -1087,9 +1090,15 @@ def invoke_adjoint(
     cfg: Optional[AdjointRunConfig] = None,
     bashrc: Optional[str] = None,
     search_roots: Optional[Sequence[str]] = None,
+    by_patch: bool = False,
 ) -> np.ndarray:
     """Full adjoint pipeline: build case, run primal+adjoint, parse
     sensitivity, map onto the original STL's vertex order.
+
+    by_patch: return {patch: (points[N, 3] in m, values[N])} on the CFD mesh's own
+    surface points instead. A point's value already weighs the surface around it, so
+    summing value x normal move over points gives the drag change directly; mapping
+    onto a much finer STL would count each point many times.
 
     Returns the RAW (unweighted, weight=1 drag-direction) per-vertex
     dD20_half/dSurface sensitivity array. Applying the project's objective
@@ -1121,6 +1130,15 @@ def invoke_adjoint(
         sens_points, sens_values = parse_sensitivity_points(
             sens_file.read_text(encoding="utf-8", errors="replace"), mesh_points
         )
+        if by_patch:
+            names = ["car"] + [s["name"] for s in cfg.extra_surfaces]
+            out = {}
+            for name in names:
+                ids = car_patch_point_ids(run_dir, name)
+                if ids is not None and len(ids):
+                    out[name] = (sens_points[ids], sens_values[ids])
+            succeeded = True
+            return out
         # Map from `car` patch points ONLY. The field covers every mesh point,
         # mostly interior zeros; an STL vertex near a sharp edge, the ground gap
         # or the symmetry plane could snap to one of those and be silently
