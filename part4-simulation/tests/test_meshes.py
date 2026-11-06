@@ -42,3 +42,13 @@ def test_a_solid_touching_itself_along_a_line_is_written_closed(tmp_path):
     out = trimesh.load(str(tmp_path / "pinch.stl"), force="mesh")
     assert rep["closed"] and out.is_volume
     assert abs(rep["file_cm3"] - 2.0) < 0.01          # the bridge adds next to nothing
+
+
+def test_a_sealed_void_is_not_a_part():
+    import trimesh
+    import joints
+    box = lambda a, b: trimesh.creation.box(bounds=[[a, a, a], [b, b, b]])
+    hollow = trimesh.boolean.difference([box(0.0, 10.0), box(4.0, 6.0)], engine="manifold")
+    apart = box(20.0, 21.0)
+    shells = joints._solid_shells(trimesh.util.concatenate([hollow, apart]))
+    assert [round(float(s.volume)) for s in shells] == [1000, 1]

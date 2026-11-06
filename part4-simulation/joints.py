@@ -471,7 +471,7 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
             if a_ is None:
                 continue
             u = _drop_dust(_bool("union", [a_, b_]), 1e-9) if b_ is not None else a_
-            pieces = sorted(u.split(only_watertight=False), key=lambda q: -abs(q.volume))
+            pieces = _solid_shells(u)
             made[f"printed_support_{tag}"] = (pieces[0], pa12, 1)
             if len(pieces) > 1:       # a guide the support does not reach is its own part
                 # Without its crumbs, as the file will be: counting them expected 4 pieces
@@ -631,6 +631,14 @@ def _full(half, overlap_m: float = 1e-5):
     b.vertices[:, 1] *= -1
     b.invert()
     return _drop_dust(_bool("union", [a, b]), 1e-9)
+
+
+def _solid_shells(mesh) -> list:
+    """The parts in a mesh, largest first. A shell of negative volume is a sealed void in
+    another part, not a part: written alone it made a 2 mm3 inside-out file (1 car in 390).
+    Leaving it out fills the void, which a print could not have emptied anyway."""
+    shells = mesh.split(only_watertight=False)
+    return sorted((s for s in shells if s.volume > 0), key=lambda s: -s.volume)
 
 
 def _drop_crumbs(mesh, share: float = 0.01):
