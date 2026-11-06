@@ -260,7 +260,7 @@ def build_rear_wing(rw: RearWing, x_front_mm: float, W_mm: float, body_half_mesh
     from geometry_contract import CHAMBER_AXIS_Z_MM, MODEL_BLOCK_BORE_DIA_MM
     wall_top = CHAMBER_AXIS_Z_MM + MODEL_BLOCK_BORE_DIA_MM / 2.0 + 3.0
     pylon = box(xm - rw.pylon_chord_mm / 2, xm + rw.pylon_chord_mm / 2, 0.0, rw.pylon_t_mm / 2,
-                max(min(under, low) - 2.0, wall_top), z_chord)
+                min(max(min(under, low) - 2.0, wall_top), z_chord - 1.0), z_chord)
     return {"wing": wing, "pylon": pylon, "_body_top_mm": top, "_z_chord_mm": z_chord}
 
 

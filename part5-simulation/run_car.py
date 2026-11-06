@@ -146,7 +146,14 @@ def export_body(geom, path: Path) -> dict:
     half = up.extract_half_surface(geom)
     half.vertices[half.vertices[:, 1] < 0, 1] = 0.0
     if len(half.faces) > MAX_BODY_FACES:      # a 0.3 mm grid otherwise runs a 16 GB machine out of memory
-        half = half.simplify_quadric_decimation(face_count=MAX_BODY_FACES)
+        # manifold's simplify keeps it a closed solid, which decimation does not (20 um)
+        import manifold3d as m3
+        import numpy as np
+        import trimesh
+        o = m3.Manifold(m3.Mesh(vert_properties=np.asarray(half.vertices, np.float32),
+                                tri_verts=np.asarray(half.faces, np.uint32))).simplify(2e-5).to_mesh()
+        half = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3], np.asarray(o.tri_verts), process=False)
+        half.merge_vertices()
     half.export(str(path), file_type="stl_ascii")
     _, n = label(geom.phi.grid < 0)
     if not half.is_watertight:
