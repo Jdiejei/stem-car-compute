@@ -128,7 +128,6 @@ def manufactured_checks(assembly: dict) -> dict:
 
     place = assembly.get("cargo_placement")
     if place:
-        import ballast
         from virtual_cargo import (CARGO_HEIGHT_MM, CARGO_LENGTH_MM, CARGO_NARROW_WIDTH_MM,
                                    CARGO_WIDE_WIDTH_MM)
         x0, z0 = place["x_start_m"] * 1e3, place["z_base_m"] * 1e3
@@ -136,14 +135,39 @@ def manufactured_checks(assembly: dict) -> dict:
         if place.get("flip"):
             a, b = b, a
         wedge = trimesh.creation.extrude_polygon(
-            # Less one grid cell off the top: the surface between the last solid and
-            # the first pocket cell is drawn that far below the true pocket floor.
+            # Its top is on the pocket floor; 0.1 mm off it for the remesh's own move.
             Polygon([(x0, -a), (x0 + L_, -b), (x0 + L_, b), (x0, a)]),
-            CARGO_HEIGHT_MM - assembly.get("grid_mm", 1.0))
+            CARGO_HEIGHT_MM - 0.1)
         wedge.apply_translation([0.0, 0.0, z0])
         # The rule lets the cargo share space with the ballast container, nothing else.
-        missing = abs(wedge.volume) - _volume_in(body, wedge) - ballast.capsule_volume_m3() * 1e9
+        # Only the part of the container inside the wedge is excused: crediting all of it
+        # hid 180 mm3 of cargo that was outside the body.
+        from halo_pocket import ballast_capsule_mesh_m
+        capsule = ballast_capsule_mesh_m((xf - gc.D_HALO_REF_A_OFFSET_MM) / 1e3, assembly["d_halo_mm"])
+        capsule.apply_scale(1e3)
+        wanted = trimesh.boolean.difference([wedge, capsule], engine="manifold")
+        missing = abs(wanted.volume) - _volume_in(body, wanted)
         r["T4.2_cargo_inside_body"] = _absent(max(missing, 0.0), f"{max(missing, 0.0):.1f} mm3 missing")
+
+    # T4.4.4: the floor itself, ahead of and behind the ballast slot, and the halo fits.
+    from halo_pocket import compute_halo_pocket_box_m
+    pk = compute_halo_pocket_box_m((xf - gc.D_HALO_REF_A_OFFSET_MM) / 1e3, assembly["d_halo_mm"])
+    px0 = pk["x_min_m"] * 1e3
+    o = np.array([(px0 + dx, y, 70.0) for dx in (8.0, 48.0) for y in (-8.0, -1.0, 1.0, 8.0)])
+    loc, ray, _ = body.ray.intersects_location(o, np.tile([0.0, 0.0, -1.0], (len(o), 1)))
+    tops = [loc[ray == i, 2].max() if (ray == i).any() else np.nan for i in range(len(o))]
+    off = float(np.nanmax(np.abs(np.array(tops) - pk["z_min_m"] * 1e3))) if not np.isnan(tops).any() else np.inf
+    r["T4.4.4_pocket_floor"] = _entry(0.15 - off, "no floor under the halo" if np.isinf(off)
+                                      else f"within {off:.3f} mm of {pk['z_min_m'] * 1e3:.1f} mm")
+    halo = next((s["stl"] for s in assembly.get("extra_surfaces", []) if s["name"] == "halo"), None)
+    if halo:
+        hm = trimesh.load(halo, force="mesh")
+        hm.apply_scale(1e3)
+        lost = _volume_in(body, hm)
+        r["T4.4.4_halo_fits_pocket"] = _absent(lost, f"{lost:.1f} mm3 of one half of the halo in the foam")
+    nose_row = assembly["joints"]["parts"].get("nose")
+    if nose_row is not None:     # a nose only surface-bonded at Ref A has no tenon holding it
+        r["nose_has_tenon"] = _entry(0.0 if "pocket_cm3_per_side" in nose_row else -1.0, nose_row["joint"])
 
     printed = {k: m for k, m in solids.items() if k != "machined_body"}
     hits = {k: _volume_in(body, m) for k, m in printed.items()}

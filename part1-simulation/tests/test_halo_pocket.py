@@ -80,6 +80,33 @@ def test_forbidden_mask_clear_outside_pocket_z():
     _pass("test_forbidden_mask_clear_outside_pocket_z")
 
 
+def test_floor_layer_leaves_the_z24_cells_solid_but_not_the_ballast_slot():
+    from halo_pocket import pocket_floor_layer_mask, build_ballast_container_forbidden_mask
+    ref_A_m = 0.05
+    origin = (ref_A_m, -0.03, 0.0)
+    shape = (300, 200, 200)
+    layer = pocket_floor_layer_mask(origin, shape, ref_A_m, 20.0)
+    slot = build_ballast_container_forbidden_mask(origin, shape, ref_A_m, 20.0)
+    xi, yi = round(mm_to_m(20.0 + 5.0) / GRID_SPACING_M), round(0.03 / GRID_SPACING_M)
+    z24, z25 = round(0.024 / GRID_SPACING_M), round(0.025 / GRID_SPACING_M)
+    assert layer[xi, yi, z24], "the floor's own cells stay solid"
+    assert not layer[xi, yi, z25], "the cells above it are the pocket"
+    assert not (layer & slot).any(), "the ballast slot stays open through the floor"
+    _pass("test_floor_layer_leaves_the_z24_cells_solid_but_not_the_ballast_slot")
+
+
+def test_exact_capsule_matches_the_ballast_volume_and_the_grid_slot_stays_inside_it():
+    import ballast
+    from halo_pocket import ballast_capsule_mesh_m, build_ballast_container_forbidden_mask
+    m = ballast_capsule_mesh_m(0.05, 20.0, above_floor_mm=0.0)
+    assert abs(m.volume - ballast.capsule_volume_m3()) / ballast.capsule_volume_m3() < 0.002
+    origin, shape = (0.05, -0.03, 0.0), (300, 200, 200)
+    small = build_ballast_container_forbidden_mask(origin, shape, 0.05, 20.0, inset_cells=1)
+    full = build_ballast_container_forbidden_mask(origin, shape, 0.05, 20.0)
+    assert small.any() and not (small & ~full).any()
+    _pass("test_exact_capsule_matches_the_ballast_volume_and_the_grid_slot_stays_inside_it")
+
+
 def test_d_halo_changes_bounding_volumes_end_to_end():
     """Two different d_halo values must produce different main_body voxel masks."""
     from bounding_volumes import compute_bounding_volumes, default_rule_envelope

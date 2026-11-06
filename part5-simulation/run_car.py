@@ -381,7 +381,6 @@ def main(argv=None):
         import ballast as _b
         S["mass"].update(ballast_g=a.ballast_g, capacity_g=_b.capacity_kg("lead") * 1e3)
     asm["cargo_placement"] = geom.landmarks.get("cargo_placement")
-    asm["grid_mm"] = a.cfd_mm
 
     log("3 LEGAL")
     chk = legality.check(str(out / "body_half.stl"), asm, S["mass"], S["body"]["field_bodies"],

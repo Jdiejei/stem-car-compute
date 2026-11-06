@@ -74,6 +74,7 @@ from geometry_contract import (
 from halo_pocket import (
     build_halo_pocket_forbidden_mask,
     build_ballast_container_forbidden_mask,
+    pocket_floor_layer_mask,
 )
 from phi_grid import PhiGrid
 from wheel_visibility_zones import build_t79_forbidden_mask
@@ -186,7 +187,9 @@ class UnifiedGeometry:
 # Any of those is a genuine placement clash that leaves the mandatory keep-solid
 # volume unfilled, and find_cargo_placement guards none of them (only the halo
 # pocket).
-CARGO_MAX_ERODED_FRACTION = 0.005   # T4.2 wants all of it: this is grid round-off only
+# T4.2 wants all of it. 0.5 % was allowed here as "round-off", but that is 97 mm3: enough
+# for two corners of the wedge to sit in a T7 zone, outside the body.
+CARGO_MAX_ERODED_FRACTION = 0.0
 
 
 def model_block_slot_mask(region) -> np.ndarray:
@@ -525,7 +528,7 @@ def build_unified_geometry(
     # halo aperture, always present. Sits directly below the pocket floor so it
     # merges with the pocket recess (open to the top, no sealed cavity).
     hard_air |= build_ballast_container_forbidden_mask(
-        region.origin_m, region.shape, bv.ref_plane_A_m, d_halo_mm,
+        region.origin_m, region.shape, bv.ref_plane_A_m, d_halo_mm, inset_cells=1,
     )
 
     # Fixed hardware voids: axle holes, wheel discs, cartridge bore, halo.
@@ -620,7 +623,9 @@ def build_unified_geometry(
             placement["x_start_m"], z_base,
             flip=placement.get("flip", False),
         )
-        hard_solid |= cargo_solid
+        hard_solid |= build_virtual_cargo_solid_mask(
+            region.origin_m, region.shape, placement["x_start_m"], z_base,
+            flip=placement.get("flip", False), grow_cells=1)
 
     # T5.5's safety zone: model block that must remain around the chamber.
     # Without it the optimiser carved the pocket away and left the cartridge
@@ -675,6 +680,8 @@ def build_unified_geometry(
 
     _mirror_right_onto_left(hard_solid)
     hard_air |= model_block_slot_mask(region)
+    # T4.4.4 pins the pocket floor at 24 mm: see pocket_floor_layer_mask.
+    hard_air &= ~pocket_floor_layer_mask(region.origin_m, region.shape, bv.ref_plane_A_m, d_halo_mm)
 
     # Air wins on overlap, matching PhiGrid.build_hard_masks' resolution.
     # This is where T4.2's MANDATORY keep-solid cargo can be silently deleted:

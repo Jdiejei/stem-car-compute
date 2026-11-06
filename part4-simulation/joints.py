@@ -154,11 +154,13 @@ def t55_keep_out(x0_mm: float, x1_mm: float):
 
 def cut(name: str, part, body_half, open_side: str = "bottom", keep_out=None,
         tool_r_mm: float = TOOL_R_MM, embed_mm: float | None = 4.0,
-        fill: bool = True) -> Joint | None:
+        fill: bool = True, embed_probe=None) -> Joint | None:
     """embed_mm: how far into the body the printed part reaches, measured in
     from its outermost embedded point (in y for side parts, z for top/bottom).
     The rest of what the CAD buries in the body is dropped: a CAD support pod
-    reaching the centreline would otherwise make a 16 g plug."""
+    reaching the centreline would otherwise make a 16 g plug.
+    embed_probe: measure the embedded volume with this instead of the part. A part made
+    from the body itself shares its surfaces exactly, which a boolean can read as empty."""
     import trimesh
     # Parts are exported as concatenated shells (wing + pylon overlap); make
     # them one manifold first or the booleans see nothing.
@@ -167,7 +169,7 @@ def cut(name: str, part, body_half, open_side: str = "bottom", keep_out=None,
         part = _bool("union", list(pieces))
     if keep_out is not None:
         part = _bool("difference", [part, keep_out])
-    O_full = _bool("intersection", [part, body_half])
+    O_full = _bool("intersection", [part if embed_probe is None else embed_probe, body_half])
     if O_full is None or O_full.is_empty or abs(O_full.volume) < 1e-12:
         return None
     O = O_full
@@ -331,7 +333,9 @@ def nose_part(body_half, x_ref_a_mm: float, tenon_mm: float = 8.0, tenon_half_w_
     zc = 0.5 * sum(nose.bounds[:, 2])
     ten = trimesh.creation.box(bounds=[[x_ref_a_mm / 1e3 - 0.001, 0.0, 0.0],
                                        [(x_ref_a_mm + tenon_mm) / 1e3, tenon_half_w_mm / 1e3, zc]])
-    return _bool("union", [nose, _bool("intersection", [ten, body_half])])
+    out = _bool("union", [nose, _bool("intersection", [ten, body_half])])
+    out.metadata["tenon"] = ten
+    return out
 
 
 def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
@@ -359,7 +363,8 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
         pods = assembly.get("info", {}).get("pod") if name == "supports" else None
         j = pod_joint(mesh, milled, pods, ko) if pods else cut(
             name, mesh, milled, OPEN_SIDE.get(name, "bottom"), ko,
-            embed_mm=None if name == "supports" else 4.0, fill=fill)
+            embed_mm=None if name == "supports" else 4.0, fill=fill,
+            embed_probe=mesh.metadata.get("tenon") if name == "nose" else None)
         dm = 0.0
         if j is None:
             report["parts"][name] = {"joint": "surface bond (no pocket possible)"}
@@ -400,6 +405,13 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
     bore.apply_translation([(bore_end - MODEL_BLOCK_BORE_DEPTH_MM / 2.0 + 1.0) / 1e3, 0.0,
                             CHAMBER_AXIS_Z_MM / 1e3])
     body_full = _bool("difference", [body_full, bore])
+    # The halo pocket too, floor at exactly 24 mm (T4.4.4). Open to the top: T4.4.3 wants
+    # the halo clear in plan view.
+    from halo_pocket import ballast_capsule_mesh_m, compute_halo_pocket_box_m
+    pk = compute_halo_pocket_box_m(x_ref_a_mm / 1e3, assembly["d_halo_mm"])
+    body_full = _bool("difference", [body_full, trimesh.creation.box(
+        bounds=[[pk["x_min_m"], pk["y_min_m"], pk["z_min_m"]], [pk["x_max_m"], pk["y_max_m"], 0.1]]),
+        ballast_capsule_mesh_m(x_ref_a_mm / 1e3, assembly["d_halo_mm"])])
     made = {"machined_body": (body_full, FOAM_G_CM3, 1)}
     clean_body = _full(milled)
 

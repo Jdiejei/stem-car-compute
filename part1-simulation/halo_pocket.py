@@ -92,13 +92,40 @@ def build_halo_pocket_forbidden_mask(
     return in_x[:, None, None] & in_y[None, :, None] & in_z[None, None, :]
 
 
+def pocket_floor_layer_mask(origin_m: tuple, shape: tuple, ref_plane_A_m: float,
+                            d_halo_mm: float) -> np.ndarray:
+    """The cells at the pocket floor's height under the halo, the ballast slot excepted.
+
+    A surface falls halfway between the last solid cell and the first air cell, so with
+    these cells air the floor was drawn half a cell low: 23.5 mm on the 1 mm grid, with
+    the halo hovering over it. They stay solid; Part 4 cuts the exact pocket into the
+    machined file, the same way it cuts the exact bore."""
+    box = compute_halo_pocket_box_m(ref_plane_A_m, d_halo_mm)
+    ox, oy, oz = origin_m
+    nx, ny, nz = shape
+    dx = GRID_SPACING_M
+    xs = ox + np.arange(nx) * dx
+    ys = oy + np.arange(ny) * dx
+    zs = oz + np.arange(nz) * dx
+    in_x = (xs >= box["x_min_m"] - dx) & (xs <= box["x_max_m"] + dx)
+    in_y = (ys >= box["y_min_m"] - dx) & (ys <= box["y_max_m"] + dx)
+    in_z = (zs >= box["z_min_m"] - 1e-9) & (zs < box["z_min_m"] + 0.5 * dx)
+    layer = in_x[:, None, None] & in_y[None, :, None] & in_z[None, None, :]
+    return layer & ~build_ballast_container_forbidden_mask(origin_m, shape, ref_plane_A_m, d_halo_mm)
+
+
 def build_ballast_container_forbidden_mask(
     origin_m: tuple,
     shape: tuple,
     ref_plane_A_m: float,
     d_halo_mm: float,
+    inset_cells: int = 0,
 ) -> np.ndarray:
     """Bool mask, True = forbidden (phi > 0 / air) for the mandatory ballast slot.
+
+    inset_cells: the surface settles next to the solid cell, so air cells out to the
+    true faces draw the slot up to a cell too big (0.7 mm too deep, measured). The build
+    draws it a cell small and Part 4 cuts the exact capsule, ballast_capsule_mesh_m.
 
     A capsule (oval) BALLAST_SLOT_WIDTH_MM wide x BALLAST_SLOT_LENGTH_MM long,
     centred BALLAST_CENTRE_FROM_POCKET_FRONT_MM aft of the pocket front edge and
@@ -119,6 +146,8 @@ def build_ballast_container_forbidden_mask(
     xs = ox + np.arange(nx) * dx
     ys = oy + np.arange(ny) * dx
     zs = oz + np.arange(nz) * dx
+    r -= inset_cells * dx
+    z_bot += inset_cells * dx
 
     # Distance from each (x,y) to the capsule's centreline segment [cx±half_straight, y=0].
     dx_to_seg = np.abs(xs - cx) - half_straight
@@ -127,3 +156,19 @@ def build_ballast_container_forbidden_mask(
     in_xy = dist2 <= r * r
     in_z = (zs >= z_bot) & (zs <= z_top)
     return in_xy[:, :, None] & in_z[None, None, :]
+
+
+def ballast_capsule_mesh_m(ref_plane_A_m: float, d_halo_mm: float, above_floor_mm: float = 1.0):
+    """The exact ballast slot as a solid, metres; `above_floor_mm` over the pocket floor
+    so that cutting it leaves the slot open to the pocket."""
+    import trimesh
+    from shapely.geometry import LineString
+    box = compute_halo_pocket_box_m(ref_plane_A_m, d_halo_mm)
+    cx = box["x_min_m"] * 1e3 + BALLAST_CENTRE_FROM_POCKET_FRONT_MM
+    half = (BALLAST_SLOT_LENGTH_MM - BALLAST_SLOT_WIDTH_MM) / 2.0
+    m = trimesh.creation.extrude_polygon(
+        LineString([(cx - half, 0.0), (cx + half, 0.0)]).buffer(BALLAST_SLOT_WIDTH_MM / 2.0, 32),
+        BALLAST_DEPTH_MM + above_floor_mm)
+    m.apply_translation([0.0, 0.0, box["z_min_m"] * 1e3 - BALLAST_DEPTH_MM])
+    m.apply_scale(1e-3)
+    return m

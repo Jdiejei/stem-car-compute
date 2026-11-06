@@ -244,10 +244,15 @@ def build_virtual_cargo_solid_mask(
     x_start_m: float,
     z_base_m: float,
     flip: bool = False,
+    grow_cells: int = 0,
 ) -> np.ndarray:
     """
     Bool mask, True = forced solid (phi < 0), for the tapered cargo wedge
     starting at x_start_m, resting on z_base_m.
+
+    grow_cells: the surface settles next to the last solid cell, so cells only up to
+    the wedge's true faces leave up to a cell of the exact wedge outside the body.
+    One cell more all round keeps the exact wedge inside it.
 
     flip selects the fore-aft orientation the regs leave free (T4.2 fixes only
     symmetry about, and the top face normal to, the vertical reference plane --
@@ -272,10 +277,11 @@ def build_virtual_cargo_solid_mask(
     x_end_m = x_start_m + length_m
     z_top_m = z_base_m + height_m
 
-    in_x = (xs >= x_start_m) & (xs <= x_end_m)
+    g = grow_cells * dx
+    in_x = (xs >= x_start_m - g) & (xs <= x_end_m + g)
     # Half-open at the top: the cargo's top is the halo pocket's floor, and a grid row
     # exactly on that shared face belongs to the pocket. It is not eroded cargo.
-    in_z = (zs >= z_base_m - 1e-9) & (zs < z_top_m - 1e-9)
+    in_z = (zs >= z_base_m - g - 1e-9) & (zs < z_top_m + g - 1e-9)
 
     # Per-x half-width, linearly tapering from half_wide_m (at x_start) to
     # half_narrow_m (at x_end). Clip s to [0,1] for x values outside the wedge
@@ -288,6 +294,7 @@ def build_virtual_cargo_solid_mask(
     else:
         # Wide end at x_start (forward): the default.
         half_width_at_x = half_wide_m + s * (half_narrow_m - half_wide_m)   # shape (nx,)
+    half_width_at_x = half_width_at_x + g
 
     # in_y[i, j] = |ys[j]| <= half_width_at_x[i]
     in_y = np.abs(ys)[None, :] <= half_width_at_x[:, None]   # shape (nx, ny)
