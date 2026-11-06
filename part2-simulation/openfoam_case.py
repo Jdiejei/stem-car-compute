@@ -1664,7 +1664,9 @@ def invoke(stl_path: str, case_dir: str, cfg: Optional[OpenFOAMRunConfig] = None
 
 _FV_SCHEMES = _header("dictionary", "fvSchemes") + """
 ddtSchemes      { default steadyState; }
-gradSchemes     { default Gauss linear; }
+// Limited: one bad cell at a wing-to-nose junction blew the unlimited solve up to
+// 1e22 N, repeatably, on the sized start car (2026-11-06).
+gradSchemes     { default Gauss linear; grad(U) cellLimited Gauss linear 1; }
 divSchemes
 {
     default         none;
@@ -1675,9 +1677,9 @@ divSchemes
     div(phi,gammaInt) bounded Gauss upwind;
     div((nuEff*dev2(T(grad(U))))) Gauss linear;
 }
-laplacianSchemes { default Gauss linear corrected; }
+laplacianSchemes { default Gauss linear limited corrected 0.5; }
 interpolationSchemes { default linear; }
-snGradSchemes   { default corrected; }
+snGradSchemes   { default limited corrected 0.5; }
 wallDist        { method meshWave; }
 """
 

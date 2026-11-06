@@ -566,6 +566,7 @@ def _export_mm(mesh, path, fair: bool = False) -> dict:
         tm.update_faces((cnt[inv.ravel()] == 1) & kept)
         tm.remove_unreferenced_vertices()
         tm = _drop_dust(tm, 1.0)
+        tm = _drop_crumbs(tm)
         if fair:                          # foam body only: printed parts stay exact
             import mesh_fairing
             tm = mesh_fairing.clean(tm)
@@ -590,6 +591,19 @@ def _full(half, overlap_m: float = 1e-5):
     b.vertices[:, 1] *= -1
     b.invert()
     return _drop_dust(_bool("union", [a, b]), 1e-9)
+
+
+def _drop_crumbs(mesh, share: float = 0.01):
+    """Remove shells under 1 % of the largest: a 2 mm3 scrap left inside a hollow nose
+    by the wing mount's trim is not a part. Real second pieces (a pair of hubcaps) are
+    the same size as the first, and a body cut in two stays in two, for T4.1 to reject."""
+    import trimesh
+    pieces = mesh.split(only_watertight=False)
+    if len(pieces) < 2:
+        return mesh
+    big = max(abs(p.volume) for p in pieces)
+    keep = [p for p in pieces if abs(p.volume) >= share * big]
+    return mesh if len(keep) == len(pieces) else trimesh.util.concatenate(keep)
 
 
 def _drop_dust(mesh, min_volume: float):

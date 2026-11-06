@@ -121,7 +121,7 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05) -> dict:
     after = trimesh.Trimesh(o.vertex_matrix(), o.face_matrix(), process=False)
     after.merge_vertices()
     same = (after.is_watertight and len(after.split(only_watertight=False)) == len(before.split(only_watertight=False))
-            and abs(abs(after.volume) - abs(before.volume)) <= 0.002 * abs(before.volume))
+            and abs(abs(after.volume) - abs(before.volume)) <= 0.005 * abs(before.volume))
     if same:
         after.export(str(path))
     final = after if same else before

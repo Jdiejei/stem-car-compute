@@ -55,12 +55,14 @@ jobs:
           - { id: start, args: "--body-json '{}'" }
           - { id: round2, args: "--body-json \"$(cat checks/round2_car.json)\"" }
           - { id: parts, args: "--body-json \"$(cat checks/round2_car.json)\" --fwing-json '{\"aoa_deg\": 8.0}' --support-json '{\"disc_front\": true}' --nose-json '{\"length_mm\": 25.0, \"wall_mm\": 99.0}'" }
-          - { id: start_cfd, cfd: true, args: "--body-json '{}' --cfd --res medium --np 4" }
+          - { id: start_cfd, cfd: true, args: "--body-json '{}' --cfd --res medium --np 4 --keep-runs" }
           # The same car with legal ballast, so the body can be smaller: which is faster?
-          - { id: ballast6_cfd, cfd: true, args: "--body-json '{}' --cfd --res medium --np 4 --ballast-g 6" }
+          - { id: ballast6_cfd, cfd: true, args: "--body-json '{}' --cfd --res medium --np 4 --keep-runs --ballast-g 6" }
           # Finer grids. Sized at 0.5 mm; a single fixed skin at the 0.3 mm production grid.
           - { id: fine05, args: "--body-json '{}' --cfd-mm 0.5" }
           - { id: fine03, allow_mass: true, args: "--body-json '{}' --cfd-mm 0.3 --skin-mm 3.5" }
+          # The same car again on a wall-resolved mesh: does the score hold?
+          - { id: start_resolved, cfd: true, args: "--body-json '{}' --cfd --res resolved --np 4 --keep-runs" }
     env:
       OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
       OMPI_MCA_rmaps_base_oversubscribe: "1"
@@ -84,6 +86,14 @@ jobs:
           set -o pipefail
           mkdir -p ../out
           python run_car.py --out ../out/${{ matrix.id }} ${{ matrix.args }} 2>&1 | tee ../out/${{ matrix.id }}.log
+      - name: Solver logs
+        if: always()
+        run: |
+          mkdir -p out/${{ matrix.id }}/solver_logs
+          find part2-simulation/cfd_case_template -path "*/logs/*.log" 2>/dev/null | while read f; do
+            tail -200 "$f" > "out/${{ matrix.id }}/solver_logs/$(basename "$f")"
+          done
+          rm -rf part2-simulation/cfd_case_template/*runs* 2>/dev/null || true
       - name: Rule checks
         if: always()
         run: |
@@ -120,3 +130,4 @@ jobs:
             out/${{ matrix.id }}/*.md
             out/${{ matrix.id }}/*.json
             out/${{ matrix.id }}/manufacture/*.stl
+            out/${{ matrix.id }}/solver_logs/

@@ -63,7 +63,8 @@ def build_one(c: dict) -> dict:
         row["mass_g"] = S["mass"].get("manufactured_mass_g")
         row["status"] = "legal" if not row["failed"] else "illegal"
     except (Exception, SystemExit) as exc:  # noqa: BLE001 -- a car that will not build is the result
-        row["status"] = "crash"
+        row["status"] = "illegal" if str(exc).startswith("illegal car") else "crash"
+        row["failed"], row["notes"] = (["no_nose_root"], {"no_nose_root": str(exc)[:80]}) if row["status"] == "illegal" else ([], {})
         row["error"] = f"{type(exc).__name__}: {exc}"[:300]
         row["where"] = traceback.format_exc().strip().splitlines()[-3][:160]
     row["seconds"] = round(time.time() - t0, 1)
