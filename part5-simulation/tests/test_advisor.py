@@ -70,7 +70,7 @@ def test_whole_chain_without_cfd():
         assert (Path(td) / "report.md").exists() and (Path(td) / "summary.json").exists()
         assert S["legality"]["summary"]["n_checks"] > 40
         assert S["legality"]["checks"]["manufacture_files_are_solids"]["pass"]
-        assert 40.0 < S["mass"]["manufactured_mass_g"] < 60.0
+        assert 35.0 < S["mass"]["manufactured_mass_g"] < 60.0     # a fixed skin, not sized
         assert len(json.loads((Path(td) / "parts" / "assembly.json").read_text())
                    ["extra_surfaces"]) == 8                       # + the printed nose
 

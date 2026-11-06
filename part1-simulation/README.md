@@ -37,8 +37,9 @@ grid, with every rule that shapes it applied as a hard mask, and the parametric
 | `coarse.py` | run the pipeline at another grid spacing (1 mm for the search, 0.3 mm production) |
 
 The level-set carve (Stage 1 outer search over W, x_front, d_halo with a Bayesian
-optimiser) was retired on 2026-09-30: the parametric body is the car. The regulation
-text is `SPEC_ASCII.md`; the PDF is the source.
+optimiser) was retired on 2026-09-30: the parametric body is the car. `SPEC_ASCII.md` is the
+original build spec, not the rules, and is out of date in places; the regulations are
+the PDF.
 
 ```bash
 pip install -r requirements.txt

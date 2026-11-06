@@ -92,7 +92,7 @@ def _smin(a, b, k):
 
 # Search bounds (mm) of the scalar parameters, from the legal envelope
 # (build_unified_geometry: y <= 20 ahead of x~80, <= 32 around the cargo) and
-# the mandatory solids (cargo y +-26, z 16-24, x 78-136).
+# the mandatory solids (cargo y +-27.5, z 14-24, 60 mm long, placed where it fits).
 BOUNDS = {
     "p": (2.0, 4.0),
     "s_b": (26.5, 31.5), "s_zt": (24.5, 34.0), "s_zb": (4.0, 15.5),

@@ -8,3 +8,4 @@ rtree>=1.0
 # Level 1 Bayesian outer search
 manifold3d>=2.3
 fast_simplification>=0.1
+pymeshlab

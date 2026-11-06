@@ -90,7 +90,9 @@ def nose_mass_com(nc: NoseCone, full_mesh):
     """Printed shell: side area (root cap excluded) x wall. kg, COM in m."""
     side = full_mesh.face_normals[:, 0] < 0.99
     area = float(full_mesh.area_faces[side].sum())                   # m^2
-    m = area * nc.wall_mm / 1e3 * cc.DENSITY_G_CM3[nc.material] * 1e3  # kg
+    # area x wall overstates a thick wall, and a solid cone is asked for as wall 99 mm
+    # (187 g in the rollup, 2026-11-06): never more plastic than the cone holds.
+    m = min(area * nc.wall_mm / 1e3, abs(full_mesh.volume)) * cc.DENSITY_G_CM3[nc.material] * 1e3  # kg
     c = full_mesh.triangles_center[side]
     w = full_mesh.area_faces[side]
     com = tuple((c * w[:, None]).sum(0) / w.sum())

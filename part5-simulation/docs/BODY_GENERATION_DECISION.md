@@ -1,6 +1,6 @@
 # How the car body gets its shape — methods, why not, and challenges
 
-Status: **proposal, awaiting the team's decision** (2026-09-27).
+Status: decided 2026-09-27/28 (hybrid body, no ballast). Kept as the record of why.
 Scope: the machined main body (Part 1). The printed parts (Part 4) are covered only
 where they constrain the body.
 
@@ -22,7 +22,7 @@ where they constrain the body.
 
 ### 1.2 Regulations the body shape must respect (encoded as hard masks in Part 1)
 
-T4.2 virtual cargo (a 52 × 58 × 8 mm solid that must be inside the body),
+T4.2 virtual cargo (a wedge 60 mm long, 55 mm narrowing to 10 mm wide, 10 mm thick, that must be inside the body),
 T5.x cartridge chamber and the **T5.5 3 mm wall** around it, the halo pocket and
 visibility zones, the ballast area, **T7.9 wheel visibility zones**, wheel
 keep-clear, T3.4/T3.5 width and height, the Model Block (223 × 65 × 50 mm), T3.7

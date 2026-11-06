@@ -615,11 +615,12 @@ def build_unified_geometry(
         # below the first cell layer and the wedge's bottom row was silently
         # clipped by the border seal below (measured: 3.1% of cargo cells).
         z_base = max(placement["z_base_m"], region.origin_m[2])
-        hard_solid |= build_virtual_cargo_solid_mask(
+        cargo_solid = build_virtual_cargo_solid_mask(
             region.origin_m, region.shape,
             placement["x_start_m"], z_base,
             flip=placement.get("flip", False),
         )
+        hard_solid |= cargo_solid
 
     # T5.5's safety zone: model block that must remain around the chamber.
     # Without it the optimiser carved the pocket away and left the cartridge
@@ -685,7 +686,7 @@ def build_unified_geometry(
     # cargo the regs require.
     if with_cargo:
         eaten, requested = measure_cargo_erosion(
-            hard_solid, hard_air, region, bv.ref_plane_A_m, d_halo_mm,
+            cargo_solid, hard_air, region, bv.ref_plane_A_m, d_halo_mm,
         )
         if requested and eaten / requested > CARGO_MAX_ERODED_FRACTION:
             raise ValueError(

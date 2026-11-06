@@ -58,6 +58,8 @@ def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = N
 # Volumes below this (mm3, about 0.2 mg of foam) are mesh round-off, not material.
 _ROUND_OFF_MM3 = 1.0
 CARTRIDGE_LENGTH_MIN_MM = 64.5     # Appendix vi: 65.00 -0.5
+MESH_MAX_EDGE_MM = 5.0             # measured 3.3-4.0 after the remesh, 106 before it
+MESH_MAX_SLIVER_PCT = 8.0          # measured 1.3-5.7 % after, up to 25 % before
 
 
 def _volume_in(mesh, region) -> float:
@@ -156,6 +158,15 @@ def manufactured_checks(assembly: dict) -> dict:
                 blocked.append(k)
         r["T6.1_tether_line_clear"] = _entry(0.0 if not blocked else -1.0,
                                              "blocked by " + ", ".join(blocked) if blocked else "clear")
+
+    # Even triangles throughout: no long slivers left in any file that gets made.
+    parts = assembly["joints"]["manufactured"]
+    meshed = {k: v for k, v in parts.items() if "max_edge_mm" in v}
+    if meshed:
+        worst = max(v["max_edge_mm"] for v in meshed.values())
+        r["mesh_longest_edge"] = _entry(MESH_MAX_EDGE_MM - worst, f"{worst:.1f} mm")
+        slivers = max(v["faces_under_5deg_pct"] for v in meshed.values())
+        r["mesh_slivers"] = _entry(MESH_MAX_SLIVER_PCT - slivers, f"{slivers:.2f} % of faces under 5 deg, worst file")
 
     bore, depth, axis = gc.MODEL_BLOCK_BORE_DIA_MM, gc.MODEL_BLOCK_BORE_DEPTH_MM, gc.CHAMBER_AXIS_Z_MM
     # These four compare design constants with the rule; they are not measurements.

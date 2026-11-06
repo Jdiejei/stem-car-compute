@@ -59,6 +59,7 @@ def parts_and_joints(a, out: Path, geom, body_stl: Path, parts_dir: str, **p4kw)
     import joints
     asm = p4.build(a.W, a.x_front, a.d_halo, str(body_stl), str(out / parts_dir), **p4kw)
     asm["_dir"] = str(out / parts_dir)
+    asm["ballast_g"] = getattr(a, "ballast_g", 0.0)
     import trimesh
     lm = geom.landmarks
     jr = joints.make_all(trimesh.load(str(body_stl), force="mesh"), asm,
@@ -82,7 +83,7 @@ def manufactured_mass_kg(asm) -> float:
     was 47.84 g as manufactured -- under the 48.0 g floor."""
     wd = asm["wheel_design"]
     return (asm["joints"]["manufactured_g"] + 2 * wd["front"]["mass_g"] + 2 * wd["rear"]["mass_g"]
-            ) * 1e-3 + asm["fixed_hardware_kwargs"]["halo_mass_kg"]
+            + asm.get("ballast_g", 0.0)) * 1e-3 + asm["fixed_hardware_kwargs"]["halo_mass_kg"]
 
 
 def build_car(a, out: Path, **p4kw):
@@ -317,6 +318,8 @@ def main(argv=None):
     ap.add_argument("--fwing-json", default=None, help="FrontWing parameters as JSON")
     ap.add_argument("--skin-mm", type=float, default=None,
                     help="fixed skin offset: no mass sizing (gradient checks)")
+    ap.add_argument("--ballast-g", type=float, default=0.0,
+                    help="legal ballast under the halo (T1.22); the body is sized for the rest")
     ap.add_argument("--body-json", default="{}",
                     help="parametric body (Part 1 param_body.BodyParams) as JSON; '{}' = the start car")
     ap.add_argument("--cfd", action="store_true")
@@ -354,7 +357,15 @@ def main(argv=None):
     ms = mass_state(b, geom)
     ms["manufactured_mass_g"] = manufactured_mass_kg(asm) * 1e3
     S["mass"] = {k: v for k, v in ms.items() if not k.startswith("_")}
+    # Even triangles in the files that get made, once sizing has settled.
+    import mesh_fairing
+    for name, part in asm["joints"]["manufactured"].items():
+        if "file" in part:
+            part.update(mesh_fairing.remesh_file(part["file"], 0.6 if name == "machined_body" else 0.4))
     S["manufactured"] = asm["joints"]["manufactured"]
+    if a.ballast_g:
+        import ballast as _b
+        S["mass"].update(ballast_g=a.ballast_g, capacity_g=_b.capacity_kg("lead") * 1e3)
     asm["cargo_placement"] = geom.landmarks.get("cargo_placement")
     asm["grid_mm"] = a.cfd_mm
 

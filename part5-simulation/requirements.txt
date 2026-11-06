@@ -10,3 +10,4 @@ manifold3d
 jax
 jaxlib
 matplotlib
+pymeshlab
