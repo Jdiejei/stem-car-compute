@@ -113,11 +113,8 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05, max_edge
     import trimesh
     before = trimesh.load(str(path), force="mesh")
     # The odd part comes out torn or flipped at one triangle size and clean at the next
-    # (1 car in 400), which is a false rejection if only one size is tried. So can one long
-    # edge survive at one size (10 mm against the 8 mm limit, 2 cars in 390): the first size
-    # under the limit wins, or else the clean result with the shortest longest edge.
-    best = None
-    for target in (target_edge_mm, 1.25 * target_edge_mm, 0.8 * target_edge_mm, 0.6 * target_edge_mm):
+    # (1 car in 400), which is a false rejection if only one size is tried.
+    for target in (target_edge_mm, 1.25 * target_edge_mm, 0.8 * target_edge_mm):
         ms = ml.MeshSet()
         ms.add_mesh(ml.Mesh(before.vertices, before.faces))
         ms.apply_filter("meshing_isotropic_explicit_remeshing", iterations=6,
@@ -130,14 +127,21 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05, max_edge
             trimesh.repair.fix_normals(after)
         same = (after.is_volume and len(after.split(only_watertight=False)) == len(before.split(only_watertight=False))
                 and abs(abs(after.volume) - abs(before.volume)) <= 0.005 * abs(before.volume))
-        if same and (best is None or after.edges_unique_length.max() < best.edges_unique_length.max()):
-            best = after
-        if same and after.edges_unique_length.max() <= max_edge_mm:
+        if same:
             break
-    same = best is not None
+    if same and after.edges_unique_length.max() > max_edge_mm:
+        # The odd edge survives the remesh (10-17 mm against 8, 1 car in 200). Splitting
+        # just those keeps the surface exactly; another size only trades it for slivers.
+        ms.apply_filter("meshing_surface_subdivision_midpoint", iterations=4,
+                        threshold=ml.PureValue(0.9 * max_edge_mm))
+        o = ms.current_mesh()
+        split = trimesh.Trimesh(o.vertex_matrix(), o.face_matrix(), process=False)
+        split.merge_vertices()
+        if split.is_volume:
+            after = split
     if same:
-        best.export(str(path))
-    final = best if same else before
+        after.export(str(path))
+    final = after if same else before
     angles = np.degrees(final.face_angles).min(axis=1)
     return {"remeshed": bool(same), "faces": len(final.faces),
             "max_edge_mm": float(final.edges_unique_length.max()),

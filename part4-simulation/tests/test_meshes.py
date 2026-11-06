@@ -52,3 +52,15 @@ def test_a_sealed_void_is_not_a_part():
     apart = box(20.0, 21.0)
     shells = joints._solid_shells(trimesh.util.concatenate([hollow, apart]))
     assert [round(float(s.volume)) for s in shells] == [1000, 1]
+
+
+def test_the_remesh_leaves_no_edge_over_the_limit(tmp_path):
+    import numpy as np
+    import mesh_fairing
+    # A long thin bar: a coarse target keeps edges of 30 mm along it.
+    bar = trimesh.creation.box(bounds=[[0, 0, 0], [60, 4, 4]])
+    bar.export(str(tmp_path / "bar.stl"))
+    rep = mesh_fairing.remesh_file(tmp_path / "bar.stl", 30.0, max_edge_mm=8.0)
+    out = trimesh.load(str(tmp_path / "bar.stl"), force="mesh")
+    assert rep["remeshed"] and out.is_volume and abs(out.volume - 960.0) < 1.0
+    assert out.edges_unique_length.max() <= 8.0 and rep["max_edge_mm"] <= 8.0

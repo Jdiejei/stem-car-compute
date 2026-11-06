@@ -473,8 +473,11 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
             u = _drop_dust(_bool("union", [a_, b_]), 1e-9) if b_ is not None else a_
             pieces = _solid_shells(u)
             made[f"printed_support_{tag}"] = (pieces[0], pa12, 1)
-            if len(pieces) > 1:       # a guide the support does not reach is its own part
-                made[f"printed_tether_{tag}"] = (trimesh.util.concatenate(pieces[1:]),
+            # A guide the support does not reach is its own part. A scrap of one under 1 % of
+            # the support is not (2-11 mm3 files too small to remesh, 2 cars in 400).
+            loose = [p for p in pieces[1:] if p.volume >= 0.01 * pieces[0].volume]
+            if loose:
+                made[f"printed_tether_{tag}"] = (trimesh.util.concatenate(loose),
                                                   DENSITY_G_CM3["tethers"], None)
     for tag, path in assembly.get("info", {}).get("hubcap_stls", {}).items():
         cap = trimesh.load(path, force="mesh")           # right side; the left is its mirror
@@ -557,26 +560,36 @@ def nose_shell(cone_half, wall_mm: float, x_ref_a_mm: float):
     return _bool("difference", [_bool("intersection", [outer, ahead]), cavity]), drain
 
 
-def _bridge_pinches(mesh_mm, written):
-    """Fill the lines where a solid touches itself. An edge with four faces on it is not
-    a solid in any STL, whatever the merge tolerance (a support's keel against its guide,
-    1 car in 130), so a thin rod along each such edge joins the two sides. Round, as a
-    box's flat faces and corners can land on the surface and leave a new pinch: a support
-    came out pinched after 3 boxes. None if the file has no such edge: it is open for
-    some other reason."""
+def _repair_stl(path, written, gap_mm: float = 0.03):
+    """A file where a solid touches itself along a line: an edge with four faces on it is
+    not a solid in any STL, whatever the merge tolerance (a support's keel against its
+    guide, 1 car in 130). The two sheets are split apart and each drawn gap_mm into its own
+    material, far below what any machine here can make. Bridging them with added boxes or
+    rods left more bad edges than it fixed (1-5 became 12-44 on 3 cars), and deleting the
+    faces and closing the hole only rebuilds the same edge. Returns what the file now holds."""
+    import pymeshlab as ml
     import trimesh
-    edges, n = np.unique(written.edges_sorted, axis=0, return_counts=True)
-    bad = edges[n > 2]
-    if not len(bad):
-        return None
-    rods = []
-    for a, b in written.vertices[bad]:
-        past = 0.15 * (b - a) / max(np.linalg.norm(b - a), 1e-9)
-        rods.append(trimesh.creation.cylinder(radius=0.15, sections=12, segment=[a - past, b + past]))
-    return _bool("union", [mesh_mm] + rods)
+    ms = ml.MeshSet()
+    ms.add_mesh(ml.Mesh(written.vertices, written.faces))
+    ms.apply_filter("meshing_repair_non_manifold_edges", method="Split Vertices")
+    ms.apply_filter("meshing_repair_non_manifold_vertices")
+    o = ms.current_mesh()
+    fixed = trimesh.Trimesh(o.vertex_matrix(), o.face_matrix(), process=False)
+    fixed.remove_unreferenced_vertices()      # the split leaves the old ones behind
+    _, inverse, counts = np.unique(fixed.vertices, axis=0, return_inverse=True, return_counts=True)
+    twins = counts[inverse.ravel()] > 1
+    V = fixed.vertices.copy()
+    V[twins] -= gap_mm * fixed.vertex_normals[twins]
+    fixed = trimesh.Trimesh(V, fixed.faces, process=False)
+    fixed.export(str(path))
+    again = trimesh.load(str(path), force="mesh")
+    if not again.is_volume or abs(abs(again.volume) - abs(written.volume)) > 0.005 * abs(written.volume):
+        written.export(str(path))
+        return written
+    return again
 
 
-def _export_mm(mesh, path, fair: bool = False, bridges_left: int = 3) -> dict:
+def _export_mm(mesh, path, fair: bool = False) -> dict:
     """Write one manufacturing STL in MILLIMETRES (what CAM and slicers assume)
     and report what the file holds once re-read. Booleans leave vertices closer
     together than an STL's 32-bit floats can tell apart, which tears the
@@ -617,11 +630,8 @@ def _export_mm(mesh, path, fair: bool = False, bridges_left: int = 3) -> dict:
         # A volume, not just watertight: closed with flipped faces cannot be measured.
         if back.is_volume:
             break
-    if not back.is_volume and bridges_left:
-        whole = _bridge_pinches(m, back)    # a bridge can leave a new pinch beside it
-        if whole is not None:
-            whole.apply_scale(1e-3)
-            return _export_mm(whole, path, fair, bridges_left - 1)
+    if not back.is_volume:
+        back = _repair_stl(path, back)
     return {"file": str(path), "closed": bool(back.is_volume),
             "pieces": len(back.split(only_watertight=False)),
             "file_cm3": abs(back.volume) / 1e3}
