@@ -32,7 +32,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
+      - name: Libraries the remesher needs
+        run: sudo apt-get update -q && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
       - run: pip install $PY_DEPS
+      - name: The remesh filter loads
+        run: python -c "import pymeshlab as m; s=m.MeshSet(); s.create_cube(); s.apply_filter('meshing_isotropic_explicit_remeshing', iterations=1); print('remesher ok')"
       - name: pytest
         working-directory: ${{ matrix.part }}
         env:
@@ -64,7 +68,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
+      - name: Libraries the remesher needs
+        run: sudo apt-get update -q && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
       - run: pip install $PY_DEPS
+      - name: The remesh filter loads
+        run: python -c "import pymeshlab as m; s=m.MeshSet(); s.create_cube(); s.apply_filter('meshing_isotropic_explicit_remeshing', iterations=1); print('remesher ok')"
       - name: Install ESI OpenFOAM v2412
         if: ${{ matrix.cfd }}
         run: |
