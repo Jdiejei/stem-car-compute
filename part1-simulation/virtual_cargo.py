@@ -275,7 +275,7 @@ def build_virtual_cargo_solid_mask(
     in_x = (xs >= x_start_m) & (xs <= x_end_m)
     # Half-open at the top: the cargo's top is the halo pocket's floor, and a grid row
     # exactly on that shared face belongs to the pocket. It is not eroded cargo.
-    in_z = (zs >= z_base_m) & (zs < z_top_m)
+    in_z = (zs >= z_base_m - 1e-9) & (zs < z_top_m - 1e-9)
 
     # Per-x half-width, linearly tapering from half_wide_m (at x_start) to
     # half_narrow_m (at x_end). Clip s to [0,1] for x values outside the wedge
