@@ -1,6 +1,6 @@
 {
  "round": 0,
- "phase": "start",
+ "phase": "check_adjoint",
  "slopes": "adjoint",
  "sign": null,
  "next_seed": 10,
@@ -407,12 +407,12 @@
      "d_halo": 51.50133708428786
     }
    },
-   "T": null,
-   "noise": null,
+   "T": 1.553088967524213,
+   "noise": 0.0005,
    "scale": 1.0,
    "stopped": null,
    "history": [],
-   "skin_mm": null,
+   "skin_mm": 4.2861603803063275,
    "starts": 2
   },
   {
@@ -845,12 +845,12 @@
      "d_halo": 39.80079935739988
     }
    },
-   "T": null,
-   "noise": null,
+   "T": 1.5789691763882487,
+   "noise": 0.0008110810769594856,
    "scale": 1.0,
    "stopped": null,
    "history": [],
-   "skin_mm": null,
+   "skin_mm": 4.561669608354871,
    "starts": 2
   },
   {
