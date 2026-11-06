@@ -222,6 +222,9 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # A heavy skin offset pushed that section over the limit, so the body is capped
     # there, 0.5 mm inside the rule.
     base.phi.hard_mask_air |= (X <= x_ref_a + 1.0) & ((np.abs(Y) > 14.5) | (Z > 24.5))
+    # The nose needs something to join at Ref A, whatever the loft does up there.
+    base.phi.hard_mask_solid |= ((X >= x_ref_a) & (X <= x_ref_a + 2.0) & (np.abs(Y) <= 4.0)
+                                 & (Z >= 9.0) & (Z <= 18.0))
 
     def make(offset_mm):
         import copy

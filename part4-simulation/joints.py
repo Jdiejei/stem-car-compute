@@ -545,29 +545,34 @@ def _export_mm(mesh, path, fair: bool = False) -> dict:
     import trimesh
     m = mesh.copy()
     m.apply_scale(1e3)
-    man = m3.Manifold(m3.Mesh(vert_properties=np.asarray(m.vertices, np.float32),
-                              tri_verts=np.asarray(m.faces, np.uint32))).simplify(1e-3)
-    o = man.to_mesh()
-    tm = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3], np.asarray(o.tri_verts),
-                         process=False)
-    tm.merge_vertices()
-    # a collapsed sliver is two triangles on the same three vertices, back to
-    # back: zero volume, and four faces on each of its edges. Remove both.
-    key = np.sort(tm.faces, axis=1)
-    _u, inv, cnt = np.unique(key, axis=0, return_inverse=True, return_counts=True)
-    # Only faces that lost a vertex go: a zero-area triangle on three distinct
-    # collinear vertices is what joins a T-junction, and dropping it opens the
-    # surface along a line (front support at the pod's end, 2 Oct 2026).
-    f = tm.faces
-    kept = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])
-    tm.update_faces((cnt[inv.ravel()] == 1) & kept)
-    tm.remove_unreferenced_vertices()
-    tm = _drop_dust(tm, 1.0)
-    if fair:                              # foam body only: printed parts stay exact
-        import mesh_fairing
-        tm = mesh_fairing.clean(tm)
-    tm.export(str(path))
-    back = trimesh.load(str(path), force="mesh")
+    # A very few cars still tear at 1 um (about 4 % of the search range): merging at
+    # 10 and then 50 um closes them, far below what any machine here can make.
+    for merge_mm in (1e-3, 1e-2, 5e-2):
+        man = m3.Manifold(m3.Mesh(vert_properties=np.asarray(m.vertices, np.float32),
+                                  tri_verts=np.asarray(m.faces, np.uint32))).simplify(merge_mm)
+        o = man.to_mesh()
+        tm = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3], np.asarray(o.tri_verts),
+                             process=False)
+        tm.merge_vertices()
+        # a collapsed sliver is two triangles on the same three vertices, back to
+        # back: zero volume, and four faces on each of its edges. Remove both.
+        key = np.sort(tm.faces, axis=1)
+        _u, inv, cnt = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+        # Only faces that lost a vertex go: a zero-area triangle on three distinct
+        # collinear vertices is what joins a T-junction, and dropping it opens the
+        # surface along a line (front support at the pod's end, 2 Oct 2026).
+        f = tm.faces
+        kept = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])
+        tm.update_faces((cnt[inv.ravel()] == 1) & kept)
+        tm.remove_unreferenced_vertices()
+        tm = _drop_dust(tm, 1.0)
+        if fair:                          # foam body only: printed parts stay exact
+            import mesh_fairing
+            tm = mesh_fairing.clean(tm)
+        tm.export(str(path))
+        back = trimesh.load(str(path), force="mesh")
+        if back.is_watertight:
+            break
     return {"file": str(path), "closed": bool(back.is_watertight),
             "pieces": len(back.split(only_watertight=False)),
             "file_cm3": abs(back.volume) / 1e3}
