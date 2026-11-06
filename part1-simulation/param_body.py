@@ -118,8 +118,12 @@ def _superellipse_phi(y, z, b, zc, h, p):
     return (r ** (1.0 / p) - 1.0) * np.minimum(b, h)
 
 
-def phi_mm(bp: BodyParams, X, Y, Z, x_ref_a: float, x_rear: float):
+def phi_mm(bp: BodyParams, X, Y, Z, x_ref_a: float, x_rear: float, skin_mm: float = 0.0):
     """Signed distance field (mm, negative inside) on grids X, Y, Z (mm).
+
+    skin_mm: the body grown by this. The tunnel is cut after the skin, from the skinned
+    floor, so a 3 mm tunnel is 3 mm at any skin. Cut before it, the skin filled the tunnel
+    in: at a 4 mm skin no tunnel under 4 mm existed, and its settings had no slope at all.
 
     The mandatory solids (T5.5 cartridge wall, halo deck) are NOT drawn here:
     build() adds them through the hard masks and the machining closing rounds
@@ -144,12 +148,13 @@ def phi_mm(bp: BodyParams, X, Y, Z, x_ref_a: float, x_rear: float):
     phi = _smin(phi_f, phi_s, bp.blend_mm)
     if any(bp.modes):
         phi = phi - mode_field(bp, X, Y, Z, x_ref_a, x_rear)
+    phi = phi - skin_mm
     if bp.ft_h > 0.0:
-        phi = np.maximum(phi, -_tunnel_phi(bp, X, Y, Z, x_ref_a, x_rear))
+        phi = np.maximum(phi, -_tunnel_phi(bp, X, Y, Z, x_ref_a, x_rear, skin_mm))
     return phi
 
 
-def _tunnel_phi(bp, X, Y, Z, x_ref_a, x_rear):
+def _tunnel_phi(bp, X, Y, Z, x_ref_a, x_rear, skin_mm: float = 0.0):
     """Signed distance (mm, negative inside) of the underfloor tunnel: |y| < ft_w
     below a ceiling at the local floor + a height that eases in and out over
     ft_ramp mm, so inlet and outlet are open ramps. Cut from below, so the
@@ -158,7 +163,7 @@ def _tunnel_phi(bp, X, Y, Z, x_ref_a, x_rear):
     r = max(bp.ft_ramp, 1e-3)
     e = np.minimum(np.clip((X - bp.ft_x0) / r, 0, 1), np.clip((bp.ft_x1 - X) / r, 0, 1))
     e = np.sin(0.5 * np.pi * e) ** 2
-    ceiling = zb + bp.ft_h * e
+    ceiling = zb - skin_mm + bp.ft_h * e
     inside_x = np.maximum(bp.ft_x0 - X, X - bp.ft_x1)
     return np.maximum.reduce([np.abs(Y) - bp.ft_w, Z - ceiling, inside_x, -(bp.ft_h * e)])
 
@@ -233,7 +238,8 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     zs = (r.origin_m[2] + np.arange(r.shape[2]) * d) * 1e3
     X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
     x_ref_a = base.landmarks["ref_plane_A_m"] * 1e3
-    phi0 = phi_mm(bp, X, Y, Z, x_ref_a, base.landmarks["rear_face_m"] * 1e3)
+    x_rear_mm = base.landmarks["rear_face_m"] * 1e3
+    phi0 = phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm)
     # T8.5.1: anything ahead of Ref A stays within 15 mm of the centreline and 25 mm
     # of the track, and the nose cone takes its root from the body 1 mm aft of Ref A.
     # A heavy skin offset pushed that section over the limit, so the body is capped
@@ -246,7 +252,8 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     def make(offset_mm):
         import copy
         g = copy.deepcopy(base)
-        g.phi.grid = ((phi0 - offset_mm) / 1e3).astype(np.float32)
+        field = phi0 - offset_mm if not bp.ft_h else phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm, skin_mm=offset_mm)
+        g.phi.grid = (field / 1e3).astype(np.float32)
         g.phi.apply_hard_constraints()
         up.enforce_symmetry(g)
         reinitialise_sdf(g.phi)

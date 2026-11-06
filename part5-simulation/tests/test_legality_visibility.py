@@ -69,3 +69,14 @@ def test_batched_contains_and_gap_match_the_plain_answers():
     assert (legality._contains(box, pts, chunk=70) == box.contains(pts)).all()
     outside = pts[~box.contains(pts)]
     assert abs(legality._nearest_gap_m(box, outside, chunk=70) - box.nearest.on_surface(outside)[1].min()) < 1e-12
+
+
+def test_the_chamber_wall_is_measured_by_its_volume():
+    import trimesh as tm
+    # Metres: a body 60 mm long around a 52 mm bore at z = 31, as the machined half is.
+    body = tm.creation.box(bounds=[[0.0, 0.0, 0.002], [0.06, 0.03, 0.052]])
+    assert legality.t55_wall_fraction(body, rear_face_mm=60.0) > 0.999
+    # A flat cut through the outer part of the wall, thin enough to slip between probe points.
+    gouge = tm.creation.box(bounds=[[0.02, 0.0, 0.0425], [0.025, 0.03, 0.052]])
+    cut = tm.boolean.difference([body, gouge], engine="manifold")
+    assert legality.t55_wall_fraction(cut, rear_face_mm=60.0) < 0.999

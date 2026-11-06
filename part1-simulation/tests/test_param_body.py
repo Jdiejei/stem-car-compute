@@ -47,3 +47,15 @@ def test_tunnel_only_removes_material_under_the_floor_between_its_ends():
 def test_tunnel_bounds_respect_the_cutter():
     lo, hi = pb.BOUNDS["ft_w"]
     assert 2 * lo >= 6.25 - 1e-9
+
+
+def test_a_tunnel_keeps_its_height_at_any_skin():
+    import numpy as np
+    x, y = np.array([110.0]), np.array([5.0])
+    for skin in (0.0, 2.0, 4.0):
+        bp = pb.BodyParams(ft_h=3.0)
+        _, _, zb = pb._fuselage(bp, x, 30.0, 222.0)
+        floor = float(zb[0]) - skin
+        at = lambda z: float(pb.phi_mm(bp, x, y, np.array([z]), 30.0, 222.0, skin_mm=skin)[0])
+        assert at(floor + 2.0) > 0, f"inside the tunnel at skin {skin}"
+        assert at(floor + 4.0) < 0, f"foam above the tunnel at skin {skin}"

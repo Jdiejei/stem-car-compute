@@ -30,6 +30,14 @@ def _entry(margin: float, note: str = "") -> dict:
     return {"margin": float(margin), "pass": bool(margin >= -1e-6), "note": note}
 
 
+def _x_cylinder(r_m: float, x0_m: float, x1_m: float, z_m: float):
+    import trimesh
+    c = trimesh.creation.cylinder(radius=r_m, height=x1_m - x0_m, sections=96)
+    c.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [0, 1, 0]))
+    c.apply_translation([(x0_m + x1_m) / 2.0, 0.0, z_m])
+    return c
+
+
 def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = None,
                       bore_r_mm: float | None = None, axis_z_mm: float | None = None) -> float:
     """Fraction of probe points inside the body in the 3 mm annulus around the
@@ -39,6 +47,18 @@ def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = N
     depth_mm = MODEL_BLOCK_BORE_DEPTH_MM if depth_mm is None else depth_mm
     bore_r_mm = MODEL_BLOCK_BORE_DIA_MM / 2.0 if bore_r_mm is None else bore_r_mm
     axis_z_mm = CHAMBER_AXIS_Z_MM if axis_z_mm is None else axis_z_mm
+    # The wall's own volume when the body is a true solid. With points, one of 468 misread
+    # on one machine failed a good car (100 % here, 99.8 % there), and a real thin patch
+    # between the points would pass.
+    if body_half.is_volume:
+        import trimesh
+        x0, x1 = (rear_face_mm - depth_mm + 2.0) / 1e3, (rear_face_mm - 2.0) / 1e3
+        tube = trimesh.boolean.difference(
+            [_x_cylinder((bore_r_mm + 2.9) / 1e3, x0, x1, axis_z_mm / 1e3),
+             _x_cylinder((bore_r_mm + 1.0) / 1e3, x0 - 1e-3, x1 + 1e-3, axis_z_mm / 1e3)], engine="manifold")
+        right = trimesh.creation.box(bounds=[[x0 - 1e-3, 1e-5, 0.0], [x1 + 1e-3, 0.1, 0.1]])
+        tube = trimesh.boolean.intersection([tube, right], engine="manifold")
+        return _volume_in(body_half, tube) / abs(tube.volume)
     xs = np.linspace(rear_face_mm - depth_mm + 2.0, rear_face_mm - 2.0, 12)
     # From 1 mm outside the bore: the bore is a fixed air mask the optimiser
     # cannot touch, and on a 1 mm voxel STL its facets bulge ~0.5 mm at 45 deg

@@ -74,8 +74,8 @@ def all_settings() -> list:
 
 
 # ------------------------------------------------------------------- slopes
-def _phi(params: dict, P: np.ndarray, a: float, b: float) -> np.ndarray:
-    return pb().phi_mm(pb().BodyParams.from_dict(params), P[:, 0], np.abs(P[:, 1]), P[:, 2], a, b)
+def _phi(params: dict, P: np.ndarray, a: float, b: float, skin_mm: float = 0.0) -> np.ndarray:
+    return pb().phi_mm(pb().BodyParams.from_dict(params), P[:, 0], np.abs(P[:, 1]), P[:, 2], a, b, skin_mm=skin_mm)
 
 
 def _span(d: dict, name: str, h: float) -> tuple:
@@ -85,14 +85,15 @@ def _span(d: dict, name: str, h: float) -> tuple:
     return up, down
 
 
-def surface_speed(d: dict, name: str, P: np.ndarray, grad_norm: np.ndarray, a: float, b: float) -> np.ndarray:
+def surface_speed(d: dict, name: str, P: np.ndarray, grad_norm: np.ndarray, a: float, b: float,
+                  skin_mm: float = 0.0) -> np.ndarray:
     """Outward move of each surface point, mm per unit of this setting. phi is negative
     inside, so raising phi at a point pulls the surface in past it."""
     up, down = _span(d, name, 0.1 * pattern.step0(name))
     if up == down:
         return np.zeros(len(P))
-    dphi = (_phi(pattern.put(d, name, up)["params"], P, a, b)
-            - _phi(pattern.put(d, name, down)["params"], P, a, b)) / (up - down)
+    dphi = (_phi(pattern.put(d, name, up)["params"], P, a, b, skin_mm)
+            - _phi(pattern.put(d, name, down)["params"], P, a, b, skin_mm)) / (up - down)
     return -dphi / grad_norm
 
 
@@ -107,23 +108,23 @@ def body_slopes(d: dict, skin_mm: float, P: np.ndarray, s: np.ndarray, a: float,
     surface points P, plus "_skin": the same for growing the whole body by 1 mm."""
     eps = 0.1
     base = d["params"]
-    grad = np.stack([(_phi(base, P + e, a, b) - _phi(base, P - e, a, b)) / (2 * eps)
+    grad = np.stack([(_phi(base, P + e, a, b, skin_mm) - _phi(base, P - e, a, b, skin_mm)) / (2 * eps)
                      for e in np.eye(3) * eps], axis=1)
     grad_norm = np.maximum(np.linalg.norm(grad, axis=1), 0.2)
     # Only where the drawn shape IS the surface: masks, pockets and the chamber wall stay put.
-    active = np.abs(_phi(base, P, a, b) - skin_mm) < 1.0
+    active = np.abs(_phi(base, P, a, b, skin_mm)) < 1.0
     X, Y, Z = (g.ravel() for g in np.meshgrid(np.arange(a, b, 2.0), np.arange(0.0, 34.0, 2.0),
                                               np.arange(2.0, 52.0, 2.0), indexing="ij"))
     params = pb().BodyParams.from_dict(base)
 
     def field(p):
-        return pb().phi_mm(p, X, Y, Z, a, b) - skin_mm
+        return pb().phi_mm(p, X, Y, Z, a, b, skin_mm=skin_mm)
 
     out = {"_skin": {"dD": float((s * active).sum()),
                      "dV": (_soft_volume(field(params) - 0.5, 8.0) - _soft_volume(field(params) + 0.5, 8.0)),
                      "speed": 1.0}}
     for name in body_settings():
-        v = surface_speed(d, name, P, grad_norm, a, b) * active
+        v = surface_speed(d, name, P, grad_norm, a, b, skin_mm) * active
         up, down = _span(d, name, 0.5 * pattern.step0(name))
         dV = 0.0
         if up != down:
