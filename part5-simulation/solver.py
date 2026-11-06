@@ -50,7 +50,10 @@ HERE = Path(__file__).resolve().parent
 STATE = HERE / "search" / "solver_state.json"
 BATCH = HERE / "search" / "solver_batch.json"
 STEPS_MM = (0.5, 1.0, 2.0, 4.0)      # the typical surface move of one step
-NOISE_S = 5e-4                       # floor on a car's repeat noise (see pattern.py)
+# Floor on a car's noise. A repeat of one car gets the same mesh and agrees to 0.01 ms, which
+# says nothing. Measured at skins 0.01 mm apart: 1.5 ms standard deviation, 4.3 ms end to end
+# (start car, 6 CFD runs, 6 Nov 2026), as each new mesh lands differently on the body.
+NOISE_S = 1.5e-3
 MAX_ROUNDS = 25
 FOAM_G_CM3 = 0.163
 MIN_SCALE = 0.2                      # stop once steps are this small and still gain nothing

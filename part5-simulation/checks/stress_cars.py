@@ -196,7 +196,7 @@ def main() -> None:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(a.seed)
-    for i in range(a.n):
+    for i in range(a.n if a.only is None else a.only + 1):
         # From a few settings moved to all of them: failures from one setting alone
         # are easy to trace, and only all of them together reach the far corners.
         c = random_car(rng, rng.choice((0.05, 0.2, 0.5, 1.0)))

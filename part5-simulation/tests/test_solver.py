@@ -130,7 +130,7 @@ def test_a_chain_moves_only_on_a_gain_above_the_noise(tmp_state):
     _write_results(tmp_state / "r2", "steps", 0, tie)
     solver.advance(tmp_state / "r2")
     c = json.loads(solver.STATE.read_text())["chains"][0]
-    assert c["history"][-1]["accepted"] is None and c["scale"] == 0.5       # 0.5 ms is inside the noise
+    assert c["history"][-1]["accepted"] is None and c["scale"] == 0.5       # inside the noise
 
 
 def test_layout_survives_every_kind_of_setting_change():
