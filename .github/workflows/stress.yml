@@ -7,6 +7,9 @@ on:
     inputs:
       cars_per_machine:
         default: "10"
+      seed_base:
+        description: Added to each machine's seed. A new base gives cars never built before.
+        default: "0"
 
 permissions:
   contents: read
@@ -27,11 +30,12 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - name: Libraries the remesher needs
+        timeout-minutes: 10
         run: sudo apt-get update -q && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
       - run: pip install $PY_DEPS
       - name: Build random cars
         working-directory: part5-simulation
-        run: python -W ignore checks/stress_cars.py --seed ${{ matrix.seed }} --n ${{ inputs.cars_per_machine }} --out ../stress 2>&1 | grep --line-buffered -E '^car '
+        run: python -W ignore checks/stress_cars.py --seed $(( ${{ matrix.seed }} + ${{ inputs.seed_base }} )) --n ${{ inputs.cars_per_machine }} --out ../stress 2>&1 | grep --line-buffered -E '^car '
       - uses: actions/upload-artifact@v4
         if: always()
         with:
