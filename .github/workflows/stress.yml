@@ -1,0 +1,39 @@
+name: stress
+
+# Random cars across every setting's full range, no CFD: can Part 1 and Part 4
+# build whatever the solver asks for? Started by hand, one machine per seed.
+on:
+  workflow_dispatch:
+    inputs:
+      cars_per_machine:
+        default: "10"
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: pytest numpy scipy pandas trimesh scikit-image shapely rtree mapbox-earcut manifold3d fast_simplification jax jaxlib matplotlib pymeshlab
+
+jobs:
+  cars:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Libraries the remesher needs
+        run: sudo apt-get update -q && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: Build random cars
+        working-directory: part5-simulation
+        run: python -W ignore checks/stress_cars.py --seed ${{ matrix.seed }} --n ${{ inputs.cars_per_machine }} --out ../stress 2>&1 | grep -E '^car '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stress-${{ matrix.seed }}
+          path: stress/*.json
