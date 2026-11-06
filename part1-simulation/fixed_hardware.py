@@ -958,7 +958,9 @@ def halo_visibility_air_mask(halo_mask: "np.ndarray",
     k_halo = _np.flatnonzero(halo_mask.any(axis=(0, 1)))
     z_bottom_m = z_origin_m + k_halo[0] * dz_m
     z_cut_m = z_bottom_m + HALO_VISIBILITY_FILLET_MM / 1000.0
-    k_cut = int(_np.ceil((z_cut_m - z_origin_m) / dz_m))
+    # Half a cell low: the surface settles next to the last solid cell, and on grids where
+    # no cell falls on the cut it stood just above it (54 mm3 in view, at 0.3 mm).
+    k_cut = int(_np.ceil((z_cut_m - z_origin_m) / dz_m - 0.5))
     protected = halo_mask.copy()
     protected[:, :, :k_cut] = False           # bottom fillet band is exempt
     if not protected.any():

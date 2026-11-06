@@ -273,7 +273,9 @@ def pod_joint(part, body_half, channels: dict, keep_out=None) -> Joint | None:
         shell = lump - cavity
         # the window through both end walls: the cavity drawn in by the rim,
         # stretched along the car
-        inner = cavity.minkowski_difference(m3.Manifold.sphere(ch.get("rim_mm", 3.0) * 1e-3, 12))
+        # On a detailed cavity this step ran past 15 minutes (4 cars in 400). The window
+        # does not need the detail: it only has to leave the rim.
+        inner = cavity.simplify(3e-4).minkowski_difference(m3.Manifold.sphere(ch.get("rim_mm", 3.0) * 1e-3, 12))
         if not inner.is_empty():
             bb = cavity.bounding_box()
             cx = (bb[0] + bb[3]) / 2
@@ -563,7 +565,7 @@ def _bridge_pinches(mesh_mm, written):
     return _bool("union", [mesh_mm] + boxes)
 
 
-def _export_mm(mesh, path, fair: bool = False, bridged: bool = False) -> dict:
+def _export_mm(mesh, path, fair: bool = False, bridges_left: int = 3) -> dict:
     """Write one manufacturing STL in MILLIMETRES (what CAM and slicers assume)
     and report what the file holds once re-read. Booleans leave vertices closer
     together than an STL's 32-bit floats can tell apart, which tears the
@@ -604,11 +606,11 @@ def _export_mm(mesh, path, fair: bool = False, bridged: bool = False) -> dict:
         # A volume, not just watertight: closed with flipped faces cannot be measured.
         if back.is_volume:
             break
-    if not back.is_volume and not bridged:
-        whole = _bridge_pinches(m, back)
+    if not back.is_volume and bridges_left:
+        whole = _bridge_pinches(m, back)    # a bridge can leave a new pinch beside it
         if whole is not None:
             whole.apply_scale(1e-3)
-            return _export_mm(whole, path, fair, bridged=True)
+            return _export_mm(whole, path, fair, bridges_left - 1)
     return {"file": str(path), "closed": bool(back.is_volume),
             "pieces": len(back.split(only_watertight=False)),
             "file_cm3": abs(back.volume) / 1e3}
