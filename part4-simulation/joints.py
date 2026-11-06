@@ -548,7 +548,22 @@ def nose_shell(cone_half, wall_mm: float, x_ref_a_mm: float):
     return _bool("difference", [_bool("intersection", [outer, ahead]), cavity]), drain
 
 
-def _export_mm(mesh, path, fair: bool = False) -> dict:
+def _bridge_pinches(mesh_mm, written):
+    """Fill the lines where a solid touches itself. An edge with four faces on it is not
+    a solid in any STL, whatever the merge tolerance (a support's keel against its guide,
+    1 car in 180), so a box 0.1 mm past each such edge joins the two sides. None if the
+    file has no such edge: it is open for some other reason."""
+    import trimesh
+    edges, n = np.unique(written.edges_sorted, axis=0, return_counts=True)
+    bad = edges[n > 2]
+    if not len(bad):
+        return None
+    ends = written.vertices[bad]
+    boxes = [trimesh.creation.box(bounds=[e.min(axis=0) - 0.1, e.max(axis=0) + 0.1]) for e in ends]
+    return _bool("union", [mesh_mm] + boxes)
+
+
+def _export_mm(mesh, path, fair: bool = False, bridged: bool = False) -> dict:
     """Write one manufacturing STL in MILLIMETRES (what CAM and slicers assume)
     and report what the file holds once re-read. Booleans leave vertices closer
     together than an STL's 32-bit floats can tell apart, which tears the
@@ -582,11 +597,19 @@ def _export_mm(mesh, path, fair: bool = False) -> dict:
         if fair:                          # foam body only: printed parts stay exact
             import mesh_fairing
             tm = mesh_fairing.clean(tm)
+        if not tm.is_winding_consistent:    # the merge can flip faces next to a pinch
+            trimesh.repair.fix_normals(tm)
         tm.export(str(path))
         back = trimesh.load(str(path), force="mesh")
-        if back.is_watertight:
+        # A volume, not just watertight: closed with flipped faces cannot be measured.
+        if back.is_volume:
             break
-    return {"file": str(path), "closed": bool(back.is_watertight),
+    if not back.is_volume and not bridged:
+        whole = _bridge_pinches(m, back)
+        if whole is not None:
+            whole.apply_scale(1e-3)
+            return _export_mm(whole, path, fair, bridged=True)
+    return {"file": str(path), "closed": bool(back.is_volume),
             "pieces": len(back.split(only_watertight=False)),
             "file_cm3": abs(back.volume) / 1e3}
 

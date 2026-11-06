@@ -30,3 +30,15 @@ def test_solid_nose_weighs_its_volume():
     assert abs(m - abs(cone.volume) * 1010.0) < 1e-9              # PA12, 1.01 g/cm3
     shell, _ = ns.nose_mass_com(ns.NoseCone(wall_mm=0.8, material="PA12"), cone)
     assert shell < m
+
+
+def test_a_solid_touching_itself_along_a_line_is_written_closed(tmp_path):
+    import joints
+    # 1 m units in, as the joints work: two cubes (mm size) sharing exactly one edge.
+    a = trimesh.creation.box(bounds=[[0, 0, 0], [0.01, 0.01, 0.01]])
+    b = trimesh.creation.box(bounds=[[0.01, 0.01, 0], [0.02, 0.02, 0.01]])
+    two = trimesh.util.concatenate([a, b])
+    rep = joints._export_mm(two, tmp_path / "pinch.stl")
+    out = trimesh.load(str(tmp_path / "pinch.stl"), force="mesh")
+    assert rep["closed"] and out.is_volume
+    assert abs(rep["file_cm3"] - 2.0) < 0.01          # the bridge adds next to nothing
