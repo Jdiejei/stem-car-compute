@@ -356,6 +356,7 @@ def main(argv=None):
     S["mass"] = {k: v for k, v in ms.items() if not k.startswith("_")}
     S["manufactured"] = asm["joints"]["manufactured"]
     asm["cargo_placement"] = geom.landmarks.get("cargo_placement")
+    asm["grid_mm"] = a.cfd_mm
 
     log("3 LEGAL")
     chk = legality.check(str(out / "body_half.stl"), asm, S["mass"], S["body"]["field_bodies"],

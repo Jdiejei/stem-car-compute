@@ -126,7 +126,10 @@ def manufactured_checks(assembly: dict) -> dict:
         if place.get("flip"):
             a, b = b, a
         wedge = trimesh.creation.extrude_polygon(
-            Polygon([(x0, -a), (x0 + L_, -b), (x0 + L_, b), (x0, a)]), CARGO_HEIGHT_MM)
+            # Less one grid cell off the top: the surface between the last solid and
+            # the first pocket cell is drawn that far below the true pocket floor.
+            Polygon([(x0, -a), (x0 + L_, -b), (x0 + L_, b), (x0, a)]),
+            CARGO_HEIGHT_MM - assembly.get("grid_mm", 1.0))
         wedge.apply_translation([0.0, 0.0, z0])
         # The rule lets the cargo share space with the ballast container, nothing else.
         missing = abs(wedge.volume) - _volume_in(body, wedge) - ballast.capsule_volume_m3() * 1e9
