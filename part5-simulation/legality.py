@@ -47,6 +47,11 @@ def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = N
     depth_mm = MODEL_BLOCK_BORE_DEPTH_MM if depth_mm is None else depth_mm
     bore_r_mm = MODEL_BLOCK_BORE_DIA_MM / 2.0 if bore_r_mm is None else bore_r_mm
     axis_z_mm = CHAMBER_AXIS_Z_MM if axis_z_mm is None else axis_z_mm
+    if not body_half.is_volume:             # a zero-volume sliver sends a good car to the points
+        import trimesh
+        shells = [p for p in body_half.split(only_watertight=False) if p.is_volume]
+        if shells:
+            body_half = trimesh.util.concatenate(shells)
     # The wall's own volume when the body is a true solid. With points, one of 468 misread
     # on one machine failed a good car (100 % here, 99.8 % there), and a real thin patch
     # between the points would pass.

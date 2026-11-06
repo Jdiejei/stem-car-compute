@@ -64,3 +64,14 @@ def test_the_remesh_leaves_no_edge_over_the_limit(tmp_path):
     out = trimesh.load(str(tmp_path / "bar.stl"), force="mesh")
     assert rep["remeshed"] and out.is_volume and abs(out.volume - 960.0) < 1.0
     assert out.edges_unique_length.max() <= 8.0 and rep["max_edge_mm"] <= 8.0
+
+
+def test_a_sealed_void_is_filled_into_one_solid():
+    import joints
+    box = lambda a, b: trimesh.creation.box(bounds=[[a, a, a], [b, b, b]])
+    hollow = trimesh.boolean.difference([box(0.0, 10.0), box(2.0, 8.0)], engine="manifold")
+    assert abs(hollow.volume - 784.0) < 1e-6
+    full = joints._fill_voids(hollow)
+    assert full.is_volume and abs(full.volume - 1000.0) < 1e-6
+    assert len(full.split(only_watertight=False)) == 1
+    assert joints._fill_voids(box(0.0, 1.0)).volume == 1.0

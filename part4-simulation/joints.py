@@ -507,7 +507,7 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
         # The solid nose or the wing mount can cut the cone's cavity off from its drain
         # (up to 2.2 cm3, 6 cars in 780). Sealed, it holds powder the mass doesn't count,
         # so it is printed solid, and the file and the mass both say so.
-        solid = trimesh.util.concatenate(_solid_shells(_drop_dust(solid, 1e-9)))
+        solid = _fill_voids(_drop_dust(solid, 1e-9))
         made["printed_front_assembly"] = (solid, DENSITY_G_CM3["nose"], 1)
     for name, m in P.items():
         made[f"printed_{name}"] = (m, DENSITY_G_CM3.get(name, 1.24),
@@ -568,35 +568,23 @@ def nose_shell(cone_half, wall_mm: float, x_ref_a_mm: float):
     return _bool("difference", [_bool("intersection", [outer, ahead]), cavity]), drain
 
 
-def _repair_stl(path, written, cell_mm: float = 0.1):
-    """A file that will not close: hundreds of vertices of two surfaces under 5 um apart
-    (a support's keel on the body, 1 car in 130), which any STL welds into edges with four
-    or six faces. Bridging, deleting faces and splitting sheets all left it open, so its
-    surface is rebuilt on a 0.1 mm grid, which has no room for such a gap. Corners round by
-    about a cell, under what the print holds. Returns what the file now holds."""
-    import pymeshlab as ml
+def _bridge_pinches(mesh_mm, written):
+    """Fill the lines where a solid touches itself. An edge with four faces on it is not
+    a solid in any STL, whatever the merge tolerance, so a box 0.1 mm past each such edge
+    joins the two sides. None if the file has no such edge: it is open for some other
+    reason. This closes a part touching itself along a line. It does not close surfaces
+    lying under 5 um apart over a whole patch (some front supports, 1 car in 130)."""
     import trimesh
-    ms = ml.MeshSet()
-    ms.add_mesh(ml.Mesh(written.vertices, written.faces))
-    ms.apply_filter("generate_resampled_uniform_mesh", cellsize=ml.PureValue(cell_mm),
-                    offset=ml.PureValue(0.0), mergeclosevert=False, multisample=True)
-    o = ms.current_mesh()
-    fixed = trimesh.Trimesh(o.vertex_matrix(), o.face_matrix(), process=False)
-    fixed.remove_unreferenced_vertices()
-    fixed.merge_vertices()
-    if fixed.is_watertight and not fixed.is_winding_consistent:
-        trimesh.repair.fix_normals(fixed)
-    if fixed.volume < 0:
-        fixed.invert()
-    fixed.export(str(path))
-    again = trimesh.load(str(path), force="mesh")
-    if not again.is_volume or abs(again.volume - abs(written.volume)) > 0.005 * abs(written.volume):
-        written.export(str(path))
-        return written
-    return again
+    edges, n = np.unique(written.edges_sorted, axis=0, return_counts=True)
+    bad = edges[n > 2]
+    if not len(bad):
+        return None
+    ends = written.vertices[bad]
+    boxes = [trimesh.creation.box(bounds=[e.min(axis=0) - 0.1, e.max(axis=0) + 0.1]) for e in ends]
+    return _bool("union", [mesh_mm] + boxes)
 
 
-def _export_mm(mesh, path, fair: bool = False) -> dict:
+def _export_mm(mesh, path, fair: bool = False, bridges_left: int = 3) -> dict:
     """Write one manufacturing STL in MILLIMETRES (what CAM and slicers assume)
     and report what the file holds once re-read. Booleans leave vertices closer
     together than an STL's 32-bit floats can tell apart, which tears the
@@ -637,8 +625,11 @@ def _export_mm(mesh, path, fair: bool = False) -> dict:
         # A volume, not just watertight: closed with flipped faces cannot be measured.
         if back.is_volume:
             break
-    if not back.is_volume:
-        back = _repair_stl(path, back)
+    if not back.is_volume and bridges_left:
+        whole = _bridge_pinches(m, back)    # a bridge can leave a new pinch beside it
+        if whole is not None:
+            whole.apply_scale(1e-3)
+            return _export_mm(whole, path, fair, bridges_left - 1)
     return {"file": str(path), "closed": bool(back.is_volume),
             "pieces": len(back.split(only_watertight=False)),
             "file_cm3": abs(back.volume) / 1e3}
@@ -656,6 +647,22 @@ def _full(half, overlap_m: float = 1e-5):
     b.vertices[:, 1] *= -1
     b.invert()
     return _drop_dust(_bool("union", [a, b]), 1e-9)
+
+
+def _fill_voids(mesh):
+    """The mesh with its sealed voids filled, by a union with each void made solid and 0.2 %
+    larger, so that it overlaps the walls round it instead of only touching them."""
+    fills = []
+    for shell in mesh.split(only_watertight=False):
+        if shell.volume < 0 and shell.is_watertight:
+            fill = shell.copy()
+            fill.invert()
+            centre = fill.centroid.copy()
+            fill.apply_translation(-centre)
+            fill.apply_scale(1.002)
+            fill.apply_translation(centre)
+            fills.append(fill)
+    return _bool("union", [mesh] + fills) if fills else mesh
 
 
 def _solid_shells(mesh) -> list:
