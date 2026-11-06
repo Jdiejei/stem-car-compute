@@ -112,16 +112,23 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05) -> dict:
     import pymeshlab as ml
     import trimesh
     before = trimesh.load(str(path), force="mesh")
-    ms = ml.MeshSet()
-    ms.add_mesh(ml.Mesh(before.vertices, before.faces))
-    ms.apply_filter("meshing_isotropic_explicit_remeshing", iterations=6,
-                    targetlen=ml.PureValue(target_edge_mm), featuredeg=25.0, adaptive=False,
-                    checksurfdist=True, maxsurfdist=ml.PureValue(max_move_mm))
-    o = ms.current_mesh()
-    after = trimesh.Trimesh(o.vertex_matrix(), o.face_matrix(), process=False)
-    after.merge_vertices()
-    same = (after.is_volume and len(after.split(only_watertight=False)) == len(before.split(only_watertight=False))
-            and abs(abs(after.volume) - abs(before.volume)) <= 0.005 * abs(before.volume))
+    # The odd part comes out torn or flipped at one triangle size and clean at the next
+    # (1 car in 400), which is a false rejection if only one size is tried.
+    for target in (target_edge_mm, 1.25 * target_edge_mm, 0.8 * target_edge_mm):
+        ms = ml.MeshSet()
+        ms.add_mesh(ml.Mesh(before.vertices, before.faces))
+        ms.apply_filter("meshing_isotropic_explicit_remeshing", iterations=6,
+                        targetlen=ml.PureValue(target), featuredeg=25.0, adaptive=False,
+                        checksurfdist=True, maxsurfdist=ml.PureValue(max_move_mm))
+        o = ms.current_mesh()
+        after = trimesh.Trimesh(o.vertex_matrix(), o.face_matrix(), process=False)
+        after.merge_vertices()
+        if after.is_watertight and not after.is_winding_consistent:
+            trimesh.repair.fix_normals(after)
+        same = (after.is_volume and len(after.split(only_watertight=False)) == len(before.split(only_watertight=False))
+                and abs(abs(after.volume) - abs(before.volume)) <= 0.005 * abs(before.volume))
+        if same:
+            break
     if same:
         after.export(str(path))
     final = after if same else before
