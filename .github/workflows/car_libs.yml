@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         car: ["12 4", "1005 4", "2037 2"]
-        libs: ["manifold3d==3.5.2", "trimesh==4.12.2", "manifold3d==3.5.2 trimesh==4.12.2"]
+        libs: ["fast_simplification==0.1.13", "scipy==1.16.0", "numpy==2.3.0"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
