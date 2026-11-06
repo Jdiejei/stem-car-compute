@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+        seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,7 +31,7 @@ jobs:
       - run: pip install $PY_DEPS
       - name: Build random cars
         working-directory: part5-simulation
-        run: python -W ignore checks/stress_cars.py --seed ${{ matrix.seed }} --n ${{ inputs.cars_per_machine }} --out ../stress 2>&1 | grep -E '^car '
+        run: python -W ignore checks/stress_cars.py --seed ${{ matrix.seed }} --n ${{ inputs.cars_per_machine }} --out ../stress 2>&1 | grep --line-buffered -E '^car '
       - uses: actions/upload-artifact@v4
         if: always()
         with:

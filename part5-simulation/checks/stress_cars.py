@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing as mp
+import os
 import random
 import shutil
 import sys
@@ -30,6 +32,37 @@ import pattern  # noqa: E402
 SETTINGS = None     # set in main: needs Part 1 on the path
 FIXED_SKIN_MM = "2.5"
 IGNORED = {"T3.6_mass"}
+# A car normally takes 75-100 s and well under 8 GB. Past these it is stopped and reported:
+# machines 1, 3 and 8 died or hung round after round, taking all their cars' results along.
+CAR_LIMIT_S = 900
+CAR_LIMIT_GB = 12.0
+
+
+def _rss_gb(pid: int) -> float:
+    try:
+        return int(Path(f"/proc/{pid}/statm").read_text().split()[1]) * 4096 / 1e9
+    except (OSError, IndexError, ValueError):       # not Linux, or it has just ended
+        return 0.0
+
+
+def guarded(target, args: tuple, limit_s: float, limit_gb: float, poll_s: float = 1.0) -> tuple:
+    """Run target(*args) in its own process. ("ok" | "over time" | "over memory" | "died (exit N)", peak GB)."""
+    ctx = mp.get_context("fork" if hasattr(os, "fork") else "spawn")
+    p = ctx.Process(target=target, args=args)
+    p.start()
+    t0, peak, state = time.time(), 0.0, None
+    while p.is_alive():
+        peak = max(peak, _rss_gb(p.pid))
+        if peak > limit_gb:
+            state = "over memory"
+        elif time.time() - t0 > limit_s:
+            state = "over time"
+        if state:
+            p.kill()
+            p.join()
+            return state, round(peak, 2)
+        p.join(poll_s)
+    return ("ok" if p.exitcode == 0 else f"died (exit {p.exitcode})"), round(peak, 2)
 
 
 def random_car(rng: random.Random, share: float) -> dict:
@@ -84,6 +117,10 @@ def build_one(c: dict) -> dict:
     return row
 
 
+def _build_and_write(c: dict, path: Path) -> None:
+    path.write_text(json.dumps(build_one(c), indent=1, default=str))
+
+
 def summary(root: Path) -> dict:
     rows = [json.loads(p.read_text()) for p in root.rglob("car_*.json")]
     status = Counter(r["status"] for r in rows)
@@ -136,10 +173,18 @@ def main() -> None:
         # From a few settings moved to all of them: failures from one setting alone
         # are easy to trace, and only all of them together reach the far corners.
         c = random_car(rng, rng.choice((0.05, 0.2, 0.5, 1.0)))
-        row = build_one(c)
-        (out / f"car_{a.seed}_{i}.json").write_text(json.dumps(row, indent=1, default=str))
+        path = out / f"car_{a.seed}_{i}.json"
+        t0 = time.time()
+        state, peak = guarded(_build_and_write, (c, path), CAR_LIMIT_S, CAR_LIMIT_GB)
+        if state == "ok":
+            row = json.loads(path.read_text())
+        else:
+            row = {"moved": c["moved"], "car": c["car"], "layout": c.get("layout", {}), "status": "crash",
+                   "failed": [], "notes": {}, "error": f"stopped: {state}", "seconds": round(time.time() - t0, 1)}
+        row["peak_gb"] = peak
+        path.write_text(json.dumps(row, indent=1, default=str))
         print(f"car {a.seed}/{i}: {row['status']} {row.get('failed', row.get('error', ''))} "
-              f"({len(c['moved'])} moved, {row['seconds']} s)", flush=True)
+              f"({len(c['moved'])} moved, {row['seconds']} s, {peak} GB)", flush=True)
 
 
 if __name__ == "__main__":
