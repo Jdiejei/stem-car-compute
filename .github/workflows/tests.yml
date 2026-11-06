@@ -33,7 +33,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - name: Libraries the remesher needs
-        run: (for i in 1 2 3 4; do timeout 240 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
       - run: pip install $PY_DEPS
       - name: The remesh filter loads
         run: python -c "import pymeshlab as m; s=m.MeshSet(); s.create_cube(); s.apply_filter('meshing_isotropic_explicit_remeshing', iterations=1); print('remesher ok')"
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - name: Libraries the remesher needs
-        run: (for i in 1 2 3 4; do timeout 240 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
       - run: pip install $PY_DEPS
       - name: The remesh filter loads
         run: python -c "import pymeshlab as m; s=m.MeshSet(); s.create_cube(); s.apply_filter('meshing_isotropic_explicit_remeshing', iterations=1); print('remesher ok')"
