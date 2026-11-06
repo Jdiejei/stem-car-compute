@@ -601,9 +601,14 @@ def build_unified_geometry(
         # cargo_placement lets Stage 1 inject a COM-scored (position, flip);
         # None falls back to the geometric default (corridor-centre, wide-fwd).
         def _cargo_fits(x_start_m, flip):
-            cargo = build_virtual_cargo_solid_mask(
-                region.origin_m, region.shape, x_start_m,
-                max(mm_to_m(CARGO_Z_BASE_MM), region.origin_m[2]), flip=flip)
+            # A cell's clearance all round: the grid only proves the cells are clear, and
+            # the wedge's true corner can pass a rule zone between them (5-14 mm3, 4 cars
+            # in 170). Same heights as the wedge: its top is the pocket floor, not a clash.
+            z_base = max(mm_to_m(CARGO_Z_BASE_MM), region.origin_m[2])
+            exact = build_virtual_cargo_solid_mask(region.origin_m, region.shape, x_start_m, z_base, flip=flip)
+            cargo = build_virtual_cargo_solid_mask(region.origin_m, region.shape, x_start_m, z_base,
+                                                   flip=flip, grow_cells=1)
+            cargo[:, :, ~exact.any(axis=(0, 1))] = False
             eaten, requested = measure_cargo_erosion(
                 cargo, hard_air, region, bv.ref_plane_A_m, d_halo_mm)
             return requested > 0 and eaten / requested <= CARGO_MAX_ERODED_FRACTION

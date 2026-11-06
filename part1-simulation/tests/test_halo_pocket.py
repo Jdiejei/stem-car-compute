@@ -107,6 +107,23 @@ def test_exact_capsule_matches_the_ballast_volume_and_the_grid_slot_stays_inside
     _pass("test_exact_capsule_matches_the_ballast_volume_and_the_grid_slot_stays_inside_it")
 
 
+def test_machining_leaves_the_pocket_floor_flat():
+    import coarse                   # conftest restores the spacing afterwards
+    import param_body as pb
+    import unified_phi as up
+    coarse.use_spacing(1.0)
+    g = pb.build(130.0, 50.0, 43.72, pb.BodyParams(), skin_offset_mm=3.5)
+    r, d = g.region, up.GRID_SPACING_M
+    xs, zs = r.origin_m[0] + np.arange(r.shape[0]) * d, r.origin_m[2] + np.arange(r.shape[2]) * d
+    j = int(np.argmin(np.abs(r.origin_m[1] + np.arange(r.shape[1]) * d - 0.004)))
+    x0 = g.landmarks["ref_plane_A_m"] + 0.04372
+    for dx in (0.001, 0.002, 0.004, 0.008, 0.016, 0.048):
+        i = int(np.argmin(np.abs(xs - (x0 + dx))))
+        top = zs[np.where(g.phi.grid[i, j] < 0)[0].max()]
+        assert abs(top - 0.024) < d, f"{dx * 1e3} mm aft of the pocket's front: floor at {top * 1e3:.2f} mm"
+    _pass("test_machining_leaves_the_pocket_floor_flat")
+
+
 def test_d_halo_changes_bounding_volumes_end_to_end():
     """Two different d_halo values must produce different main_body voxel masks."""
     from bounding_volumes import compute_bounding_volumes, default_rule_envelope

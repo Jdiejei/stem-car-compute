@@ -32,8 +32,16 @@ PARTS = paths.PARTS
 MAX_BODY_FACES = 400_000
 
 
+def _peak_gb() -> str:
+    try:
+        import resource
+        return f" [peak {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6:.1f} GB]"
+    except ImportError:         # Windows
+        return ""
+
+
 def log(msg: str) -> None:
-    print(f"[run_car {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+    print(f"[run_car {time.strftime('%H:%M:%S')}] {msg}{_peak_gb()}", flush=True)
 
 
 # --------------------------------------------------------------------------- body

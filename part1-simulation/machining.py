@@ -84,7 +84,12 @@ def make_machinable(geom, tool_r_mm: float = TOOL_R_MM, max_iter: int = 4) -> di
     border[0, :, :] = border[-1, :, :] = True
     border[:, 0, :] = border[:, -1, :] = True
     border[:, :, 0] = border[:, :, -1] = True
-    Hm = H & ~drilled & ~border
+    # The halo pocket is cut to its exact size afterwards (Part 4 joints). Growing it here
+    # to clear its square corners dug the floor 3 mm down under the halo's front edge.
+    pocket = np.zeros_like(H)
+    if fh is not None and getattr(fh, "halo_void_mask", None) is not None:
+        pocket = fh.halo_void_mask.astype(bool)
+    Hm = H & ~drilled & ~border & ~pocket
     A = ~S | H
     grown = 0
     for _ in range(max_iter):

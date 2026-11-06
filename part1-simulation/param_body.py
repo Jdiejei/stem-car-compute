@@ -270,9 +270,11 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     a, b = -2.0, 4.0
     ga, gb = make(a), make(b)
     fa, fb = mass(ga) - target_body_kg, mass(gb) - target_body_kg
-    a0, fa0, ga0, b0, fb0, gb0 = a, fa, ga, b, fb, gb
-    tried = []
+    # Only the numbers are kept for the bisection, and the one best car: fourteen whole
+    # geometries in memory at a fine grid was too much for a 16 GB machine.
+    tried = [(a, fa), (b, fb)]
     best = min(((abs(fa), ga), (abs(fb), gb)), key=lambda t: t[0])
+    del ga, gb
     for _ in range(6):
         if abs(fb - fa) < 1e-9:
             break
@@ -284,12 +286,11 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         if abs(fc) < 5e-5:
             break
         a, fa, b, fb = b, fb, c, fc
-        tried.append((c, fc, gc))
+        tried.append((c, fc))
     # Bisection fallback: a skin that grows the body into a rule zone changes
     # the mass in steps, and the secant can stall there (0.21 g short with the
     # v2 CAD supports, 2026-09-28). Bisect between the closest evaluated skins
     # either side of the target.
-    tried += [(a0, fa0, ga0), (b0, fb0, gb0)]
     for _ in range(8):
         if best[0] < 5e-5:
             break
@@ -300,7 +301,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         c = 0.5 * (lo[0] + hi[0])
         gc = make(c)
         fc = mass(gc) - target_body_kg
-        tried.append((c, fc, gc))
+        tried.append((c, fc))
         if abs(fc) < best[0]:
             best = (abs(fc), gc)
     g = best[1]
