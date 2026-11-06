@@ -212,9 +212,9 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, body_half_stl: str,
         parts_mass["nose"] = ns.nose_mass_com(nose, nm["_full"])
 
     # -- rear wing ---------------------------------------------------------
-    rwm = wg.build_rear_wing(rear, x_front_mm, W_mm, body)
-    rparts = {k: rwm[k] for k in ("wing", "pylon")}
     forward = [body, halo] + sup
+    rwm = wg.build_rear_wing(rear, x_front_mm, W_mm, body, forward)
+    rparts = {k: rwm[k] for k in ("wing", "pylon")}
     gates.update(wg.rear_wing_gates(rear, rparts, x_front_mm, W_mm, body, forward))
     _export_half(trimesh.util.concatenate(list(rparts.values())), out / "rwing.stl")
     surfaces.append({"name": "rwing", "stl": str(out / "rwing.stl"), "rotating": None})

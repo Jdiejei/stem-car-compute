@@ -107,7 +107,7 @@ def _absent(volume_mm3: float, note: str) -> dict:
 
 
 def _visibility_checks(assembly: dict, solids: dict) -> dict:
-    """T4.4.2, T4.4.3, T7.10, T7.11, T8.8, measured on the files that get made (mm)."""
+    """T4.4.2, T4.4.3, T7.10, T7.11, T8.8, T9.7, measured on the files that get made (mm)."""
     import math
     import trimesh
     stl = {s["name"]: s["stl"] for s in assembly.get("extra_surfaces", [])}
@@ -169,16 +169,28 @@ def _visibility_checks(assembly: dict, solids: dict) -> dict:
             ahead["nose"] = half("nose")
         pts = trimesh.sample.sample_surface(wing, 3000, seed=2)[0]
         pts = pts[pts[:, 1] > nose_y + 0.5]
-        seen = len(pts)
-        if seen:
-            dirs = np.tile([-1.0, 0.0, 0.0], (seen, 1))
-            blocked = np.zeros(seen, bool)
-            for k, m in ahead.items():
-                blocked |= m.ray.intersects_any(pts + dirs * 1e-3, dirs)
-            r["T8.8_front_wing_seen_from_front"] = _entry(
-                0.0 if blocked.mean() <= 0.005 else -float(blocked.mean()),
-                f"{100 * blocked.mean():.1f} % of the wing outside the nose is hidden")
+        if len(pts):
+            r["T8.8_front_wing_seen_from_front"] = _hidden_from_front(pts, ahead, "the wing outside the nose")
+
+    # T9.7: the same, for the rear wing. The pylon under it is not the wing.
+    if "rwing" in stl:
+        wing = max(half("rwing").split(only_watertight=False), key=lambda s: s.extents[1])
+        ahead = {k: m for k, m in solids.items() if k != "printed_rwing"}
+        if "halo" in stl:
+            ahead["halo"] = half("halo")
+        pts = trimesh.sample.sample_surface(wing, 3000, seed=2)[0]
+        r["T9.7_rear_wing_seen_from_front"] = _hidden_from_front(pts, ahead, "the rear wing")
     return r
+
+
+def _hidden_from_front(pts, ahead: dict, what: str) -> dict:
+    """Points on a part, looking forward: how many have another part in the way."""
+    dirs = np.tile([-1.0, 0.0, 0.0], (len(pts), 1))
+    blocked = np.zeros(len(pts), bool)
+    for m in ahead.values():
+        blocked |= m.ray.intersects_any(pts + dirs * 1e-3, dirs)
+    return _entry(0.0 if blocked.mean() <= 0.005 else -float(blocked.mean()),
+                  f"{100 * blocked.mean():.1f} % of {what} is hidden")
 
 
 def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06):

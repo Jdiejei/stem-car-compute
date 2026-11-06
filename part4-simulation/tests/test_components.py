@@ -69,6 +69,20 @@ def test_rear_wing_clear_air_and_placement():
                                  body, [body])["T9.5.1_span"] < 0
 
 
+def test_rear_wing_rises_to_be_seen_over_what_is_ahead():
+    import trimesh
+    import wings
+    body = _body()
+    rw = wings.RearWing()
+    low = wings.build_rear_wing(rw, 46.0, 120.3, body)["wing"].bounds[0, 2] * 1e3
+    tall = trimesh.creation.box(bounds=[[0.03, 0.0, 0.0], [0.04, 0.005, (low + 3.0) / 1e3]])
+    m = wings.build_rear_wing(rw, 46.0, 120.3, body, [body, tall])
+    g = wings.rear_wing_gates(rw, {k: m[k] for k in ("wing", "pylon")}, 46.0, 120.3, body, [body, tall])
+    assert 0.0 < g["T9.7_front_view"] < 0.2
+    assert g["T9.6_clear_air_body"] > 3.0              # it rose; nothing else moved it
+    assert abs(m["pylon"].bounds[1, 2] * 1e3 - m["_z_chord_mm"]) < 1e-6
+
+
 def test_assembly_writes_patches_masses_and_passes_gates():
     import assembly
     import trimesh

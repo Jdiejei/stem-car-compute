@@ -239,8 +239,22 @@ def min_body_top_under(body_half_mesh, x0_mm, x1_mm, y1_mm, step_mm: float = 0.5
     return float(locs[:, 2].min() * 1e3) if len(locs) else 0.0
 
 
-def build_rear_wing(rw: RearWing, x_front_mm: float, W_mm: float, body_half_mesh) -> dict:
-    """Wing placed with T9.6 clear air above the body; pylon down to the body."""
+def _front_view_top(wing, forward_parts) -> float:
+    """Highest top (mm) of what stands ahead of the wing within its span."""
+    b = wing.bounds * 1e3
+    top = 0.0
+    for m in forward_parts:
+        mb = m.bounds * 1e3
+        if mb[0, 1] < b[1, 1] and mb[0, 0] < b[0, 0]:
+            top = max(top, mb[1, 2])
+    return top
+
+
+def build_rear_wing(rw: RearWing, x_front_mm: float, W_mm: float, body_half_mesh, forward_parts=()) -> dict:
+    """Wing placed with T9.6 clear air above the body and seen over what is ahead of it
+    (T9.7); pylon down to the body. On a low tail the chamber wall sets the height, which
+    put the wing's underside just under a tall front's 50.1 mm block ceiling and failed
+    T9.7 by under 0.1 mm (5 cars in 390)."""
     ref_b = cc.ref_plane_B(x_front_mm, W_mm)
     x_le = ref_b + rw.x_le_after_ref_b_mm
     t = rw.chord_mm * rw.t_frac
@@ -248,6 +262,10 @@ def build_rear_wing(rw: RearWing, x_front_mm: float, W_mm: float, body_half_mesh
     z_chord = top + cc.CLEAR_AIR + rw.clear_air_margin_mm + t / 2 + 0.5
     sec = naca4(rw.chord_mm, rw.t_frac, rw.camber)
     wing = extrude_section(sec, 0.0, rw.half_span_mm, x_le, z_chord, rw.aoa_deg)
+    lift = _front_view_top(wing, forward_parts) + 0.1 - wing.bounds[0, 2] * 1e3
+    if lift > 0:
+        z_chord += lift
+        wing = extrude_section(sec, 0.0, rw.half_span_mm, x_le, z_chord, rw.aoa_deg)
     xm = x_le + 0.5 * rw.chord_mm
     # Down to the body directly under the pylon (not the highest point under
     # the whole wing, which a parametric tail can sit well above), 2 mm in.
@@ -277,11 +295,7 @@ def rear_wing_gates(rw: RearWing, meshes: dict, x_front_mm: float, W_mm: float,
     _, d, _ = trimesh.proximity.closest_point(body_half_mesh, lower if len(lower) else pts)
     # T9.7 front view: nothing ahead of the wing may reach above its underside
     # within its span.
-    block = 0.0
-    for m in forward_parts:
-        mb = m.bounds * 1e3
-        if mb[0, 1] < b[1, 1] and mb[0, 0] < b[0, 0]:
-            block = max(block, mb[1, 2])
+    block = _front_view_top(wing, forward_parts)
     pb = meshes["pylon"].bounds * 1e3
     return {
         "T9.4.1_aft_of_ref_B": min(b[0, 0], pb[0, 0]) - ref_b,

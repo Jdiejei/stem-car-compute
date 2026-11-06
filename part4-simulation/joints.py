@@ -474,11 +474,8 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
             pieces = _solid_shells(u)
             made[f"printed_support_{tag}"] = (pieces[0], pa12, 1)
             if len(pieces) > 1:       # a guide the support does not reach is its own part
-                # Without its crumbs, as the file will be: counting them expected 4 pieces
-                # in a file of 2, which rejected a good car.
-                rest = _drop_crumbs(trimesh.util.concatenate(pieces[1:]))
-                made[f"printed_tether_{tag}"] = (rest, DENSITY_G_CM3["tethers"],
-                                                  len(rest.split(only_watertight=False)))
+                made[f"printed_tether_{tag}"] = (trimesh.util.concatenate(pieces[1:]),
+                                                  DENSITY_G_CM3["tethers"], None)
     for tag, path in assembly.get("info", {}).get("hubcap_stls", {}).items():
         cap = trimesh.load(path, force="mesh")           # right side; the left is its mirror
         left = cap.copy()
@@ -515,7 +512,10 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
         mb.export(report["machined_body_half_stl"])
         for k, (m, _rho, _n) in made.items():
             if k not in no_file:
-                report["manufactured"][k].update(_export_mm(m, out / f"{k}.stl", fair=(k == "machined_body")))
+                done = report["manufactured"][k]
+                done.update(_export_mm(m, out / f"{k}.stl", fair=(k == "machined_body")))
+                if done["pieces_expected"] is None:   # a loose guide is as many pieces as it is
+                    done["pieces_expected"] = done["pieces"]
         if assembly.get("wheel_design", {}).get("design") == "team_stl":
             # the team's wheels with the 6 mm bearing seat, in the STL's own frame (mm)
             import wheel as wh
@@ -558,18 +558,22 @@ def nose_shell(cone_half, wall_mm: float, x_ref_a_mm: float):
 
 
 def _bridge_pinches(mesh_mm, written):
-    """Fill the lines where a solid touches itself or tore. An edge with four faces on it,
-    or with one, is not a solid in any STL, whatever the merge tolerance (a support's keel
-    against its guide, 1 car in 180), so a box 0.1 mm past each such edge rejoins the
-    surface there. None if the file has no such edge."""
+    """Fill the lines where a solid touches itself. An edge with four faces on it is not
+    a solid in any STL, whatever the merge tolerance (a support's keel against its guide,
+    1 car in 130), so a thin rod along each such edge joins the two sides. Round, as a
+    box's flat faces and corners can land on the surface and leave a new pinch: a support
+    came out pinched after 3 boxes. None if the file has no such edge: it is open for
+    some other reason."""
     import trimesh
     edges, n = np.unique(written.edges_sorted, axis=0, return_counts=True)
-    bad = edges[n != 2]
+    bad = edges[n > 2]
     if not len(bad):
         return None
-    ends = written.vertices[bad]
-    boxes = [trimesh.creation.box(bounds=[e.min(axis=0) - 0.1, e.max(axis=0) + 0.1]) for e in ends]
-    return _bool("union", [mesh_mm] + boxes)
+    rods = []
+    for a, b in written.vertices[bad]:
+        past = 0.15 * (b - a) / max(np.linalg.norm(b - a), 1e-9)
+        rods.append(trimesh.creation.cylinder(radius=0.15, sections=12, segment=[a - past, b + past]))
+    return _bool("union", [mesh_mm] + rods)
 
 
 def _export_mm(mesh, path, fair: bool = False, bridges_left: int = 3) -> dict:

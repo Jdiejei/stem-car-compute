@@ -117,7 +117,7 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05, max_edge
     # edge survive at one size (10 mm against the 8 mm limit, 2 cars in 390): the first size
     # under the limit wins, or else the clean result with the shortest longest edge.
     best = None
-    for target in (target_edge_mm, 1.25 * target_edge_mm, 0.8 * target_edge_mm):
+    for target in (target_edge_mm, 1.25 * target_edge_mm, 0.8 * target_edge_mm, 0.6 * target_edge_mm):
         ms = ml.MeshSet()
         ms.add_mesh(ml.Mesh(before.vertices, before.faces))
         ms.apply_filter("meshing_isotropic_explicit_remeshing", iterations=6,
