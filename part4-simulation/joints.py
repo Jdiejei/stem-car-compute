@@ -568,30 +568,29 @@ def nose_shell(cone_half, wall_mm: float, x_ref_a_mm: float):
     return _bool("difference", [_bool("intersection", [outer, ahead]), cavity]), drain
 
 
-def _repair_stl(path, written, gap_mm: float = 0.03):
-    """A file where a solid touches itself along a line: an edge with four faces on it is
-    not a solid in any STL, whatever the merge tolerance (a support's keel against its
-    guide, 1 car in 130). The two sheets are split apart and each drawn gap_mm into its own
-    material, far below what any machine here can make. Bridging them with added boxes or
-    rods left more bad edges than it fixed (1-5 became 12-44 on 3 cars), and deleting the
-    faces and closing the hole only rebuilds the same edge. Returns what the file now holds."""
+def _repair_stl(path, written, cell_mm: float = 0.1):
+    """A file that will not close: hundreds of vertices of two surfaces under 5 um apart
+    (a support's keel on the body, 1 car in 130), which any STL welds into edges with four
+    or six faces. Bridging, deleting faces and splitting sheets all left it open, so its
+    surface is rebuilt on a 0.1 mm grid, which has no room for such a gap. Corners round by
+    about a cell, under what the print holds. Returns what the file now holds."""
     import pymeshlab as ml
     import trimesh
     ms = ml.MeshSet()
     ms.add_mesh(ml.Mesh(written.vertices, written.faces))
-    ms.apply_filter("meshing_repair_non_manifold_edges", method="Split Vertices")
-    ms.apply_filter("meshing_repair_non_manifold_vertices")
+    ms.apply_filter("generate_resampled_uniform_mesh", cellsize=ml.PureValue(cell_mm),
+                    offset=ml.PureValue(0.0), mergeclosevert=False, multisample=True)
     o = ms.current_mesh()
     fixed = trimesh.Trimesh(o.vertex_matrix(), o.face_matrix(), process=False)
-    fixed.remove_unreferenced_vertices()      # the split leaves the old ones behind
-    _, inverse, counts = np.unique(fixed.vertices, axis=0, return_inverse=True, return_counts=True)
-    twins = counts[inverse.ravel()] > 1
-    V = fixed.vertices.copy()
-    V[twins] -= gap_mm * fixed.vertex_normals[twins]
-    fixed = trimesh.Trimesh(V, fixed.faces, process=False)
+    fixed.remove_unreferenced_vertices()
+    fixed.merge_vertices()
+    if fixed.is_watertight and not fixed.is_winding_consistent:
+        trimesh.repair.fix_normals(fixed)
+    if fixed.volume < 0:
+        fixed.invert()
     fixed.export(str(path))
     again = trimesh.load(str(path), force="mesh")
-    if not again.is_volume or abs(abs(again.volume) - abs(written.volume)) > 0.005 * abs(written.volume):
+    if not again.is_volume or abs(again.volume - abs(written.volume)) > 0.005 * abs(written.volume):
         written.export(str(path))
         return written
     return again
