@@ -53,9 +53,10 @@ class BodyParams:
     ft_x0: float = 50.0
     ft_x1: float = 170.0
     ft_ramp: float = 25.0
-    # sculpt modes: strengths (mm, + grows) of smooth bumps at MODE_U x
-    # MODE_ANG_DEG around the section, mirrored left/right.
-    modes: tuple = (0.0,) * 32
+    # sculpt modes: strengths (mm, + grows) of smooth bumps, mirrored left/right:
+    # the first 32 on the fuselage (MODE_U x MODE_ANG_DEG), the rest on the sidepods
+    # (SIDE_MODE_U x SIDE_MODE_ANG_DEG). A shorter list leaves the rest at zero.
+    modes: tuple = (0.0,) * 56
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -78,7 +79,12 @@ _RETIRED = frozenset(("nose_len", "n_b", "n_zt", "n_zb", "x_max_frac", "m_b", "m
 STATIONS_U = (0.0, 0.08, 0.2, 0.35, 0.5, 0.65, 0.82, 1.0)
 MODE_U = (0.06, 0.18, 0.3, 0.42, 0.54, 0.66, 0.78, 0.9)
 MODE_ANG_DEG = (15.0, 60.0, 120.0, 165.0)      # from the top, down the side
-N_MODES = len(MODE_U) * len(MODE_ANG_DEG)      # 32
+# On the sidepods too: most of the drag is in the wheels, and the flow onto and off
+# them is shaped here. With fuselage modes only, these surfaces had 8 numbers.
+SIDE_MODE_U = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)   # along s_x0..s_x1
+SIDE_MODE_ANG_DEG = (20.0, 60.0, 100.0, 150.0)  # from the top, down the side
+N_FUSELAGE_MODES = len(MODE_U) * len(MODE_ANG_DEG)      # 32
+N_MODES = N_FUSELAGE_MODES + len(SIDE_MODE_U) * len(SIDE_MODE_ANG_DEG)   # 56
 MODE_SIGMA_MM = 7.0
 
 
@@ -176,6 +182,17 @@ def mode_centres(bp, x_ref_a: float, x_rear: float) -> np.ndarray:
             t = np.radians(ang)
             y = b[i] * abs(np.sin(t)) ** (2 / bp.p)
             z = zc[i] + h[i] * np.sign(np.cos(t)) * abs(np.cos(t)) ** (2 / bp.p)
+            out.append((x, y, z))
+    zc_s, h_s = 0.5 * (bp.s_zt + bp.s_zb), 0.5 * (bp.s_zt - bp.s_zb)
+    for u in SIDE_MODE_U:
+        x = bp.s_x0 + u * (bp.s_x1 - bp.s_x0)
+        ts = max(bp.s_taper, 1e-3)
+        w = np.sin(0.5 * np.pi * min(np.clip((x - bp.s_x0) / ts, 0, 1), np.clip((bp.s_x1 - x) / ts, 0, 1)))
+        w = max(float(w), 0.5)            # the ends still have a nose and a tail to shape
+        for ang in SIDE_MODE_ANG_DEG:
+            t = np.radians(ang)
+            y = bp.s_b * w * abs(np.sin(t)) ** (2 / bp.s_p)
+            z = zc_s + h_s * np.sign(np.cos(t)) * abs(np.cos(t)) ** (2 / bp.s_p)
             out.append((x, y, z))
     return np.array(out)
 

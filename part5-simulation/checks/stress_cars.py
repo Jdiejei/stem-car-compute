@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pattern  # noqa: E402
 
-SETTINGS = (pattern.LOFT + [f"mode{i}" for i in range(32)] + list(pattern.FLOOR) + list(pattern.PARTS))
+SETTINGS = None     # set in main: needs Part 1 on the path
 FIXED_SKIN_MM = "2.5"
 IGNORED = {"T3.6_mass"}
 
@@ -43,7 +43,16 @@ def random_car(rng: random.Random, share: float) -> dict:
             value = rng.uniform(lo, hi)
             d = pattern.put(d, name, value)
             moved[name] = value
-    return {"car": d, "moved": moved}
+    # The car's layout as well: the solver has to be free to choose these too.
+    layout = {}
+    if rng.random() < share:
+        layout["W"] = rng.uniform(120.3, 140.0)
+    if rng.random() < share:
+        layout["x_front"] = rng.uniform(46.0, 56.0)
+    if rng.random() < share:
+        layout["d_halo"] = rng.uniform(25.0, 75.0)
+    moved.update(layout)
+    return {"car": d, "moved": moved, "layout": layout}
 
 
 def build_one(c: dict) -> dict:
@@ -51,11 +60,14 @@ def build_one(c: dict) -> dict:
     out = Path(tempfile.mkdtemp())
     args = ["--out", str(out), "--skin-mm", FIXED_SKIN_MM, "--support", "beam",
             "--body-json", json.dumps(c["car"]["params"])]
+    for key, flag in (("W", "--W"), ("x_front", "--x-front"), ("d_halo", "--d-halo")):
+        if key in c.get("layout", {}):
+            args += [flag, str(c["layout"][key])]
     for part, flag in pattern.PART_FLAGS.items():
         if c["car"]["parts"].get(part):
             args += [flag, json.dumps(c["car"]["parts"][part])]
     t0 = time.time()
-    row = {"moved": c["moved"], "car": c["car"]}
+    row = {"moved": c["moved"], "car": c["car"], "layout": c.get("layout", {})}
     try:
         S = rc.main(args)
         row["failed"] = [k for k in S["legality"]["summary"]["failed"] if k not in IGNORED]
@@ -113,6 +125,10 @@ def main() -> None:
     if a.summary:
         summary(Path(a.summary))
         return
+    global SETTINGS
+    import param_body as pb
+    SETTINGS = (pattern.LOFT + [f"mode{i}" for i in range(pb.N_MODES)] + list(pattern.FLOOR)
+                + list(pattern.PARTS))
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(a.seed)

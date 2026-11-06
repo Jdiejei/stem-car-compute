@@ -12,7 +12,7 @@ A round has two batches, each one GitHub Actions run (.github/workflows/pattern.
            at +step and -step. The skin is held at the current car's value so a
            job is one build + one CFD; cars are compared by race time at exactly
            the 48.2 g target (run_car's T_at_target_s), not at the few-tenths-
-           of-a-gram they happen to weigh. Groups alternate: the 32 sculpt modes,
+           of-a-gram they happen to weigh. Groups alternate: the 56 sculpt modes,
            then the loft (8 stations x b/zt/zb, sidepods, squareness, blend).
   confirm  candidates re-sized to 48.2 g (full mass loop): all winners together,
            the better half, the top 4, the current car again, and the current car
