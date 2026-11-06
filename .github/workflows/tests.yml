@@ -1,0 +1,102 @@
+name: tests
+
+# All five parts' tests and whole cars, split across parallel machines.
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: pytest numpy scipy pandas trimesh scikit-image shapely rtree mapbox-earcut manifold3d fast_simplification jax jaxlib matplotlib
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # Part 1 is the slow suite, so it is shared between four machines.
+        include:
+          - { part: part1-simulation, shard: 0, of: 4 }
+          - { part: part1-simulation, shard: 1, of: 4 }
+          - { part: part1-simulation, shard: 2, of: 4 }
+          - { part: part1-simulation, shard: 3, of: 4 }
+          - { part: part2-simulation, shard: 0, of: 1 }
+          - { part: part3-simulation, shard: 0, of: 1 }
+          - { part: part4-simulation, shard: 0, of: 1 }
+          - { part: part5-simulation, shard: 0, of: 1 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install $PY_DEPS
+      - name: pytest
+        working-directory: ${{ matrix.part }}
+        env:
+          PART2_PATH: ${{ github.workspace }}/part2-simulation
+        run: |
+          files=$(ls tests/test_*.py | awk -v s=${{ matrix.shard }} -v n=${{ matrix.of }} 'NR % n == s')
+          python -m pytest $files -q -p no:cacheprovider --tb=short -W ignore
+
+  car:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: start, args: "--body-json '{}'" }
+          - { id: round2, args: "--body-json \"$(cat checks/round2_car.json)\"" }
+          - { id: parts, args: "--body-json \"$(cat checks/round2_car.json)\" --fwing-json '{\"aoa_deg\": 8.0}' --support-json '{\"disc_front\": true}' --nose-json '{\"length_mm\": 25.0, \"wall_mm\": 99.0}'" }
+          - { id: start_cfd, cfd: true, args: "--body-json '{}' --cfd --res medium --np 4" }
+    env:
+      OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install $PY_DEPS
+      - name: Install ESI OpenFOAM v2412
+        if: ${{ matrix.cfd }}
+        run: |
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y openfoam2412-default
+      - name: Build the car
+        working-directory: part5-simulation
+        run: |
+          set -o pipefail
+          mkdir -p ../out
+          python run_car.py --out ../out/${{ matrix.id }} ${{ matrix.args }} 2>&1 | tee ../out/${{ matrix.id }}.log
+      - name: Rule checks
+        if: always()
+        run: |
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("out/${{ matrix.id }}/summary.json")
+          if not p.exists():
+              print("No summary: the build did not finish.")
+              raise SystemExit
+          S = json.loads(p.read_text())
+          L = S["legality"]
+          print(f"## ${{ matrix.id }}\n\n{L['summary']['n_checks']} checks, {L['summary']['n_failed']} failed. "
+                f"Mass as manufactured {S['mass'].get('manufactured_mass_g', 0):.2f} g.\n")
+          print("| rule | margin | pass | note |\n|---|---|---|---|")
+          for k, v in sorted(L["checks"].items(), key=lambda kv: (kv[1]["pass"], kv[0])):
+              print(f"| {k} | {v['margin']:+.3f} | {'yes' if v['pass'] else '**NO**'} | {v['note']} |")
+          EOF
+      - name: Fail if any rule check failed
+        run: |
+          python -c "import json,sys; S=json.load(open('out/${{ matrix.id }}/summary.json')); sys.exit(S['legality']['summary']['n_failed'] > 0)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: car-${{ matrix.id }}
+          path: |
+            out/*.log
+            out/${{ matrix.id }}/*.md
+            out/${{ matrix.id }}/*.json
+            out/${{ matrix.id }}/manufacture/*.stl

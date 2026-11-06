@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+*.log
+
+# Generated candidate/simulation artifacts (Part 2/3 pipeline outputs)
+candidates/
+*.stl
+*.npy
+cfd_case_*/
+*.foam
+
+# OpenFOAM run directories (generated locally, never committed)
+cfd_case_template/runs/
