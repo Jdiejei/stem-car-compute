@@ -496,7 +496,11 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
             if solid.bounds[1, 0] > x_cut:
                 solid = _bool("intersection", [solid, trimesh.creation.box(
                     bounds=[[-1.0, -1.0, -1.0], [x_cut, 1.0, 1.0]])])
-        made["printed_front_assembly"] = (_drop_dust(solid, 1e-9), DENSITY_G_CM3["nose"], 1)
+        # The solid nose or the wing mount can cut the cone's cavity off from its drain
+        # (up to 2.2 cm3, 6 cars in 780). Sealed, it holds powder the mass doesn't count,
+        # so it is printed solid, and the file and the mass both say so.
+        solid = trimesh.util.concatenate(_solid_shells(_drop_dust(solid, 1e-9)))
+        made["printed_front_assembly"] = (solid, DENSITY_G_CM3["nose"], 1)
     for name, m in P.items():
         made[f"printed_{name}"] = (m, DENSITY_G_CM3.get(name, 1.24),
                                    2 if name == "tethers" else 1)
@@ -554,13 +558,13 @@ def nose_shell(cone_half, wall_mm: float, x_ref_a_mm: float):
 
 
 def _bridge_pinches(mesh_mm, written):
-    """Fill the lines where a solid touches itself. An edge with four faces on it is not
-    a solid in any STL, whatever the merge tolerance (a support's keel against its guide,
-    1 car in 180), so a box 0.1 mm past each such edge joins the two sides. None if the
-    file has no such edge: it is open for some other reason."""
+    """Fill the lines where a solid touches itself or tore. An edge with four faces on it,
+    or with one, is not a solid in any STL, whatever the merge tolerance (a support's keel
+    against its guide, 1 car in 180), so a box 0.1 mm past each such edge rejoins the
+    surface there. None if the file has no such edge."""
     import trimesh
     edges, n = np.unique(written.edges_sorted, axis=0, return_counts=True)
-    bad = edges[n > 2]
+    bad = edges[n != 2]
     if not len(bad):
         return None
     ends = written.vertices[bad]
