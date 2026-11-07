@@ -141,9 +141,13 @@ def _visibility_checks(assembly: dict, solids: dict) -> dict:
         # tall, and 0.6 mm triangles round that step off (6 mm3 in a 150 mm rim failed a good
         # car), so the outer 0.5 mm is not counted: far under what the 6.25 mm cutter can see.
         rim = 0.5
-        r["T4.4.3_halo_seen_from_top"] = report(in_box((x0 + rim, -hy + rim, b[0, 2]), (x1 - rim, hy - rim, 150.0)))
+        # Nor the floor's own top 0.3 mm: the final remesh left a 0.2 mm skin over the whole
+        # floor of one car (9.2 mm3, z 24.0-24.2). The halo just sits on it, inside T4.4.4's
+        # +-1 mm, and nothing stands over the halo.
+        skin = 0.3
+        r["T4.4.3_halo_seen_from_top"] = report(in_box((x0 + rim, -hy + rim, b[0, 2] + skin), (x1 - rim, hy - rim, 150.0)))
         if not r["T4.4.3_halo_seen_from_top"]["pass"]:      # where, so a fault can be traced
-            top = trimesh.creation.box(bounds=[(x0 + rim, -hy + rim, b[0, 2]), (x1 - rim, hy - rim, 150.0)])
+            top = trimesh.creation.box(bounds=[(x0 + rim, -hy + rim, b[0, 2] + skin), (x1 - rim, hy - rim, 150.0)])
             where = [f"{k} in {np.round(i.bounds, 1).tolist()}" for k, m in solids.items()
                      if (i := trimesh.boolean.intersection([m, top], engine="manifold")) is not None and not i.is_empty]
             r["T4.4.3_halo_seen_from_top"]["note"] += f"; halo x {x0:.1f}-{x1:.1f} y +-{hy:.1f} base {b[0, 2]:.2f}; " + "; ".join(where)
