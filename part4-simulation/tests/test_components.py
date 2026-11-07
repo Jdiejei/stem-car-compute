@@ -40,7 +40,6 @@ def test_front_wing_gates_pass_at_default_and_fail_past_bounds():
     assert min(g.values()) >= 0, {k: v for k, v in g.items() if v < 0}
     for bad, key in ((wings.FrontWing(chord_mm=14.0), "T8.6.2_chord_min"),
                      (wings.FrontWing(t_frac=0.08), "T8.6.3_thick_min"),
-                     (wings.FrontWing(z_chord_mm=19.0), "T8.5.2_height_outboard"),
                      (wings.FrontWing(gap_to_wheel_mm=4.0), "T7.9.1_zone_ahead_of_wheel"),
                      (wings.FrontWing(half_span_mm=24.0), "T8.6.1_span")):
         gb = wings.front_wing_gates(bad, wings.build_front_wing(bad, 46.0, 14.05), 46.0, 14.05)
@@ -48,6 +47,9 @@ def test_front_wing_gates_pass_at_default_and_fail_past_bounds():
     low = wings.FrontWing(z_chord_mm=5.0, aoa_deg=14.0)   # built too low: raised just clear of the track
     gl = wings.front_wing_gates(low, wings.build_front_wing(low, 46.0, 14.05), 46.0, 14.05)
     assert 0 <= gl["T8.7_clear_air_track"] < 0.2, gl["T8.7_clear_air_track"]
+    high = wings.FrontWing(z_chord_mm=19.0)                # built too high: lowered under 20 mm
+    gh = wings.front_wing_gates(high, wings.build_front_wing(high, 46.0, 14.05), 46.0, 14.05)
+    assert 0 <= gh["T8.5.2_height_outboard"] < 0.2 and gh["T8.7_clear_air_track"] >= 0, gh
     # T8.6.2 chord is measured along the track: a steep single element measures under 15 mm.
     steep = wings.FrontWing(flap_chord_mm=0.0, aoa_deg=30.0, z_chord_mm=10.0)
     gs = wings.front_wing_gates(steep, wings.build_front_wing(steep, 46.0, 14.05), 46.0, 14.05)

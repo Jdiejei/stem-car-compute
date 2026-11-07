@@ -135,10 +135,17 @@ def build_front_wing(fw: FrontWing, x_front_mm: float, R_mm: float,
                                z_te + t / 2 + fw.flap_gap_mm + t2 / 2, fw.flap_aoa_deg)
         out["wing"] = trimesh.util.concatenate([out["wing"], flap])
     # A low, nose-down wing would sit under T8.7's 5 mm to the track: raise it just clear,
-    # as the rear wing is raised. T8.5.2's height cap still judges the result.
-    lift = cc.CLEAR_AIR + 0.05 - out["wing"].bounds[0, 2] * 1e3
-    if lift > 1e-6:
-        return build_front_wing(replace(fw, z_chord_mm=fw.z_chord_mm + lift), x_front_mm, R_mm, body_half_mesh)
+    # as the rear wing is raised. A high, steep one over T8.5.2's 20 mm (the whole wing is
+    # outboard of 15 mm somewhere): lower it, as far as the 5 mm allows. A wing taller than
+    # the 15 mm between them is left for the gates to reject.
+    zb, zt = out["wing"].bounds[:, 2] * 1e3
+    shift = 0.0
+    if zb < cc.CLEAR_AIR + 0.05:
+        shift = cc.CLEAR_AIR + 0.05 - zb
+    elif zt > cc.FRONT_WING_Z_MAX_OUTBOARD - 0.05:
+        shift = -min(zt - (cc.FRONT_WING_Z_MAX_OUTBOARD - 0.05), zb - (cc.CLEAR_AIR + 0.05))
+    if abs(shift) > 1e-6:
+        return build_front_wing(replace(fw, z_chord_mm=fw.z_chord_mm + shift), x_front_mm, R_mm, body_half_mesh)
     # Mount: from 30 % chord back to 1 mm past Ref A (so it bonds to the body),
     # half-thickness in y, from inside the wing to 4 mm above it.
     z0, z1 = fw.z_chord_mm - 0.25 * t, fw.z_chord_mm + t / 2 + 4.0

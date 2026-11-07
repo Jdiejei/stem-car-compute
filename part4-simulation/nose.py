@@ -43,7 +43,9 @@ def body_section(body_half_mesh, x_mm: float) -> tuple:
     """(half-width, z_low, z_high) of the body at station x, mm."""
     s = body_half_mesh.section(plane_origin=[x_mm / 1e3, 0, 0], plane_normal=[1, 0, 0])
     if s is None:
-        raise ValueError(f"illegal car: the body does not reach x = {x_mm:.1f} mm, so the nose has nothing to join")
+        b = body_half_mesh.bounds * 1e3
+        raise ValueError(f"illegal car: the body does not reach x = {x_mm:.1f} mm, so the nose has nothing to join "
+                         f"(body x {b[0, 0]:.1f}-{b[1, 0]:.1f}, {len(body_half_mesh.split(only_watertight=False))} pieces)")
     v = s.vertices * 1e3
     return float(v[:, 1].max()), float(v[:, 2].min()), float(v[:, 2].max())
 
