@@ -27,7 +27,7 @@ to the old 16 mm one on its own, but the old one cancels the flap's gain
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 import math
 
 import numpy as np
@@ -134,6 +134,11 @@ def build_front_wing(fw: FrontWing, x_front_mm: float, R_mm: float,
                                x_le + fw.chord_mm - fw.flap_overlap_mm,
                                z_te + t / 2 + fw.flap_gap_mm + t2 / 2, fw.flap_aoa_deg)
         out["wing"] = trimesh.util.concatenate([out["wing"], flap])
+    # A low, nose-down wing would sit under T8.7's 5 mm to the track: raise it just clear,
+    # as the rear wing is raised. T8.5.2's height cap still judges the result.
+    lift = cc.CLEAR_AIR + 0.05 - out["wing"].bounds[0, 2] * 1e3
+    if lift > 1e-6:
+        return build_front_wing(replace(fw, z_chord_mm=fw.z_chord_mm + lift), x_front_mm, R_mm, body_half_mesh)
     # Mount: from 30 % chord back to 1 mm past Ref A (so it bonds to the body),
     # half-thickness in y, from inside the wing to 4 mm above it.
     z0, z1 = fw.z_chord_mm - 0.25 * t, fw.z_chord_mm + t / 2 + 4.0
