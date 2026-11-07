@@ -503,7 +503,14 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
         r[f"attached_{name}"] = _entry(0.3 - gap, f"closest {gap:.2f} mm to the body")
 
     # T5.5 chamber wall (probe points inside the body).
-    probe_body = trimesh.load(machined_stl, force="mesh") if machined_stl else body
+    # Measured on the file that is milled (mm, both halves) where there is one: the half-body
+    # copy read 0 % on a car whose milled file has the full 3 mm wall (31015/8, 1 in 400).
+    made = (assembly.get("joints", {}).get("manufactured", {}).get("machined_body") or {}).get("file")
+    if made:
+        probe_body = trimesh.load(made, force="mesh")
+        probe_body.apply_scale(1e-3)
+    else:
+        probe_body = trimesh.load(machined_stl, force="mesh") if machined_stl else body
     frac = t55_wall_fraction(probe_body, rear_face_mm=W + xf + 16.0 + 40.0)
     r["T5.5_wall"] = _entry(0.0 if frac >= 0.999 else -(1 - frac) * REGS["T5.5_wall"],
                             f"{100*frac:.1f}% of the 3 mm annulus is solid")
