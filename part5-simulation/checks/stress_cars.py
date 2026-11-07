@@ -132,6 +132,8 @@ def _describe(c: dict) -> None:
             args += [flag, json.dumps(c["car"]["parts"][part])]
     S = rc.main(args)
     print("car failed:", S["legality"]["summary"]["failed"], flush=True)
+    for k in S["legality"]["summary"]["failed"]:
+        print(f"car   {k}: {S['legality']['checks'].get(k, {}).get('note')}", flush=True)
     for k, v in S["manufactured"].items():
         if "file" in v:
             m = trimesh.load(v["file"], force="mesh")

@@ -258,9 +258,25 @@ def _visibility_checks(assembly: dict, solids: dict) -> dict:
 
         side = on_body(np.arange(lo[0] - 45.0, hi[0] + 45.0, 1.0), [hi[1] + 50.0], np.arange(0.5, 65.0, 1.0), (0, -1, 0),
                        allowed=car_i)
-        r["T4.6_logo_decal_room"] = _entry(0.0 if fits(side, 31, 16) else -1.0,
-                                           "30 x 15 mm decal fits on the side" if fits(side, 31, 16)
-                                           else "no 30 x 15 mm patch of the car seen from the side")
+        def tallest(grid, w):          # tallest all-good run of rows across any w columns
+            if grid.shape[0] < w:
+                return 0
+            col = np.lib.stride_tricks.sliding_window_view(grid, w, axis=0).all(axis=-1)   # (nx-w+1, nz)
+            best = 0
+            for c in col:
+                run = 0
+                for v in c:
+                    run = run + 1 if v else 0
+                    best = max(best, run)
+            return best
+
+        ok46 = fits(side, 31, 16)
+        r["T4.6_logo_decal_room"] = _entry(
+            0.0 if ok46 else -1.0,
+            "30 x 15 mm decal fits on the side" if ok46 else
+            f"no 30 x 15 mm patch of the car seen from the side: tallest 30 mm wide patch "
+            f"{max(tallest(side, 31) - 1, 0)} mm, longest 15 mm tall {max(tallest(side.T, 16) - 1, 0)} mm, "
+            f"{int(side.sum())} of {side.size} points usable")
         if "halo" in stl:
             ref_a = assembly["x_front_mm"] - 16.0
             xs = np.arange(ref_a, half("halo").bounds[0, 0], 1.0)
