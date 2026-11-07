@@ -244,15 +244,23 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # of the track, and the nose cone takes its root from the body 1 mm aft of Ref A.
     # A heavy skin offset pushed that section over the limit, so the body is capped
     # there, 0.5 mm inside the rule.
-    base.phi.hard_mask_air |= (X <= x_ref_a + 1.0) & ((np.abs(Y) > 14.5) | (Z > 24.5))
+    # One grid cell further aft than the root slice: the surface between a capped node and
+    # the next free one leaned out past 15 mm at the slice (11 of 1010 random cars).
+    base.phi.hard_mask_air |= (X <= x_ref_a + 1.0 + d * 1e3) & ((np.abs(Y) > 14.5) | (Z > 24.5))
     # The nose needs something to join at Ref A, whatever the loft does up there.
-    base.phi.hard_mask_solid |= ((X >= x_ref_a) & (X <= x_ref_a + 2.0) & (np.abs(Y) <= 4.0)
-                                 & (Z >= 9.0) & (Z <= 18.0))
+    stub = (np.abs(Y) <= 4.0) & (Z >= 9.0) & (Z <= 18.0)
+    base.phi.hard_mask_solid |= stub & (X >= x_ref_a) & (X <= x_ref_a + 2.0)
 
     def make(offset_mm):
         import copy
         g = copy.deepcopy(base)
         field = phi0 - offset_mm if not bp.ft_h else phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm, skin_mm=offset_mm)
+        # Where sculpting or a thin skin starts the body behind the stub, the stub's section
+        # runs aft to meet it: otherwise it is an island (T4.1, 2 bodies) or dropped, and the
+        # nose has no root (16 of 1010 random cars).
+        met = (field < 0) & stub & (X > x_ref_a + 2.0)
+        if met.any():
+            g.phi.hard_mask_solid |= stub & (X >= x_ref_a) & (X <= X[met].min() + 1.0)
         g.phi.grid = (field / 1e3).astype(np.float32)
         g.phi.apply_hard_constraints()
         up.enforce_symmetry(g)

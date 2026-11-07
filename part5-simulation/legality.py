@@ -369,7 +369,9 @@ def manufactured_checks(assembly: dict) -> dict:
     tops = [loc[ray == i, 2].max() if (ray == i).any() else np.nan for i in range(len(o))]
     off = float(np.nanmax(np.abs(np.array(tops) - pk["z_min_m"] * 1e3))) if not np.isnan(tops).any() else np.inf
     r["T4.4.4_pocket_floor"] = _entry(0.15 - off, "no floor under the halo" if np.isinf(off)
-                                      else f"within {off:.3f} mm of {pk['z_min_m'] * 1e3:.1f} mm")
+                                      else f"within {off:.3f} mm of {pk['z_min_m'] * 1e3:.1f} mm; tops "
+                                      f"{[round(float(t), 2) for t in tops]} at x {px0 + 8.0:.1f}/{px0 + 48.0:.1f}, "
+                                      f"pocket x {px0:.1f}-{pk['x_max_m'] * 1e3:.1f}")
     halo = next((s["stl"] for s in assembly.get("extra_surfaces", []) if s["name"] == "halo"), None)
     if halo:
         hm = trimesh.load(halo, force="mesh")
