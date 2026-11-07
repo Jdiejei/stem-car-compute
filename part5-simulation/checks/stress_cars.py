@@ -141,6 +141,14 @@ def _describe(c: dict) -> None:
                   f"{v.get('pieces_expected')} bad_edges {(n != 2).sum()} faces {len(m.faces)} reported {v.get('closed')} "
                   f"remeshed {v.get('remeshed')} max_edge {v.get('max_edge_mm')} edge_face_counts "
                   f"{dict(zip(*np.unique(n[n != 2], return_counts=True)))}", flush=True)
+            if k == "machined_body":
+                import legality as lg
+                rf = S.get("layout", {}).get("rear_face_mm")
+                mm = m.copy()
+                mm.apply_scale(1e-3)             # the file is in mm, the check works in metres
+                print(f"car   machined_body bounds {np.round(m.bounds, 1).tolist()}, T5.5 at its own rear face "
+                      f"{lg.t55_wall_fraction(mm, rear_face_mm=float(m.bounds[1, 0])):.3f}, layout rear face {rf}, "
+                      f"T5.5 note {S['legality']['checks'].get('T5.5_wall', {}).get('note')}", flush=True)
             for p in sorted(m.split(only_watertight=False), key=lambda p: -abs(p.volume))[1:6]:
                 print(f"car   extra piece of {k}: {abs(p.volume):.1f} mm3, bounds {np.round(p.bounds, 1).tolist()}", flush=True)
 
