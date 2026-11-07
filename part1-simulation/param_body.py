@@ -250,6 +250,15 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # The nose needs something to join at Ref A, whatever the loft does up there.
     stub = (np.abs(Y) <= 4.0) & (Z >= 9.0) & (Z <= 18.0)
     base.phi.hard_mask_solid |= stub & (X >= x_ref_a) & (X <= x_ref_a + 2.0)
+    # T4.4.4: the halo sits on a floor at 24 mm. Under the pocket the body is solid from the
+    # cargo band up to that floor, so a low loft or a floor tunnel cannot leave the halo over
+    # a hole (no floor, or one 1-7 mm low: 14 of 400 random cars, 13 of them with a tunnel).
+    from halo_pocket import compute_halo_pocket_box_m
+    pk = compute_halo_pocket_box_m(base.landmarks["ref_plane_A_m"], d_halo_mm)
+    base.phi.hard_mask_solid |= ((X >= pk["x_min_m"] * 1e3) & (X <= pk["x_max_m"] * 1e3)
+                                 & (Y >= pk["y_min_m"] * 1e3) & (Y <= pk["y_max_m"] * 1e3)
+                                 & (Z >= 13.0) & (Z <= pk["z_min_m"] * 1e3 + 1e-6)
+                                 & ~base.phi.hard_mask_air)
 
     def make(offset_mm, bar_to=None):
         import copy

@@ -69,7 +69,10 @@ def build_nose(nc: NoseCone, x_front_mm: float, body_half_mesh, n: int = 40, m: 
     verts = [[x_tip, 0.0, nc.tip_z_mm]]
     for q in xi:
         f = q ** nc.k
-        ring = _ring(b0 * f, h0 * f, nc.tip_z_mm + (zc0 - nc.tip_z_mm) * q, nc.p, m)
+        # A low tip with a fast-growing section dipped under T3.7's 1.5 mm between tip and
+        # root (0.36 mm on one random car): each ring is kept 0.1 mm above it.
+        zc = max(nc.tip_z_mm + (zc0 - nc.tip_z_mm) * q, cc.TRACK_CLEARANCE_MIN + 0.1 + h0 * f)
+        ring = _ring(b0 * f, h0 * f, zc, nc.p, m)
         verts += [[x_tip + q * (x_root - x_tip), y, z] for y, z in ring]
     verts.append([x_root, 0.0, zc0])
     V = np.array(verts) / 1e3
