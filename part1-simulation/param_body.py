@@ -264,6 +264,15 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
                                  # the 0.5 mm grid drew the floor at 24.25, 33 mm3 over the halo
                                  & (Z >= 13.0) & (Z < pk["z_min_m"] * 1e3 - 1e-6)
                                  & ~base.phi.hard_mask_air)
+    # Across the pocket's rear edge, below the floor and up into whatever stands behind it:
+    # the exact pocket Part 4 cuts (everything over 24 mm in its box) severed a body joined
+    # there only above the floor, leaving the chamber end a loose piece (x 156.6 on a body
+    # whose voxels were one piece; 2 of 400 random cars, "0 % of the T5.5 annulus").
+    xe = pk["x_max_m"] * 1e3
+    base.phi.hard_mask_solid |= ((X >= xe - 3.0) & (X <= xe + 6.0)
+                                 & (Y >= pk["y_min_m"] * 1e3 + 1.5) & (Y <= pk["y_max_m"] * 1e3 - 1.5)
+                                 & (Z >= 13.0) & ((Z < pk["z_min_m"] * 1e3 - 1e-6) | ((X > xe + 0.5) & (Z <= 28.0)))
+                                 & ~base.phi.hard_mask_air)
 
     def make(offset_mm, bar_to=None, bridges=None):
         import copy
