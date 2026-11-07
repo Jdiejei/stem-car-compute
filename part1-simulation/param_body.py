@@ -275,7 +275,9 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     xe = pk["x_max_m"] * 1e3
     base.phi.hard_mask_solid |= ((X >= xe - 3.0) & (X <= xe + 6.0)
                                  & (Y >= pk["y_min_m"] * 1e3 + 1.5) & (Y <= pk["y_max_m"] * 1e3 - 1.5)
-                                 & (Z >= 13.0) & ((Z < pk["z_min_m"] * 1e3 - 1e-6) | ((X > xe + 0.5) & (Z <= 28.0)))
+                                 # over the floor only clear of the halo, up to 1 mm longer than
+                                 # its pocket (T4.4.3, 9.2 mm3 at +0.5 mm)
+                                 & (Z >= 13.0) & ((Z < pk["z_min_m"] * 1e3 - 1e-6) | ((X > xe + 2.5) & (Z <= 28.0)))
                                  & ~base.phi.hard_mask_air)
 
     def make(offset_mm, bar_to=None, bridges=None):
