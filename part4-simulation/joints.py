@@ -74,6 +74,12 @@ def _bool(op, meshes):
     return getattr(trimesh.boolean, op)(meshes, engine="manifold")
 
 
+def _closed(pieces) -> list:
+    """The shells a union can take. A sealed void in a part reads as a shell of negative
+    volume, which stops the union (2 cars in 1200); without it the part is simply solid."""
+    return [p for p in pieces if p.is_volume] or list(pieces)
+
+
 def _machinable_outline(fp, r):
     """The pocket outline the ball clears around footprint fp. If fp is
     already a union of r-discs (every convex corner >= r) it is cut as is;
@@ -166,7 +172,7 @@ def cut(name: str, part, body_half, open_side: str = "bottom", keep_out=None,
     # them one manifold first or the booleans see nothing.
     pieces = part.split(only_watertight=False)
     if len(pieces) > 1:
-        part = _bool("union", list(pieces))
+        part = _bool("union", _closed(pieces))
     if keep_out is not None:
         part = _bool("difference", [part, keep_out])
     O_full = _bool("intersection", [part if embed_probe is None else embed_probe, body_half])
@@ -244,7 +250,7 @@ def pod_joint(part, body_half, channels: dict, keep_out=None) -> Joint | None:
 
     pieces = part.split(only_watertight=False)
     if len(pieces) > 1:
-        part = _bool("union", list(pieces))
+        part = _bool("union", _closed(pieces))
     y_max = body_half.bounds[1, 1] * 1e3 + 1.0
     plug = trimesh.util.concatenate([_prism_y(bsm.channel_outline(ch), 0.0, y_max)
                                      for ch in channels.values()])
@@ -437,7 +443,7 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
             P[name] = printed_full(by[name])
         else:                     # surface-bonded: the part, trimmed at the body's surface
             pieces = mesh.split(only_watertight=False)
-            whole = _full(_bool("union", list(pieces)) if len(pieces) > 1 else mesh)
+            whole = _full(_bool("union", _closed(pieces)) if len(pieces) > 1 else mesh)
             P[name] = _drop_dust(_bool("difference", [whole, clean_body]), 1e-9)
     if cone is not None:                             # the hollow cone joins the nose piece
         shell, drain = nose_shell(cone, assembly["nose"]["wall_mm"], x_ref_a_mm)
