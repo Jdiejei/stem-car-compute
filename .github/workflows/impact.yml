@@ -4,6 +4,10 @@ name: impact
 # mesh noise, against the same car at the same skins. And how far today's settings reach.
 on:
   workflow_dispatch:
+    inputs:
+      variants:
+        description: JSON list of variations (empty = the first sweep, plus the adjoint map)
+        default: ""
 
 permissions:
   contents: read
@@ -15,6 +19,7 @@ env:
 
 jobs:
   map:
+    if: inputs.variants == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
@@ -37,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        v: [base, fw_endplate8, fw_endplate15, fw_chord18, fw_chord22, fw_flapgap1, fw_noflap, rw_aoa-4, rw_aoa4, rw_camber4, rw_chord20, rw_span30, rw_span35, rw_x10, rw_x20, rw_pylon6, rw_pylon15, rw_high3, sup_nodiscF, sup_nodiscR, sup_disc9, sup_pod10, sup_arch16, sup_arch22, nose_blend5, wheel_round1, wheel_round2, wheel_round3]
+        v: ${{ fromJSON(inputs.variants || '["base", "fw_endplate8", "fw_endplate15", "fw_chord18", "fw_chord22", "fw_flapgap1", "fw_noflap", "rw_aoa-4", "rw_aoa4", "rw_camber4", "rw_chord20", "rw_span30", "rw_span35", "rw_x10", "rw_x20", "rw_pylon6", "rw_pylon15", "rw_high3", "sup_nodiscF", "sup_nodiscR", "sup_disc9", "sup_pod10", "sup_arch16", "sup_arch22", "nose_blend5", "wheel_round1", "wheel_round2", "wheel_round3"]') }}
         skin: ["3.92", "3.93", "3.94"]
     steps:
       - uses: actions/checkout@v4

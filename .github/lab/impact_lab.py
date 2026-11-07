@@ -22,6 +22,11 @@ V = {'base': {},
      'wheel_round1': {'round': 1.0}, 'wheel_round2': {'round': 2.0}, 'wheel_round3': {'round': 3.0},
      # T7.4 measures contact width without chamfers or fillets, so the rounded wheels above are
      # illegal (1 mm off each side of 13.25). These keep the flat and grow the wheel outward.
+     # Round 2: push the four rear-wing winners further, and check they add up.
+     'rw_aoa2': {'rw': {'aoa_deg': 2.0}}, 'rw_aoa8': {'rw': {'aoa_deg': 8.0}},
+     'rw_high6': {'rw': {'clear_air_margin_mm': 6.5}}, 'rw_pylon20': {'rw': {'pylon_chord_mm': 20.0}},
+     'rw_combo3': {'rw': {'aoa_deg': 4.0, 'clear_air_margin_mm': 3.5, 'pylon_chord_mm': 15.0}},
+     'rw_combo4': {'rw': {'aoa_deg': 4.0, 'clear_air_margin_mm': 3.5, 'pylon_chord_mm': 15.0, 'chord_mm': 20.0}},
      'wheel_legal1': {'round': 1.0, 'wider': True}, 'wheel_legal2': {'round': 2.0, 'wider': True}}
 FLAGS = {'fw': '--fwing-json', 'rw': '--rwing-json', 'sup': '--support-json', 'nose': '--nose-json'}
 state = json.loads(solver.STATE.read_text())
