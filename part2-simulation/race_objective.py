@@ -384,7 +384,7 @@ def initial_state(params: jnp.ndarray, model: SmoothSheetModel) -> tuple[jnp.nda
     t0 = jnp.asarray(0.0, dtype=params.dtype)
     m0 = car_mass_from_time(t0, p["car_weight_kg"], model)
     m_eff0 = m0 + N_WHEELS * p["wheel_moi_kg_m2"] / (R_WHEEL ** 2)
-    # Lift-dependent friction at launch (v=0, so L=0).
+    # Friction at launch: at v=0 there is no lift.
     friction0 = p["mu"] * m0 * G
     a0 = (thrust_force(t0, model) - friction0) / m_eff0
 
@@ -417,7 +417,8 @@ def distance_derivatives(
     F_thrust = thrust_force(t, model)
     F_drag = p["drag_20_n"] * q_safe / (REFERENCE_SPEED ** 2)
     # Lift-dependent friction: L(v) = lift_20_n * v^2 / 20^2
-    # Normal force: N = m*g - L(v)  (downforce reduces normal force)
+    # Normal force: N = m*g - L(v). L is lift, + up (the CFD's liftDir is +z): lift
+    # unloads the wheels and cuts rolling friction; downforce (L < 0) adds to it.
     # Friction: F_fric = mu * N = mu * (m*g - L(v))
     v_sq = q_safe  # q = v^2
     L_v = p["lift_20_n"] * v_sq / (REFERENCE_SPEED ** 2)
