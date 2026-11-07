@@ -255,8 +255,11 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # a hole (no floor, or one 1-7 mm low: 14 of 400 random cars, 13 of them with a tunnel).
     from halo_pocket import compute_halo_pocket_box_m
     pk = compute_halo_pocket_box_m(base.landmarks["ref_plane_A_m"], d_halo_mm)
-    base.phi.hard_mask_solid |= ((X >= pk["x_min_m"] * 1e3) & (X <= pk["x_max_m"] * 1e3)
-                                 & (Y >= pk["y_min_m"] * 1e3) & (Y <= pk["y_max_m"] * 1e3)
+    # 1.5 mm inside the pocket's outline: Part 4 cuts the exact pocket, but out to its edge
+    # the column pushed the walls the cutter must clear over the halo's outline (T4.4.3,
+    # 13.7-32.9 mm3 on the fine start car).
+    base.phi.hard_mask_solid |= ((X >= pk["x_min_m"] * 1e3 + 1.5) & (X <= pk["x_max_m"] * 1e3 - 1.5)
+                                 & (Y >= pk["y_min_m"] * 1e3 + 1.5) & (Y <= pk["y_max_m"] * 1e3 - 1.5)
                                  # up to, not into, the floor's own layer: forced solid there,
                                  # the 0.5 mm grid drew the floor at 24.25, 33 mm3 over the halo
                                  & (Z >= 13.0) & (Z < pk["z_min_m"] * 1e3 - 1e-6)
