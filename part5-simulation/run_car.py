@@ -145,6 +145,9 @@ def part4_kwargs(a) -> dict:
     if getattr(a, "fwing_json", None):
         import wings as wg
         kw["front"] = wg.FrontWing(**json.loads(a.fwing_json))
+    if getattr(a, "rwing_json", None):
+        import wings as wg
+        kw["rear"] = wg.RearWing(**json.loads(a.rwing_json))
     return kw
 
 
@@ -340,6 +343,7 @@ def parse_args(argv=None):
     ap.add_argument("--support-json", default=None, help="BeamSupport parameters as JSON")
     ap.add_argument("--nose-json", default=None, help="NoseCone parameters as JSON (parametric body)")
     ap.add_argument("--fwing-json", default=None, help="FrontWing parameters as JSON")
+    ap.add_argument("--rwing-json", default=None, help="RearWing parameters as JSON")
     ap.add_argument("--skin-mm", type=float, default=None,
                     help="fixed skin offset: no mass sizing (gradient checks)")
     ap.add_argument("--ballast-g", type=float, default=0.0,
