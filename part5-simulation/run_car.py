@@ -162,6 +162,12 @@ def export_body(geom, path: Path) -> dict:
                                 tri_verts=np.asarray(half.faces, np.uint32))).simplify(2e-5).to_mesh()
         half = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3], np.asarray(o.tri_verts), process=False)
         half.merge_vertices()
+    if not half.is_watertight:
+        # Zero-area triangles where the surface passes through a grid point pinch it there
+        # (four and eight faces on an edge, 1 car in 1000). Without them it closes.
+        half.update_faces(half.nondegenerate_faces())
+        half.remove_unreferenced_vertices()
+        half.merge_vertices()
     half.export(str(path), file_type="stl_ascii")
     _, n = label(geom.phi.grid < 0)
     if not half.is_watertight:
