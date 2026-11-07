@@ -218,6 +218,52 @@ def _visibility_checks(assembly: dict, solids: dict) -> dict:
             others["halo"] = half("halo")
         if len(pts):
             r["T9.6_rear_wing_clear_air_all_parts"] = _clear_air(pts, others)
+
+    # T4.6: the 30 x 15 mm logo decal (T1.12) wholly on each side, all of it seen from the
+    # side. T4.7: the team number, 8 mm tall, on the body between Ref A and the halo's front,
+    # seen from above. Looked for on a 1 mm grid of rays: a point counts where the first thing
+    # the ray meets is the body, on a surface facing the viewer. The car is symmetric, so the
+    # right side stands for both.
+    if "machined_body" in solids:
+        view = dict(solids)
+        view.update(wheels)
+        view.update({k: half(k) for k in ("halo", "nose") if k in stl})
+        names = list(view)
+        allm = trimesh.util.concatenate([view[k] for k in names])
+        owner = np.repeat(np.arange(len(names)), [len(view[k].faces) for k in names])
+        body_i = names.index("machined_body")
+        lo, hi = solids["machined_body"].bounds
+
+        def on_body(xs, ys, zs, d):
+            X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
+            o = np.c_[X.ravel(), Y.ravel(), Z.ravel()]
+            d = np.asarray(d, float)
+            tri, ray = allm.ray.intersects_id(o, np.tile(d, (len(o), 1)), multiple_hits=False)
+            ok = np.zeros(len(o), bool)
+            ok[ray] = (owner[tri] == body_i) & (allm.face_normals[tri] @ -d >= 0.3)
+            return ok.reshape(X.shape).squeeze()
+
+        def fits(grid, a, b):          # an a x b window of grid points, either way round
+            c = np.pad(grid.astype(int).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+            for h, w in ((a, b), (b, a)):
+                if grid.shape[0] >= h and grid.shape[1] >= w:
+                    s = c[h:, w:] - c[:-h, w:] - c[h:, :-w] + c[:-h, :-w]
+                    if (s == h * w).any():
+                        return True
+            return False
+
+        side = on_body(np.arange(lo[0], hi[0], 1.0), [hi[1] + 50.0], np.arange(0.5, 65.0, 1.0), (0, -1, 0))
+        r["T4.6_logo_decal_room"] = _entry(0.0 if fits(side, 31, 16) else -1.0,
+                                           "30 x 15 mm decal fits on the side" if fits(side, 31, 16)
+                                           else "no 30 x 15 mm patch of body seen from the side")
+        if "halo" in stl:
+            ref_a = assembly["x_front_mm"] - 16.0
+            xs = np.arange(ref_a, half("halo").bounds[0, 0], 1.0)
+            top = on_body(xs, np.arange(lo[1], hi[1], 1.0), [hi[2] + 50.0], (0, 0, -1)) if len(xs) else np.zeros((0, 0))
+            ok = top.ndim == 2 and fits(top, 9, 15)
+            r["T4.7_team_number_room"] = _entry(0.0 if ok else -1.0,
+                                                "8 mm number fits ahead of the halo" if ok
+                                                else "no 8 x 14 mm patch of body between Ref A and the halo")
     return r
 
 

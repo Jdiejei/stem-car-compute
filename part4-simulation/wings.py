@@ -183,8 +183,10 @@ def front_wing_gates(fw: FrontWing, meshes: dict, x_front_mm: float, R_mm: float
     endplate = meshes.get("endplate")
     g = {
         "T8.6.1_span": span_margin,
-        "T8.6.2_chord_min": fw.chord_mm - cc.FRONT_CHORD_MIN,
-        "T8.6.2_chord_max": cc.FRONT_CHORD_MAX - fw.total_chord_mm,
+        # T8.6.2 is measured by calipers with vertical jaws (p. 39): the length along the
+        # track, so a tilted wing measures shorter than its nominal chord.
+        "T8.6.2_chord_min": min(fw.chord_mm, b[1, 0] - b[0, 0]) - cc.FRONT_CHORD_MIN,
+        "T8.6.2_chord_max": cc.FRONT_CHORD_MAX - max(fw.total_chord_mm, b[1, 0] - b[0, 0]),
         "T8.6.3_thick_min": t - cc.WING_THICK_MIN,
         "T8.6.3_thick_max": cc.WING_THICK_MAX - t,
         "T8.5.2_forward_of_ref_A": ref_a - b[1, 0],
@@ -307,8 +309,9 @@ def rear_wing_gates(rw: RearWing, meshes: dict, x_front_mm: float, W_mm: float,
         "T9.4.2_overhang": cc.REAR_OVERHANG_MAX - (b[1, 0] - ref_b),
         "T9.4.3_height": cc.REAR_Z_MAX - b[1, 2],
         "T9.5.1_span": 2 * rw.half_span_mm - cc.REAR_SPAN_MIN,
-        "T9.5.2_chord_min": rw.chord_mm - cc.REAR_CHORD_MIN,
-        "T9.5.2_chord_max": cc.REAR_CHORD_MAX - rw.chord_mm,
+        # T9.5.2, like T8.6.2, is measured along the track (calipers, p. 42).
+        "T9.5.2_chord_min": min(rw.chord_mm, b[1, 0] - b[0, 0]) - cc.REAR_CHORD_MIN,
+        "T9.5.2_chord_max": cc.REAR_CHORD_MAX - max(rw.chord_mm, b[1, 0] - b[0, 0]),
         "T9.5.3_thick_min": t - cc.WING_THICK_MIN,
         "T9.5.3_thick_max": cc.WING_THICK_MAX - t,
         "T9.5.4_height_deviation": cc.REAR_HEIGHT_DEVIATION_MAX - 0.0,   # straight wing

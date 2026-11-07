@@ -20,7 +20,7 @@ def _stl(tmp, name, lo, hi):
 
 
 def _assembly(tmp):
-    return {"extra_surfaces": [
+    return {"x_front_mm": 50.0, "extra_surfaces": [
         _stl(tmp, "halo", (100, 0, 24), (150, 12.5, 39)),
         _stl(tmp, "wheelF", (35, 20, 0), (65, 36, 30)),
         _stl(tmp, "wheelR", (165, 20, 0), (195, 36, 30)),
@@ -36,7 +36,15 @@ def _box(lo, hi):
 def test_a_clear_car_passes_every_sight_line(tmp_path):
     r = legality._visibility_checks(_assembly(tmp_path), {"machined_body": _box((40, -18, 5), (200, 18, 23))})
     assert all(v["pass"] for v in r.values()), r
-    assert len(r) == 8 and "T8.7_front_wing_clear_air_all_parts" in r
+    assert len(r) == 10 and "T8.7_front_wing_clear_air_all_parts" in r and "T4.7_team_number_room" in r
+
+
+def test_decal_and_team_number_need_room(tmp_path):
+    # 10 mm tall: no 15 mm of side for the logo decal. Halo 5 mm behind Ref A: no 8 mm number.
+    a = _assembly(tmp_path)
+    a["x_front_mm"] = 111.0
+    r = legality._visibility_checks(a, {"machined_body": _box((40, -18, 5), (200, 18, 15))})
+    assert not r["T4.6_logo_decal_room"]["pass"] and not r["T4.7_team_number_room"]["pass"], r
 
 
 def test_a_part_within_5_mm_of_the_front_wing_fails_clear_air(tmp_path):
