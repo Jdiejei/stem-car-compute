@@ -312,6 +312,13 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         if abs(fc) < best[0]:
             best = (abs(fc), gc)
     g = best[1]
+    # The mass steps as flat faces cross grid cells, and the closest car can be the one
+    # just under: 0.17 g short put the start car at 47.997 g, under the 48 g floor. Legal
+    # comes first, so under the target it takes the lightest car over it, if that is near.
+    if mass(g) - target_body_kg < -5e-5:
+        over = min((t for t in tried if t[1] > 0), key=lambda t: t[1], default=None)
+        if over is not None and over[1] < 1e-3:
+            g = make(over[0])
     g.build_report["mass_error_g"] = (mass(g) - target_body_kg) * 1e3
     return g
 
