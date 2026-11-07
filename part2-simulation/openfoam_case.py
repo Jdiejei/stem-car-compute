@@ -556,6 +556,7 @@ def build_snappy_dict(
     underbody_extra_levels: int = 1,
     boxes: tuple = (),
     layer_controls: Optional[dict] = None,
+    layer_overrides: Optional[dict] = None,
 ) -> str:
     """boxes: extra (name, (min, max), level) refinement boxes (wake_boxes).
     layer_controls: addLayersControls entries (resolved_layer_controls) for
@@ -589,6 +590,7 @@ def build_snappy_dict(
                                  "maxFaceThicknessRatio": 0.5,
                                  "maxThicknessToMedialRatio": 0.3, "minMedialAxisAngle": 90,
                                  "nBufferCellsNoExtrude": 0, "nLayerIter": 50})
+    lc.update(layer_overrides or {})
     n_layers = lc.pop("nSurfaceLayers")
     # a value written as "{ ... }" is a sub-dictionary: no trailing semicolon
     controls = "\n".join(f"    {k} {v}" if str(v).lstrip().startswith("{") else f"    {k} {v};"
@@ -1246,7 +1248,8 @@ def build_case(run_dir: str, stl_path: str, cfg: OpenFOAMRunConfig) -> dict:
                              underbody_extra_levels=(0 if cfg.resolution == "resolved"
                                                      else cfg.underbody_refinement_level),
                              boxes=wake_boxes(bounds, wake_level) if cfg.wake_refinement else (),
-                             layer_controls=layer_controls))
+                             layer_controls=layer_controls,
+                             layer_overrides=None if cfg.resolved else cfg.layer_overrides))
     _write(run / "system" / "controlDict", build_control_dict(cfg, frontal_area_half))
     _write(run / "system" / "fvSchemes", _FV_SCHEMES)
     _write(run / "system" / "fvSolution", _FV_SOLUTION)
