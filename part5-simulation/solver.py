@@ -57,6 +57,9 @@ NOISE_S = 1.5e-3
 MAX_ROUNDS = 25
 FOAM_G_CM3 = 0.163
 MIN_SCALE = 0.2                      # stop once steps are this small and still gain nothing
+# Measured slopes are 222 cars a round, 7 hours on 40 machines, on differences mostly under
+# the mesh noise. So a failed gradient check stops the solver and asks, instead of starting them.
+AUTO_MEASURED = False
 MEASURED_CHAINS = 1                  # measured slopes cost ~170 cars a round: only the best chain
 # The adjoint must earn its place: the bar was set before seeing any result.
 CHECK_MIN_SIGN_SHARE = 0.8
@@ -435,7 +438,11 @@ def _next_round(state: dict) -> None:
         state["phase"] = "done"
         _save(state, [])
     elif state["slopes"] == "measured":
-        _measure_plan(state)
+        if AUTO_MEASURED:
+            _measure_plan(state)
+        else:
+            state["phase"] = "done"
+            _save(state, [])
     else:
         state["phase"] = "adjoint"
         _save(state, [])

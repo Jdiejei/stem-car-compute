@@ -86,7 +86,7 @@ def test_a_step_goes_downhill_within_bounds_and_scales():
 
 
 def test_gradient_check_judges_sign_and_correlation():
-    names = solver.check_settings()
+    names = [f"mode{i}" for i in range(16)]
     rng = np.random.default_rng(0)
     truth = {n: float(v) for n, v in zip(names, rng.normal(size=len(names)))}
     assert solver.judge_check(truth, dict(truth))["passed"]
@@ -205,3 +205,11 @@ def test_the_check_tries_what_the_adjoint_says_matters_most():
     slopes = {f"mode{i}": float(i) for i in range(30)}
     got = solver.check_settings(slopes)
     assert len(got) == 12 and got[0] == "mode29" and "mode0" not in got
+
+
+def test_a_failed_check_stops_rather_than_starting_measured_slopes(tmp_state):
+    solver.init(1)
+    state = json.loads(solver.STATE.read_text())
+    state.update(slopes="measured")
+    solver._next_round(state)
+    assert solver.jobs()["kind"] == "done"
