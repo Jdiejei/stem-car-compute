@@ -257,16 +257,20 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     pk = compute_halo_pocket_box_m(base.landmarks["ref_plane_A_m"], d_halo_mm)
     base.phi.hard_mask_solid |= ((X >= pk["x_min_m"] * 1e3) & (X <= pk["x_max_m"] * 1e3)
                                  & (Y >= pk["y_min_m"] * 1e3) & (Y <= pk["y_max_m"] * 1e3)
-                                 & (Z >= 13.0) & (Z <= pk["z_min_m"] * 1e3 + 1e-6)
+                                 # up to, not into, the floor's own layer: forced solid there,
+                                 # the 0.5 mm grid drew the floor at 24.25, 33 mm3 over the halo
+                                 & (Z >= 13.0) & (Z < pk["z_min_m"] * 1e3 - 1e-6)
                                  & ~base.phi.hard_mask_air)
 
-    def make(offset_mm, bar_to=None):
+    def make(offset_mm, bar_to=None, bridges=None):
         import copy
         from scipy.ndimage import label
         g = copy.deepcopy(base)
         field = phi0 - offset_mm if not bp.ft_h else phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm, skin_mm=offset_mm)
         if bar_to is not None:
             g.phi.hard_mask_solid |= stub & (X >= x_ref_a) & (X <= bar_to)
+        if bridges is not None:
+            g.phi.hard_mask_solid |= bridges & ~g.phi.hard_mask_air
         g.phi.grid = (field / 1e3).astype(np.float32)
         g.phi.apply_hard_constraints()
         up.enforce_symmetry(g)
@@ -289,6 +293,33 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
                     reach = main & stub
                     if reach.any():
                         return make(offset_mm, bar_to=float(X[reach].min()) + 1.0)
+        # The same for every other piece holding required material (the T5.5 wall round the
+        # chamber came out on its own, smaller, piece and was lost: "0 % of the annulus solid",
+        # 3 of 280 random cars): a 4 mm bar, mirrored, from its cell nearest the main body.
+        if bridges is None:
+            lab, n = label(g.phi.grid < 0)
+            if n > 1:
+                sizes = np.bincount(lab.ravel())
+                sizes[0] = 0
+                main_id = sizes.argmax()
+                cut = [i for i in np.unique(lab[g.phi.hard_mask_solid & (lab > 0)]) if i != main_id]
+                if cut:
+                    from scipy.ndimage import distance_transform_edt
+                    _, idx = distance_transform_edt(lab != main_id, return_indices=True)
+                    bar = np.zeros(lab.shape, bool)
+                    Ya = np.abs(Y)
+                    for i in cut:
+                        cells = np.argwhere(lab == i)
+                        near = idx[:, cells[:, 0], cells[:, 1], cells[:, 2]].T
+                        k = np.linalg.norm(cells - near, axis=1).argmin()
+                        pa = np.array([X[tuple(cells[k])], abs(Y[tuple(cells[k])]), Z[tuple(cells[k])]])
+                        pb = np.array([X[tuple(near[k])], abs(Y[tuple(near[k])]), Z[tuple(near[k])]])
+                        v = pb - pa
+                        t = np.clip(((X - pa[0]) * v[0] + (Ya - pa[1]) * v[1] + (Z - pa[2]) * v[2])
+                                    / max(float(v @ v), 1e-9), 0.0, 1.0)
+                        bar |= ((X - pa[0] - t * v[0]) ** 2 + (Ya - pa[1] - t * v[1]) ** 2
+                                + (Z - pa[2] - t * v[2]) ** 2) <= 2.0 ** 2
+                    return make(offset_mm, bar_to=bar_to, bridges=bar)
         g.spacing_m = d
         g.build_report = dict(rep, skin_offset_mm=offset_mm)
         return g
