@@ -19,7 +19,10 @@ V = {'base': {},
      'sup_nodiscF': {'sup': {'disc_front': False}}, 'sup_nodiscR': {'sup': {'disc_rear': False}}, 'sup_disc9': {'sup': {'disc_r_mm': 9.0}},
      'sup_pod10': {'sup': {'pod_len_mm': 10.0}}, 'sup_arch16': {'sup': {'pod_arch_mm': 16.0}}, 'sup_arch22': {'sup': {'pod_arch_mm': 22.0}},
      'nose_blend5': {'nose': {'blend_after_ref_a_mm': 5.0}},
-     'wheel_round1': {'round': 1.0}, 'wheel_round2': {'round': 2.0}, 'wheel_round3': {'round': 3.0}}
+     'wheel_round1': {'round': 1.0}, 'wheel_round2': {'round': 2.0}, 'wheel_round3': {'round': 3.0},
+     # T7.4 measures contact width without chamfers or fillets, so the rounded wheels above are
+     # illegal (1 mm off each side of 13.25). These keep the flat and grow the wheel outward.
+     'wheel_legal1': {'round': 1.0, 'wider': True}, 'wheel_legal2': {'round': 2.0, 'wider': True}}
 FLAGS = {'fw': '--fwing-json', 'rw': '--rwing-json', 'sup': '--support-json', 'nose': '--nose-json'}
 state = json.loads(solver.STATE.read_text())
 c = state['chains'][0]
@@ -32,13 +35,13 @@ if sys.argv[1] == 'sweep':
         rad = v['round']
         def rounded(R_mm, width_mm, x_axle_mm, y_inner_mm, sink_mm=0.3, sections=128):
             t = np.linspace(0.0, np.pi / 2, 9)
-            hw = width_mm / 2.0
+            hw = (width_mm + (2 * rad if v.get('wider') else 0.0)) / 2.0
             top = [(R_mm - rad + rad * np.cos(a), hw - rad + rad * np.sin(a)) for a in t]
             prof = [(R_mm - rad + rad * np.cos(a), -hw + rad - rad * np.sin(a)) for a in t[::-1]] + top
             line = np.array([(0.0, -hw)] + prof + [(0.0, hw)]) / 1e3
             m = trimesh.creation.revolve(line, sections=sections)
             m.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0]))
-            m.apply_translation([x_axle_mm / 1e3, (y_inner_mm + width_mm / 2) / 1e3, (R_mm - sink_mm) / 1e3])
+            m.apply_translation([x_axle_mm / 1e3, (y_inner_mm + hw) / 1e3, (R_mm - sink_mm) / 1e3])
             return m
         wh.cfd_surface = rounded
     args = ['--out', tempfile.mkdtemp(), '--cfd', '--res', 'medium', '--np', '4', '--cfd-iters', '1000', '--cfd-json', OPT,
