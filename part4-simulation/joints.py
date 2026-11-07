@@ -475,8 +475,9 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
             # In a pod the guide is just its ring and stalk. With its plug of body it brought
             # the body's own floor, lying on the pod's copy of that floor under 5 um away:
             # surfaces no STL can keep apart (a front support in 130 would not close).
+            # Trimmed against the foam, as it may reach past the pod's channel.
             if b_ is not None and plain is not None and tag in pods:
-                b_ = plain
+                b_ = _drop_dust(_bool("difference", [plain, body_full]), 1e-9)
             u = _drop_dust(_bool("union", [a_, b_]), 1e-9) if b_ is not None else a_
             # The line runs through the supports too: a keel low enough to cross it gets the
             # guide's own bore, or the car is illegal for no reason (T6.1, 3 cars in 1600).
