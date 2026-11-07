@@ -141,6 +141,10 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05, max_edge
             after = split
     if same:
         after.export(str(path))
+        # 32-bit floats can weld what the remesher kept apart (1 car in 1200).
+        same = trimesh.load(str(path), force="mesh").is_volume
+        if not same:
+            before.export(str(path))
     final = after if same else before
     angles = np.degrees(final.face_angles).min(axis=1)
     return {"remeshed": bool(same), "faces": len(final.faces),
