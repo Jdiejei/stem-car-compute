@@ -27,3 +27,9 @@ jobs:
       - run: pip install numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
       - working-directory: part5-simulation
         run: python -W ignore ../.github/lab/${{ inputs.script }} ${{ matrix.car }} 2>&1 | grep --line-buffered -E '^LAB|Traceback|Error|^  File'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-${{ strategy.job-index }}
+          path: part5-simulation/render/*.png
+          if-no-files-found: ignore
