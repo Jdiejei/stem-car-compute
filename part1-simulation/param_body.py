@@ -251,16 +251,13 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     stub = (np.abs(Y) <= 4.0) & (Z >= 9.0) & (Z <= 18.0)
     base.phi.hard_mask_solid |= stub & (X >= x_ref_a) & (X <= x_ref_a + 2.0)
 
-    def make(offset_mm):
+    def make(offset_mm, bar_to=None):
         import copy
+        from scipy.ndimage import label
         g = copy.deepcopy(base)
         field = phi0 - offset_mm if not bp.ft_h else phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm, skin_mm=offset_mm)
-        # Where sculpting or a thin skin starts the body behind the stub, the stub's section
-        # runs aft to meet it: otherwise it is an island (T4.1, 2 bodies) or dropped, and the
-        # nose has no root (16 of 1010 random cars).
-        met = (field < 0) & stub & (X > x_ref_a + 2.0)
-        if met.any():
-            g.phi.hard_mask_solid |= stub & (X >= x_ref_a) & (X <= X[met].min() + 1.0)
+        if bar_to is not None:
+            g.phi.hard_mask_solid |= stub & (X >= x_ref_a) & (X <= bar_to)
         g.phi.grid = (field / 1e3).astype(np.float32)
         g.phi.apply_hard_constraints()
         up.enforce_symmetry(g)
@@ -269,6 +266,20 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         rep = machining.make_machinable(g) if machinable else {}
         up.enforce_symmetry(g)
         rep["islands_removed_mm3"] = _drop_islands(g) * (d * 1e3) ** 3
+        # The stub at Ref A must belong to the main body. Where sculpting, a thin skin or the
+        # cutter leaves the front as its own piece, the mesh keeps only the biggest one, and
+        # the nose loses its root (body from x 52.9 with Ref A at 39.7; 16 of 1010 random
+        # cars, T4.1 or no nose). Then the stub's section runs aft into the main body.
+        if bar_to is None:
+            lab, n = label(g.phi.grid < 0)
+            if n > 1:
+                sizes = np.bincount(lab.ravel())
+                sizes[0] = 0
+                main = lab == sizes.argmax()
+                if not (main & stub & (X <= x_ref_a + 2.0)).any():
+                    reach = main & stub
+                    if reach.any():
+                        return make(offset_mm, bar_to=float(X[reach].min()) + 1.0)
         g.spacing_m = d
         g.build_report = dict(rep, skin_offset_mm=offset_mm)
         return g

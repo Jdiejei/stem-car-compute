@@ -34,3 +34,9 @@ print('LAB solid x min', round(float(X[sol].min()), 2), 'build', {k: v for k, v 
 air = g.phi.hard_mask_air & (X >= ref_a) & (X <= ref_a + 14.0) & (np.abs(Y) <= 4.0) & (Z >= 9.0) & (Z <= 18.0)
 if air.any():
     print('LAB air in the band: x', round(float(X[air].min()), 2), round(float(X[air].max()), 2), 'z', round(float(Z[air].min()), 2), round(float(Z[air].max()), 2), 'cells', int(air.sum()), flush=True)
+from scipy.ndimage import label
+lab, n = label(sol)
+sizes = np.bincount(lab.ravel()); sizes[0] = 0
+main = lab == sizes.argmax()
+print('LAB pieces', n, 'sizes', sorted(sizes.tolist(), reverse=True)[:4], 'stub in main', bool((main & stub).any()),
+      'main x min', round(float(X[main].min()), 2), flush=True)
