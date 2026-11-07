@@ -1,10 +1,13 @@
 {
  "round": 0,
- "phase": "check_adjoint",
- "slopes": "adjoint",
+ "phase": "measure",
+ "slopes": "measured",
  "sign": null,
  "next_seed": 10,
- "check": null,
+ "check": {
+  "passed": false,
+  "reason": "adjoint solve failed"
+ },
  "chains": [
   {
    "id": 0,
