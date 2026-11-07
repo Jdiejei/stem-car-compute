@@ -112,7 +112,7 @@ def _absent(volume_mm3: float, note: str) -> dict:
 
 
 def _visibility_checks(assembly: dict, solids: dict) -> dict:
-    """T4.4.2, T4.4.3, T7.10, T7.11, T8.8, T9.7, measured on the files that get made (mm)."""
+    """T4.4.2, T4.4.3, T7.10, T7.11, T8.7, T8.8, T9.6, T9.7, measured on the files that get made (mm)."""
     import math
     import trimesh
     stl = {s["name"]: s["stl"] for s in assembly.get("extra_surfaces", [])}
@@ -189,7 +189,44 @@ def _visibility_checks(assembly: dict, solids: dict) -> dict:
             ahead["halo"] = half("halo")
         pts = trimesh.sample.sample_surface(wing, 3000, seed=2)[0]
         r["T9.7_rear_wing_seen_from_front"] = _hidden_from_front(pts, ahead, "the rear wing")
+
+    # T8.7 and T9.6: 5 mm of clear air from each wing's surface to ANY other part of the car
+    # or the track. The gates in Part 4 measure only the front wing to the track and its
+    # wheel, and the rear wing to the body (a Mistral audit, checked against the rule text).
+    # The wing's own support, where it joins, is the fillet the rule allows for: points within
+    # 5 mm (sideways) of the nose or the pylon are left out.
+    wheels = {k: half(k) for k in ("wheelF", "wheelR") if k in stl}
+    if "fwing" in stl:
+        pts = trimesh.sample.sample_surface(half("fwing"), 3000, seed=3)[0]
+        nose_y = half("nose").bounds[1, 1] if "nose" in stl else 1.5
+        pts = pts[pts[:, 1] > nose_y + 5.0]
+        others = {k: m for k, m in solids.items() if k != "printed_front_assembly"}
+        others.update(wheels)
+        if "nose" in stl:
+            others["nose"] = half("nose")
+        if "halo" in stl:
+            others["halo"] = half("halo")
+        if len(pts):
+            r["T8.7_front_wing_clear_air_all_parts"] = _clear_air(pts, others)
+    if "rwing" in stl:
+        wing = max(half("rwing").split(only_watertight=False), key=lambda s: s.extents[1])
+        pts = trimesh.sample.sample_surface(wing, 3000, seed=3)[0]
+        pts = pts[pts[:, 1] > 5.0 + 2.0]               # the pylon stands at |y| < 1 mm, give or take
+        others = {k: m for k, m in solids.items() if k != "printed_rwing"}
+        others.update(wheels)
+        if "halo" in stl:
+            others["halo"] = half("halo")
+        if len(pts):
+            r["T9.6_rear_wing_clear_air_all_parts"] = _clear_air(pts, others)
     return r
+
+
+def _clear_air(pts, others: dict, need_mm: float = 5.0) -> dict:
+    """Closest approach (mm) from points on a wing to the other parts and the track."""
+    gaps = {k: _nearest_gap_m(m, pts) for k, m in others.items()}
+    gaps["track"] = float(pts[:, 2].min())
+    worst = min(gaps, key=gaps.get)
+    return _entry(gaps[worst] - need_mm, f"{gaps[worst]:.2f} mm to {worst}")
 
 
 def _hidden_from_front(pts, ahead: dict, what: str) -> dict:
