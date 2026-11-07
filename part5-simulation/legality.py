@@ -142,6 +142,11 @@ def _visibility_checks(assembly: dict, solids: dict) -> dict:
         # car), so the outer 0.5 mm is not counted: far under what the 6.25 mm cutter can see.
         rim = 0.5
         r["T4.4.3_halo_seen_from_top"] = report(in_box((x0 + rim, -hy + rim, b[0, 2]), (x1 - rim, hy - rim, 150.0)))
+        if not r["T4.4.3_halo_seen_from_top"]["pass"]:      # where, so a fault can be traced
+            top = trimesh.creation.box(bounds=[(x0 + rim, -hy + rim, b[0, 2]), (x1 - rim, hy - rim, 150.0)])
+            where = [f"{k} in {np.round(i.bounds, 1).tolist()}" for k, m in solids.items()
+                     if (i := trimesh.boolean.intersection([m, top], engine="manifold")) is not None and not i.is_empty]
+            r["T4.4.3_halo_seen_from_top"]["note"] += f"; halo x {x0:.1f}-{x1:.1f} y +-{hy:.1f} base {b[0, 2]:.2f}; " + "; ".join(where)
 
     # Supports and hubcaps may cover a wheel from the side (T7.10); nothing else may.
     others = {k: m for k, m in solids.items() if not k.startswith(("printed_support", "printed_hubcaps"))}
