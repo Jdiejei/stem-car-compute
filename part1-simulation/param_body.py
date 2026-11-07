@@ -159,13 +159,17 @@ def _tunnel_phi(bp, X, Y, Z, x_ref_a, x_rear, skin_mm: float = 0.0):
     below a ceiling at the local floor + a height that eases in and out over
     ft_ramp mm, so inlet and outlet are open ramps. Cut from below, so the
     bottom setup of the team's process reaches all of it."""
-    _, _, zb = _fuselage(bp, X, x_ref_a, x_rear)
+    b, zt, zb = _fuselage(bp, X, x_ref_a, x_rear)
     r = max(bp.ft_ramp, 1e-3)
     e = np.minimum(np.clip((X - bp.ft_x0) / r, 0, 1), np.clip((bp.ft_x1 - X) / r, 0, 1))
     e = np.sin(0.5 * np.pi * e) ** 2
-    ceiling = zb - skin_mm + bp.ft_h * e
+    # A tunnel never goes through the fuselage: 3 mm of roof and 2.5 mm of side wall are
+    # left. Through a thin body it opened the top and sides, so there was no body left for the
+    # T4.6 decal or the T4.7 number (6 of 7 rejections in 400 random cars, all with a tunnel).
+    ceiling = np.minimum(zb - skin_mm + bp.ft_h * e, zt + skin_mm - 3.0)
+    half_w = np.minimum(bp.ft_w, np.maximum(b + skin_mm - 2.5, 0.0))
     inside_x = np.maximum(bp.ft_x0 - X, X - bp.ft_x1)
-    return np.maximum.reduce([np.abs(Y) - bp.ft_w, Z - ceiling, inside_x, -(bp.ft_h * e)])
+    return np.maximum.reduce([np.abs(Y) - half_w, Z - ceiling, inside_x, -(bp.ft_h * e)])
 
 
 def _fuselage(bp, X, x_ref_a, x_rear):
