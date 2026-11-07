@@ -142,6 +142,22 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05, max_edge
         split.merge_vertices()
         if split.is_volume:
             after = split
+    if not same and before.edges_unique_length.max() > max_edge_mm:
+        # No size remeshed it cleanly: at least split the raw file's long edges. The surface
+        # stays exactly where it was; only the triangles get shorter.
+        ms = ml.MeshSet()
+        ms.add_mesh(ml.Mesh(before.vertices, before.faces))
+        ms.apply_filter("meshing_surface_subdivision_midpoint", iterations=6,
+                        threshold=ml.PureValue(0.9 * max_edge_mm))
+        o = ms.current_mesh()
+        split = trimesh.Trimesh(o.vertex_matrix(), o.face_matrix(), process=False)
+        split.merge_vertices()
+        if split.is_watertight and not split.is_winding_consistent:
+            trimesh.repair.fix_normals(split)
+        same = (split.is_volume and abs(abs(split.volume) - abs(before.volume)) <= 0.005 * abs(before.volume)
+                and len(split.split(only_watertight=False)) == len(before.split(only_watertight=False)))
+        if same:
+            after = split
     if same:
         after.export(str(path))
         # 32-bit floats can weld what the remesher kept apart (1 car in 1200).
