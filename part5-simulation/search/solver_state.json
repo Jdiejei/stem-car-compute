@@ -1,13 +1,10 @@
 {
  "round": 0,
- "phase": "measure",
- "slopes": "measured",
+ "phase": "check_adjoint",
+ "slopes": "adjoint",
  "sign": null,
  "next_seed": 10,
- "check": {
-  "passed": false,
-  "reason": "adjoint solve failed"
- },
+ "check": null,
  "chains": [
   {
    "id": 0,
@@ -121,7 +118,7 @@
    "T": 1.565054202511073,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": "dropped: measured slopes only afford the best chains",
+   "stopped": null,
    "history": [],
    "skin_mm": 3.9273676626782206,
    "starts": 1
@@ -267,7 +264,7 @@
    "T": 1.5784343803814949,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": "dropped: measured slopes only afford the best chains",
+   "stopped": null,
    "history": [],
    "skin_mm": 4.631183970753536,
    "starts": 1
@@ -559,7 +556,7 @@
    "T": 1.5833756917464934,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": "dropped: measured slopes only afford the best chains",
+   "stopped": null,
    "history": [],
    "skin_mm": 4.1381316163811945,
    "starts": 1
@@ -705,7 +702,7 @@
    "T": 1.556092165102391,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": "dropped: measured slopes only afford the best chains",
+   "stopped": null,
    "history": [],
    "skin_mm": 4.576670523840198,
    "starts": 1
@@ -851,7 +848,7 @@
    "T": 1.5789691763882487,
    "noise": 0.0008110810769594856,
    "scale": 1.0,
-   "stopped": "dropped: measured slopes only afford the best chains",
+   "stopped": null,
    "history": [],
    "skin_mm": 4.561669608354871,
    "starts": 2
@@ -997,7 +994,7 @@
    "T": 1.565196566582431,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": "dropped: measured slopes only afford the best chains",
+   "stopped": null,
    "history": [],
    "skin_mm": 4.686491828109839,
    "starts": 1
@@ -1143,7 +1140,7 @@
    "T": 1.5704403097133661,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": "dropped: measured slopes only afford the best chains",
+   "stopped": null,
    "history": [],
    "skin_mm": 5.634551456915939,
    "starts": 1
