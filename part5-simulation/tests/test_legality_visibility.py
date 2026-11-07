@@ -36,7 +36,14 @@ def _box(lo, hi):
 def test_a_clear_car_passes_every_sight_line(tmp_path):
     r = legality._visibility_checks(_assembly(tmp_path), {"machined_body": _box((40, -18, 5), (200, 18, 23))})
     assert all(v["pass"] for v in r.values()), r
-    assert len(r) == 7
+    assert len(r) == 8 and "T8.7_front_wing_clear_air_all_parts" in r
+
+
+def test_a_part_within_5_mm_of_the_front_wing_fails_clear_air(tmp_path):
+    # The body reaching to 2 mm behind the wing's trailing edge, beside it.
+    r = legality._visibility_checks(_assembly(tmp_path), {"machined_body": _box((30, -18, 5), (200, 18, 23))})
+    c = r["T8.7_front_wing_clear_air_all_parts"]
+    assert not c["pass"] and "machined_body" in c["note"], c
 
 
 def test_each_sight_line_catches_what_blocks_it(tmp_path):
