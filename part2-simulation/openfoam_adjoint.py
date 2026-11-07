@@ -165,6 +165,7 @@ class AdjointRunConfig:
     # Report sensitivities on the wings, nose, supports and so on as well as `car`,
     # so one solve prices every setting of the car.
     sensitivity_on_all_parts: bool = False
+    layer_overrides: dict | None = None       # as OpenFOAMRunConfig: the same mesh as the primal
 
     def __post_init__(self):
         if self.resolution not in oc.RESOLUTION_REFINEMENT:
@@ -705,7 +706,8 @@ def build_adjoint_case(run_dir: str, stl_path: str, cfg: AdjointRunConfig) -> di
     _write(run / "system" / "snappyHexMeshDict",
            oc.build_snappy_dict("car.stl", loc, refinement, add_layers=True,
                                 underbody=oc.underbody_box(bounds),
-                                underbody_extra_levels=cfg.underbody_refinement_level))
+                                underbody_extra_levels=cfg.underbody_refinement_level,
+                                layer_overrides=cfg.layer_overrides))
     _write(run / "system" / "controlDict", build_adjoint_control_dict(cfg))
     _write(run / "system" / "fvSchemes", _FV_SCHEMES_ADJOINT)
     _write(run / "system" / "fvSolution", _FV_SOLUTION_ADJOINT)

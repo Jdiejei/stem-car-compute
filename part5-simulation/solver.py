@@ -51,9 +51,15 @@ STATE = HERE / "search" / "solver_state.json"
 BATCH = HERE / "search" / "solver_batch.json"
 STEPS_MM = (0.5, 1.0, 2.0, 4.0)      # the typical surface move of one step
 # Floor on a car's noise. A repeat of one car gets the same mesh and agrees to 0.01 ms, which
-# says nothing. Measured at skins 0.01 mm apart: 1.5 ms standard deviation, 4.3 ms end to end
-# (start car, 6 CFD runs, 6 Nov 2026), as each new mesh lands differently on the body.
-NOISE_S = 1.5e-3
+# says nothing. Measured at skins 0.01 mm apart (start car, 8 CFD runs each, 7 Nov 2026), standard
+# deviation and end to end: 1.3 and 4.3 ms with layers, 2.2 and 7.6 with "better" layers, 1.0 and
+# 3.3 with none, as each new mesh lands differently on the body. 5000 iterations changed nothing.
+NOISE_S = 1.0e-3
+# The search's mesh: no layers, 1000 iterations. Drag there is settled to 0.06 ms against 2000,
+# a car takes 30 minutes rather than 75, and the noise is lowest. Its drag differs from the layered
+# mesh by 5 %, and the fine mesh lies between the two: the winner must be confirmed on a finer one.
+SEARCH_CFD = {"layer_overrides": {"nSurfaceLayers": 0}}
+SEARCH_ITERS = 1000
 MAX_ROUNDS = 25
 FOAM_G_CM3 = 0.163
 MIN_SCALE = 0.2                      # stop once steps are this small and still gain nothing
@@ -309,6 +315,7 @@ def evaluate(case_id: int, out: Path) -> dict:
     B = json.loads(BATCH.read_text())
     c = next(x for x in B["cases"] if x["id"] == case_id)
     args = ["--out", str(out), "--cfd", "--cfd-if-legal", "--res", "medium", "--np", "4",
+            "--cfd-iters", str(SEARCH_ITERS), "--cfd-json", json.dumps(SEARCH_CFD),
             "--body-json", json.dumps(c["params"])]
     args += _layout_args(c.get("layout", {}))
     for part, flag in pattern.PART_FLAGS.items():
@@ -358,7 +365,7 @@ def adjoint(chain_id: int, out: Path) -> dict:
     frame = (((ref_a - 41.0) / 1e3, 0.0, 0.0), ((ref_b + 41.0) / 1e3, 0.0435, 0.066))
     cfg = oa.AdjointRunConfig(resolution="medium", n_subdomains=4, domain_reference_bounds=frame,
                               extra_surfaces=p4.extra_surfaces_from(str(Path(asm["_dir"]) / "assembly.json")),
-                              sensitivity_on_all_parts=True)
+                              sensitivity_on_all_parts=True, layer_overrides=SEARCH_CFD["layer_overrides"])
     raw = oa.invoke_adjoint(str(gate.stl_half_path), str(Path(oa.__file__).resolve().parent / "cfd_case_template"),
                             cfg, by_patch=True)
     # raw: d(half-car kinematic drag)/d(move in m) per point. To N per mm of move, whole
