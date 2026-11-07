@@ -141,6 +141,8 @@ def _describe(c: dict) -> None:
                   f"{v.get('pieces_expected')} bad_edges {(n != 2).sum()} faces {len(m.faces)} reported {v.get('closed')} "
                   f"remeshed {v.get('remeshed')} max_edge {v.get('max_edge_mm')} edge_face_counts "
                   f"{dict(zip(*np.unique(n[n != 2], return_counts=True)))}", flush=True)
+            for p in sorted(m.split(only_watertight=False), key=lambda p: -abs(p.volume))[1:6]:
+                print(f"car   extra piece of {k}: {abs(p.volume):.1f} mm3, bounds {np.round(p.bounds, 1).tolist()}", flush=True)
 
 
 def _build_and_write(c: dict, path: Path) -> None:
