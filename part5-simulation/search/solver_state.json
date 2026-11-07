@@ -1,10 +1,28 @@
 {
  "round": 0,
- "phase": "check_cars",
- "slopes": "adjoint",
+ "phase": "measure",
+ "slopes": "measured",
  "sign": null,
  "next_seed": 10,
  "check": {
+  "passed": false,
+  "sign": 1.0,
+  "sign_share": 0.7272727272727273,
+  "correlation": 0.16201040109369216,
+  "n": 11,
+  "direct": {
+   "st_zt3": -0.01153519934999997,
+   "mode47": 0.0008496939062500736,
+   "mode5": 0.001238153366250036,
+   "nose.length_mm": 2.933481199994814e-05,
+   "mode41": 0.0005266756149999718,
+   "st_b4": 0.0017384637050000262,
+   "fw.gap_to_wheel_mm": 0.0031280894299997217,
+   "mode25": 0.0014303041074999606,
+   "s_b": 0.00027129283000015825,
+   "fw.aoa_deg": -0.0020024651649999115,
+   "mode6": -0.007500141356249865
+  },
   "adjoint": {
    "st_b0": -1899.65304087613,
    "st_b1": -1320.8291206465701,
@@ -117,9 +135,7 @@
    "nose.k": 30675390844.965443,
    "nose.p": 9202617655.795416,
    "nose.tip_z_mm": 2300654313.372407
-  },
-  "chain": 0,
-  "skin": 3.9273676626782206
+  }
  },
  "chains": [
   {
@@ -234,7 +250,7 @@
    "T": 1.565054202511073,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": null,
+   "stopped": "dropped: measured slopes only afford the best chains",
    "history": [],
    "skin_mm": 3.9273676626782206,
    "starts": 1
@@ -380,7 +396,7 @@
    "T": 1.5784343803814949,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": null,
+   "stopped": "dropped: measured slopes only afford the best chains",
    "history": [],
    "skin_mm": 4.631183970753536,
    "starts": 1
@@ -672,7 +688,7 @@
    "T": 1.5833756917464934,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": null,
+   "stopped": "dropped: measured slopes only afford the best chains",
    "history": [],
    "skin_mm": 4.1381316163811945,
    "starts": 1
@@ -818,7 +834,7 @@
    "T": 1.556092165102391,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": null,
+   "stopped": "dropped: measured slopes only afford the best chains",
    "history": [],
    "skin_mm": 4.576670523840198,
    "starts": 1
@@ -964,7 +980,7 @@
    "T": 1.5789691763882487,
    "noise": 0.0008110810769594856,
    "scale": 1.0,
-   "stopped": null,
+   "stopped": "dropped: measured slopes only afford the best chains",
    "history": [],
    "skin_mm": 4.561669608354871,
    "starts": 2
@@ -1110,7 +1126,7 @@
    "T": 1.565196566582431,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": null,
+   "stopped": "dropped: measured slopes only afford the best chains",
    "history": [],
    "skin_mm": 4.686491828109839,
    "starts": 1
@@ -1256,7 +1272,7 @@
    "T": 1.5704403097133661,
    "noise": 0.0005,
    "scale": 1.0,
-   "stopped": null,
+   "stopped": "dropped: measured slopes only afford the best chains",
    "history": [],
    "skin_mm": 5.634551456915939,
    "starts": 1
