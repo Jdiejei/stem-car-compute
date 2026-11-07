@@ -199,3 +199,9 @@ def test_a_dead_machine_keeps_the_car_and_an_illegal_car_is_redrawn(tmp_state):
     after = json.loads(solver.STATE.read_text())["chains"]
     assert after[0]["car"] == before[0]["car"] and after[0]["starts"] == 2
     assert after[1]["car"] != before[1]["car"] and after[1]["starts"] == 2
+
+
+def test_the_check_tries_what_the_adjoint_says_matters_most():
+    slopes = {f"mode{i}": float(i) for i in range(30)}
+    got = solver.check_settings(slopes)
+    assert len(got) == 12 and got[0] == "mode29" and "mode0" not in got

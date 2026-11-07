@@ -175,7 +175,9 @@ def part_slopes(car: dict, P: dict, s: dict, body_stl: str) -> dict:
         for pname, m in new.items():
             if pname not in P or not m.is_volume:
                 continue
-            dist = trimesh.proximity.signed_distance(m, P[pname]) * 1e3   # + = inside the new part
+            # P is in mm and the part in metres. Unconverted, each point sat about 100 "m"
+            # from its part and every printed setting read about 1e9, which sank the check.
+            dist = trimesh.proximity.signed_distance(m, P[pname] / 1e3) * 1e3   # + = inside the new part
             dD += float((s[pname] * dist).sum())
             moves.append(dist)
             rho = joints.DENSITY_G_CM3.get(pname, 1.24)
@@ -210,10 +212,12 @@ def plan_step(d: dict, g: dict, speeds: dict, move_mm: float) -> dict:
 
 
 # ------------------------------------------------------------------- gradient check
-def check_settings() -> list:
-    """16 settings across the car: body, sidepods, floor and printed parts."""
-    return ["mode5", "mode6", "mode25", "mode26", "mode34", "mode41", "mode47", "mode52",
-            "st_zt3", "st_b4", "s_b", "ft_h", "fw.aoa_deg", "fw.gap_to_wheel_mm", "nose.length_mm", "sup.beam_w_mm"]
+def check_settings(adjoint: dict) -> list:
+    """The 12 settings the adjoint says move drag most in one step. Two cars a step apart
+    differ by 4 mN from the mesh alone (see NOISE_S), which swamped a fixed list: of its
+    11 usable settings, only 2 stood clear of that. A wrong adjoint still fails here, since
+    settings it overrates will measure small."""
+    return sorted(adjoint, key=lambda n: -abs(adjoint[n] * pattern.step0(n)))[:12]
 
 
 def judge_check(direct: dict, adjoint_slopes: dict) -> dict:
@@ -509,7 +513,7 @@ def advance(root: Path) -> str:
                           "chain": c["id"], "skin": c["skin_mm"]}
         d = _d(c)
         cases = [_case(0, c["id"], "base", d, c["skin_mm"]), _case(1, c["id"], "base_repeat", d, c["skin_mm"])]
-        for n in check_settings():
+        for n in check_settings(state["check"]["adjoint"]):
             for sign in (1, -1):
                 lo, hi = pattern.bounds(n)
                 v = float(np.clip(pattern.get(d, n) + sign * pattern.step0(n), lo, hi))
