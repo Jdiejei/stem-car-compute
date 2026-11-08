@@ -88,11 +88,60 @@ def random_car(rng: random.Random, share: float) -> dict:
     return {"car": d, "moved": moved, "layout": layout}
 
 
+def random_carve(rng: random.Random) -> dict:
+    """A car carved from the block: a random layout and parts, and a few random carving
+    steps: smooth bumps in and out (the shapes an adjoint step makes) on top of an overall
+    thinning (what the mass term does)."""
+    c = random_car(rng, rng.choice((0.2, 0.5, 1.0)))
+    c["car"]["params"] = {}
+    c["moved"] = {k: v for k, v in c["moved"].items() if k in pattern.PARTS or k in c["layout"]}
+    steps = rng.randint(1, 6)
+    c["carve"] = {"steps": steps, "bias_mm": rng.uniform(-2.5, 0.5),
+                  "blobs": [{"u": [rng.random(), rng.random() * 0.5 + 0.5, rng.random()],
+                             "amp_mm": rng.uniform(-4.0, 4.0), "sigma_mm": rng.uniform(4.0, 25.0)}
+                            for _ in range(rng.randint(3, 25))]}
+    c["moved"].update(carve_steps=steps, carve_bias_mm=c["carve"]["bias_mm"])
+    return c
+
+
+def carve_field(c: dict, path: Path) -> None:
+    """Carve the block as the carving step does (Hamilton-Jacobi moves of a signed distance
+    field), with a random velocity, and save the field for run_car --phi-npy."""
+    import numpy as np
+    import param_body as pb
+    import unified_phi as up
+    from coarse import use_spacing
+    from phi_updater import hj_update, reinitialise_sdf
+    use_spacing(1.0)
+    lay = {"W": 120.3, "x_front": 46.0, "d_halo": 43.72, **c.get("layout", {})}
+    block = up.build_unified_geometry(lay["W"], lay["x_front"], lay["d_halo"], init_mode="full").phi.grid * 1e3
+    g = pb.build(lay["W"], lay["x_front"], lay["d_halo"], pb.BodyParams(), skin_offset_mm=0.0, field_mm=block)
+    r, d = g.region, up.GRID_SPACING_M
+    X, Y, Z = np.meshgrid(*[(r.origin_m[k] + np.arange(r.shape[k]) * d) for k in range(3)], indexing="ij")
+    solid = g.phi.grid < 0
+    lo = np.array([X[solid].min(), 0.0, Z[solid].min()])
+    hi = np.array([X[solid].max(), Y[solid].max(), Z[solid].max()])
+    V = np.full(X.shape, c["carve"]["bias_mm"] * 1e-3)
+    for b in c["carve"]["blobs"]:
+        cx, cy, cz = lo + np.array(b["u"]) * (hi - lo)
+        s2 = 2.0 * (b["sigma_mm"] * 1e-3) ** 2
+        V += b["amp_mm"] * 1e-3 * np.exp(-((X - cx) ** 2 + (np.abs(Y) - cy) ** 2 + (Z - cz) ** 2) / s2)
+    for _ in range(c["carve"]["steps"]):
+        reinitialise_sdf(g.phi)
+        hj_update(g.phi, V, 1.0)
+        g.phi.apply_hard_constraints()
+        up.enforce_symmetry(g)
+    np.save(path, np.asarray(g.phi.grid, dtype=np.float32))
+
+
 def build_one(c: dict) -> dict:
     import run_car as rc
     out = Path(tempfile.mkdtemp())
     args = ["--out", str(out), "--skin-mm", FIXED_SKIN_MM, "--support", "beam",
             "--body-json", json.dumps(c["car"]["params"])]
+    if "carve" in c:
+        carve_field(c, out / "carved.npy")
+        args = ["--out", str(out), "--skin-mm", "0", "--support", "beam", "--phi-npy", str(out / "carved.npy")]
     for key, flag in (("W", "--W"), ("x_front", "--x-front"), ("d_halo", "--d-halo")):
         if key in c.get("layout", {}):
             args += [flag, str(c["layout"][key])]
@@ -196,6 +245,7 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=10)
     ap.add_argument("--out", default="stress")
     ap.add_argument("--summary", default=None)
+    ap.add_argument("--carve", action="store_true", help="cars carved from the block instead of lofted")
     ap.add_argument("--only", type=int, default=None, help="rebuild just this car of the seed, and describe its files")
     a = ap.parse_args()
     if a.summary:
@@ -211,7 +261,7 @@ def main() -> None:
     for i in range(a.n if a.only is None else a.only + 1):
         # From a few settings moved to all of them: failures from one setting alone
         # are easy to trace, and only all of them together reach the far corners.
-        c = random_car(rng, rng.choice((0.05, 0.2, 0.5, 1.0)))
+        c = random_carve(rng) if a.carve else random_car(rng, rng.choice((0.05, 0.2, 0.5, 1.0)))
         if a.only is not None:
             if i == a.only:
                 _describe(c)

@@ -52,9 +52,19 @@ def build_body(a, out: Path):
     import param_body as pb
     use_spacing(a.cfd_mm)
     bp = pb.BodyParams.from_dict(json.loads(a.body_json))
+    field = None
+    if getattr(a, "phi_npy", None):
+        # A carved body: "block" is the whole legal envelope, the start of carving; a path
+        # is a field saved by a carving run (metres, this car's grid).
+        import numpy as np
+        import unified_phi as up
+        if a.phi_npy == "block":
+            field = up.build_unified_geometry(a.W, a.x_front, a.d_halo, init_mode="full").phi.grid * 1e3
+        else:
+            field = np.load(a.phi_npy) * 1e3
     g = pb.build(a.W, a.x_front, a.d_halo, bp,
                  target_body_kg=getattr(a, "_body_target_kg", None),
-                 skin_offset_mm=getattr(a, "skin_mm", None))
+                 skin_offset_mm=getattr(a, "skin_mm", None), field_mm=field)
     return g, {"param_body": bp.as_dict(), "spacing_mm": a.cfd_mm,
                "build": getattr(g, "build_report", {})}
 
@@ -350,6 +360,9 @@ def parse_args(argv=None):
                     help="legal ballast under the halo (T1.22); the body is sized for the rest")
     ap.add_argument("--body-json", default="{}",
                     help="parametric body (Part 1 param_body.BodyParams) as JSON; '{}' = the start car")
+    ap.add_argument("--phi-npy", default=None,
+                    help="a carved body instead of --body-json: 'block' (the whole legal envelope) "
+                         "or a .npy field saved by a carving run")
     ap.add_argument("--cfd", action="store_true")
     ap.add_argument("--optimise", type=int, default=0)
     ap.add_argument("--final-cfd", action="store_true")
@@ -442,6 +455,9 @@ def main(argv=None):
         if res.best is not None and res.best.phi_snapshot_paths:
             geom.phi.load(next(iter(res.best.phi_snapshot_paths.values())))
             S["optimisation"]["final_is"] = res.best.candidate_id
+        # The carved field, so the next run carries on from here (--phi-npy).
+        import numpy as np
+        np.save(out / "carved_phi.npy", np.asarray(geom.phi.grid, dtype=np.float32))
         S["body_final"] = export_body(geom, out / "body_final_half.stl")
         asm = parts_and_joints(a, out, geom, out / "body_final_half.stl", "parts_final",
                                **p4kw)

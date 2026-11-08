@@ -729,7 +729,7 @@ def build_unified_geometry(
     _init_field(phi, init_mode, seed)
     phi.apply_hard_constraints()
 
-    return UnifiedGeometry(
+    geom = UnifiedGeometry(
         phi=phi,
         labels=labels,
         region=region,
@@ -749,6 +749,82 @@ def build_unified_geometry(
         spacing_m=GRID_SPACING_M,
         t55_cells_protected=t55_overridden,
     )
+    apply_build_rules(geom)
+    return geom
+
+
+def apply_build_rules(geom: "UnifiedGeometry") -> None:
+    """Rules every body obeys, lofted (param_body) or carved from the block, found by the
+    stress rounds of 2026-11-07. Forced air and forced solid, so a carving step cannot undo
+    them either.
+
+    * The machined body ends at Ref A: the printed nose cone is everything ahead of it (T1.7).
+    * T8.5.1: within a cell of Ref A the body stays inside 15 mm of the centreline and 25 mm
+      of the track, 0.5 mm inside the rule, since the nose takes its root section from there.
+      One cell further aft than the root slice: the surface between a capped node and the
+      next free one leaned past 15 mm (11 of 1010 random cars).
+    * A stub at Ref A for the nose to join, whatever the shape does up there.
+    * T4.4.4: the halo sits on a floor at 24 mm. Under the pocket, 1.5 mm inside its outline,
+      the body is solid from the cargo band up to (not into) the floor's own layer, so nothing
+      leaves the halo over a hole (14 of 400 random cars). Part 4 cuts the exact pocket.
+    * Across the pocket's rear edge, below the floor and, 2.5 mm behind the pocket, up into
+      what stands behind it: cutting the exact pocket severed a body joined there only above
+      the floor (2 of 400 random cars, the chamber end a loose piece)."""
+    from halo_pocket import compute_halo_pocket_box_m
+    r, d = geom.region, GRID_SPACING_M
+    xs = (r.origin_m[0] + np.arange(r.shape[0]) * d) * 1e3
+    ys = (r.origin_m[1] + np.arange(r.shape[1]) * d) * 1e3
+    zs = (r.origin_m[2] + np.arange(r.shape[2]) * d) * 1e3
+    X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
+    x_ref_a = geom.landmarks["ref_plane_A_m"] * 1e3
+    air = X < x_ref_a - 1e-6
+    air |= (X <= x_ref_a + 1.0 + d * 1e3) & ((np.abs(Y) > 14.5) | (Z > 24.5))
+    solid = (np.abs(Y) <= 4.0) & (Z >= 9.0) & (Z <= 18.0) & (X >= x_ref_a) & (X <= x_ref_a + 2.0)
+    pk = compute_halo_pocket_box_m(geom.landmarks["ref_plane_A_m"], geom.d_halo_mm)
+    in_y = (Y >= pk["y_min_m"] * 1e3 + 1.5) & (Y <= pk["y_max_m"] * 1e3 - 1.5)
+    under = (Z >= 13.0) & (Z < pk["z_min_m"] * 1e3 - 1e-6)
+    solid |= (X >= pk["x_min_m"] * 1e3 + 1.5) & (X <= pk["x_max_m"] * 1e3 - 1.5) & in_y & under
+    xe = pk["x_max_m"] * 1e3
+    solid |= (X >= xe - 3.0) & (X <= xe + 6.0) & in_y & (under | ((X > xe + 2.5) & (Z >= 13.0) & (Z <= 28.0)))
+    phi = geom.phi
+    phi.hard_mask_air |= air
+    phi.hard_mask_solid |= solid & ~phi.hard_mask_air
+    phi.apply_hard_constraints()
+
+
+def close_pinches(geom: "UnifiedGeometry", spacing_m: float, rounds: int = 4) -> int:
+    """Fill one cell of every 2 x 2 checkerboard (two solid cells meeting only along an
+    edge). The surface there can have an edge shared by four faces, so the body STL is not
+    watertight. Fill an empty cell of the pair where the rules allow it; where both are
+    forced air, take away a solid one instead. Returns cells changed."""
+    A = geom.phi.hard_mask_air
+    H = getattr(geom.phi, "hard_mask_solid", None)
+    total = 0
+    for _ in range(rounds):
+        S = geom.phi.grid < 0
+        fill, carve = np.zeros_like(S), np.zeros_like(S)
+        for a, b in ((0, 1), (0, 2), (1, 2)):
+            def at(da, db):
+                idx = [slice(None)] * 3
+                idx[a] = slice(da, S.shape[a] - 1 + da)
+                idx[b] = slice(db, S.shape[b] - 1 + db)
+                return tuple(idx)
+            for (s1, s2), (e1, e2) in ((((0, 0), (1, 1)), ((1, 0), (0, 1))), (((1, 0), (0, 1)), ((0, 0), (1, 1)))):
+                pinch = S[at(*s1)] & S[at(*s2)] & ~S[at(*e1)] & ~S[at(*e2)]
+                f1 = pinch & ~A[at(*e1)]
+                f2 = pinch & ~f1 & ~A[at(*e2)]
+                fill[at(*e1)] |= f1
+                fill[at(*e2)] |= f2
+                rest = pinch & ~f1 & ~f2
+                c1 = rest & (~H[at(*s1)] if H is not None else True)
+                carve[at(*s1)] |= c1
+                carve[at(*s2)] |= rest & ~c1 & (~H[at(*s2)] if H is not None else True)
+        if not (fill.any() or carve.any()):
+            break
+        geom.phi.grid[fill] = -0.25 * spacing_m          # just inside: the surface moves a quarter cell
+        geom.phi.grid[carve & ~fill] = 0.25 * spacing_m
+        total += int(fill.sum() + carve.sum())
+    return total
 
 
 def remap_geometry(

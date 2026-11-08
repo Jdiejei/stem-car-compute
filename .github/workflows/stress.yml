@@ -7,6 +7,9 @@ on:
     inputs:
       cars_per_machine:
         default: "10"
+      carve:
+        description: "true = cars carved from the block"
+        default: "false"
       seed_base:
         description: Added to each machine's seed. A new base gives cars never built before.
         default: "0"
@@ -35,7 +38,7 @@ jobs:
       - run: pip install $PY_DEPS
       - name: Build random cars
         working-directory: part5-simulation
-        run: python -W ignore checks/stress_cars.py --seed $(( ${{ matrix.seed }} + ${{ inputs.seed_base }} )) --n ${{ inputs.cars_per_machine }} --out ../stress 2>&1 | grep --line-buffered -E '^car '
+        run: python -W ignore checks/stress_cars.py --seed $(( ${{ matrix.seed }} + ${{ inputs.seed_base }} )) --n ${{ inputs.cars_per_machine }} --out ../stress ${{ inputs.carve == 'true' && '--carve' || '' }} 2>&1 | grep --line-buffered -E '^car '
       - uses: actions/upload-artifact@v4
         if: always()
         with:

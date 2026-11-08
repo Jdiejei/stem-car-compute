@@ -1028,8 +1028,11 @@ def apply_adjoint_to_unified(
     # reachable set of a y-symmetric field is itself y-symmetric and this cannot
     # break the symmetry the line above just imposed.
     filled = enforce_machinability(geom)
+    # Edge-only contacts left by the step would give the body STL a four-face edge.
+    from unified_phi import close_pinches
+    pinches = close_pinches(geom, GRID_SPACING_M)
     moved = np.abs(phi.grid - phi0)[iface] if iface.any() else np.zeros(1)
     return {"substeps": n_done, "dt": step_dt,
             "disp_median_m": float(np.median(moved)),
             "disp_p90_m": float(np.percentile(moved, 90)),
-            "machinability_filled": int(filled)}
+            "machinability_filled": int(filled), "pinch_cells": int(pinches)}

@@ -23,7 +23,7 @@ Shape, all in mm, car coordinates (x nose->tail, z up from the track):
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict, fields
+from dataclasses import dataclass, asdict, fields, replace
 import numpy as np
 
 
@@ -221,8 +221,12 @@ def mode_field(bp, X, Y, Z, x_ref_a, x_rear):
 
 def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
           target_body_kg: float | None = None, machinable: bool = True,
-          skin_offset_mm: float | None = None):
+          skin_offset_mm: float | None = None, field_mm=None):
     """UnifiedGeometry whose body is `bp`, with every rule mask applied.
+
+    field_mm: a body given as a signed distance field on this car's grid (mm, negative
+      inside), e.g. one carved from the block, used instead of `bp`'s loft. It goes through
+      the same rules, machining, joins and mass sizing (the skin offset grows or thins it).
 
     machinable: the team's 3-axis, 6.25 mm ball-end, top-and-bottom process
       (machining.make_machinable) is applied to the drawn shape.
@@ -243,42 +247,17 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
     x_ref_a = base.landmarks["ref_plane_A_m"] * 1e3
     x_rear_mm = base.landmarks["rear_face_m"] * 1e3
-    phi0 = phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm)
-    # T8.5.1: anything ahead of Ref A stays within 15 mm of the centreline and 25 mm
-    # of the track, and the nose cone takes its root from the body 1 mm aft of Ref A.
-    # A heavy skin offset pushed that section over the limit, so the body is capped
-    # there, 0.5 mm inside the rule.
-    # One grid cell further aft than the root slice: the surface between a capped node and
-    # the next free one leaned out past 15 mm at the slice (11 of 1010 random cars).
-    base.phi.hard_mask_air |= (X <= x_ref_a + 1.0 + d * 1e3) & ((np.abs(Y) > 14.5) | (Z > 24.5))
-    # The nose needs something to join at Ref A, whatever the loft does up there.
+    if field_mm is not None:
+        if np.shape(field_mm) != X.shape:
+            raise ValueError(f"field_mm has shape {np.shape(field_mm)}, this car's grid is {X.shape}")
+        phi0 = np.asarray(field_mm, dtype=float)
+        bp = replace(bp, ft_h=0.0)                 # the field is the whole body: no loft tunnel
+    else:
+        phi0 = phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm)
+    # The rules every body obeys (Ref A end, T8.5.1 cap, nose stub, halo floor and pocket
+    # bridge) are forced in build_unified_geometry (unified_phi.apply_build_rules), so a
+    # carved body gets them too. The stub's section is reused below to join a split front.
     stub = (np.abs(Y) <= 4.0) & (Z >= 9.0) & (Z <= 18.0)
-    base.phi.hard_mask_solid |= stub & (X >= x_ref_a) & (X <= x_ref_a + 2.0)
-    # T4.4.4: the halo sits on a floor at 24 mm. Under the pocket the body is solid from the
-    # cargo band up to that floor, so a low loft or a floor tunnel cannot leave the halo over
-    # a hole (no floor, or one 1-7 mm low: 14 of 400 random cars, 13 of them with a tunnel).
-    from halo_pocket import compute_halo_pocket_box_m
-    pk = compute_halo_pocket_box_m(base.landmarks["ref_plane_A_m"], d_halo_mm)
-    # 1.5 mm inside the pocket's outline: Part 4 cuts the exact pocket, but out to its edge
-    # the column pushed the walls the cutter must clear over the halo's outline (T4.4.3,
-    # 13.7-32.9 mm3 on the fine start car).
-    base.phi.hard_mask_solid |= ((X >= pk["x_min_m"] * 1e3 + 1.5) & (X <= pk["x_max_m"] * 1e3 - 1.5)
-                                 & (Y >= pk["y_min_m"] * 1e3 + 1.5) & (Y <= pk["y_max_m"] * 1e3 - 1.5)
-                                 # up to, not into, the floor's own layer: forced solid there,
-                                 # the 0.5 mm grid drew the floor at 24.25, 33 mm3 over the halo
-                                 & (Z >= 13.0) & (Z < pk["z_min_m"] * 1e3 - 1e-6)
-                                 & ~base.phi.hard_mask_air)
-    # Across the pocket's rear edge, below the floor and up into whatever stands behind it:
-    # the exact pocket Part 4 cuts (everything over 24 mm in its box) severed a body joined
-    # there only above the floor, leaving the chamber end a loose piece (x 156.6 on a body
-    # whose voxels were one piece; 2 of 400 random cars, "0 % of the T5.5 annulus").
-    xe = pk["x_max_m"] * 1e3
-    base.phi.hard_mask_solid |= ((X >= xe - 3.0) & (X <= xe + 6.0)
-                                 & (Y >= pk["y_min_m"] * 1e3 + 1.5) & (Y <= pk["y_max_m"] * 1e3 - 1.5)
-                                 # over the floor only clear of the halo, up to 1 mm longer than
-                                 # its pocket (T4.4.3, 9.2 mm3 at +0.5 mm)
-                                 & (Z >= 13.0) & ((Z < pk["z_min_m"] * 1e3 - 1e-6) | ((X > xe + 2.5) & (Z <= 28.0)))
-                                 & ~base.phi.hard_mask_air)
 
     def make(offset_mm, bar_to=None, bridges=None):
         import copy
@@ -402,38 +381,8 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
 
 
 def _close_pinches(geom, spacing_m: float, rounds: int = 4) -> int:
-    """Fill one cell of every 2 x 2 checkerboard (two solid cells meeting only along an
-    edge). The surface there can have an edge shared by four faces, so the body STL is not
-    watertight. Returns cells changed."""
-    # Fill an empty cell of the pair where the rules allow it; where both are forced air
-    # (the contact sits on a rule zone's corner), take away a solid one instead.
-    A, H = geom.phi.hard_mask_air, geom.phi.hard_mask_solid if hasattr(geom.phi, "hard_mask_solid") else None
-    total = 0
-    for _ in range(rounds):
-        S = geom.phi.grid < 0
-        fill, carve = np.zeros_like(S), np.zeros_like(S)
-        for a, b in ((0, 1), (0, 2), (1, 2)):
-            def at(da, db):
-                idx = [slice(None)] * 3
-                idx[a] = slice(da, S.shape[a] - 1 + da)
-                idx[b] = slice(db, S.shape[b] - 1 + db)
-                return tuple(idx)
-            for (s1, s2), (e1, e2) in ((((0, 0), (1, 1)), ((1, 0), (0, 1))), (((1, 0), (0, 1)), ((0, 0), (1, 1)))):
-                pinch = S[at(*s1)] & S[at(*s2)] & ~S[at(*e1)] & ~S[at(*e2)]
-                f1 = pinch & ~A[at(*e1)]
-                f2 = pinch & ~f1 & ~A[at(*e2)]
-                fill[at(*e1)] |= f1
-                fill[at(*e2)] |= f2
-                rest = pinch & ~f1 & ~f2
-                c1 = rest & (~H[at(*s1)] if H is not None else True)
-                carve[at(*s1)] |= c1
-                carve[at(*s2)] |= rest & ~c1 & (~H[at(*s2)] if H is not None else True)
-        if not (fill.any() or carve.any()):
-            break
-        geom.phi.grid[fill] = -0.25 * spacing_m          # just inside: the surface moves a quarter cell
-        geom.phi.grid[carve & ~fill] = 0.25 * spacing_m
-        total += int(fill.sum() + carve.sum())
-    return total
+    import unified_phi as up
+    return up.close_pinches(geom, spacing_m, rounds)
 
 
 def _drop_islands(geom) -> int:
