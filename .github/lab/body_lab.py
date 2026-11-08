@@ -42,6 +42,6 @@ def spy(geom):
 up.extract_half_surface = spy
 try:
     S = rc.main(args)
-    print('LAB built', S['legality']['summary']['failed'], flush=True)
+    print('LAB built', S['legality']['summary']['failed'], S['body'].get('build', {}).get('pinch_cells_filled'), flush=True)
 except SystemExit as e:
     print('LAB exit', e, flush=True)

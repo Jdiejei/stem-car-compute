@@ -405,25 +405,34 @@ def _close_pinches(geom, spacing_m: float, rounds: int = 4) -> int:
     """Fill one cell of every 2 x 2 checkerboard (two solid cells meeting only along an
     edge). The surface there has an edge shared by four faces, so the body STL is not
     watertight (car 42211/2: x 73, y 13, z 33.5-34.0; 1 car in 3,600). Returns cells filled."""
-    S = geom.phi.grid < 0
+    # Fill an empty cell of the pair where the rules allow it; where both are forced air
+    # (the contact sits on a rule zone's corner), take away a solid one instead.
+    A, H = geom.phi.hard_mask_air, geom.phi.hard_mask_solid if hasattr(geom.phi, "hard_mask_solid") else None
     total = 0
     for _ in range(rounds):
-        fill = np.zeros_like(S)
+        S = geom.phi.grid < 0
+        fill, carve = np.zeros_like(S), np.zeros_like(S)
         for a, b in ((0, 1), (0, 2), (1, 2)):
             def at(da, db):
                 idx = [slice(None)] * 3
                 idx[a] = slice(da, S.shape[a] - 1 + da)
                 idx[b] = slice(db, S.shape[b] - 1 + db)
                 return tuple(idx)
-            p00, p11, p10, p01 = S[at(0, 0)], S[at(1, 1)], S[at(1, 0)], S[at(0, 1)]
-            fill[at(1, 0)] |= p00 & p11 & ~p10 & ~p01
-            fill[at(0, 0)] |= p10 & p01 & ~p00 & ~p11
-        fill &= ~geom.phi.hard_mask_air
-        if not fill.any():
+            for (s1, s2), (e1, e2) in ((((0, 0), (1, 1)), ((1, 0), (0, 1))), (((1, 0), (0, 1)), ((0, 0), (1, 1)))):
+                pinch = S[at(*s1)] & S[at(*s2)] & ~S[at(*e1)] & ~S[at(*e2)]
+                f1 = pinch & ~A[at(*e1)]
+                f2 = pinch & ~f1 & ~A[at(*e2)]
+                fill[at(*e1)] |= f1
+                fill[at(*e2)] |= f2
+                rest = pinch & ~f1 & ~f2
+                c1 = rest & (~H[at(*s1)] if H is not None else True)
+                carve[at(*s1)] |= c1
+                carve[at(*s2)] |= rest & ~c1 & (~H[at(*s2)] if H is not None else True)
+        if not (fill.any() or carve.any()):
             break
         geom.phi.grid[fill] = -0.25 * spacing_m          # just inside: the surface moves a quarter cell
-        S |= fill
-        total += int(fill.sum())
+        geom.phi.grid[carve & ~fill] = 0.25 * spacing_m
+        total += int(fill.sum() + carve.sum())
     return total
 
 
