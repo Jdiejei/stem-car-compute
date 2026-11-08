@@ -15,6 +15,10 @@ for i in range(only + 1):
     c = sc.random_car(rng, rng.choice((0.05, 0.2, 0.5, 1.0)))
 if seed == 0:
     c = {"car": {"params": {}, "parts": {}}, "layout": {}, "moved": {}}       # the start car
+if seed < 0:                                                                # a solver chain's current car
+    import json as _j
+    ch = _j.load(open('search/solver_state.json'))['chains'][only]
+    c = {"car": {"params": ch['car']['params'], "parts": ch['car']['parts']}, "layout": ch['car'].get('layout', {}), "moved": {}}
 args = ['--out', tempfile.mkdtemp(), '--skin-mm', sc.FIXED_SKIN_MM, '--support', 'beam', '--body-json', json.dumps(c['car']['params'])]
 for key, flag in (('W', '--W'), ('x_front', '--x-front'), ('d_halo', '--d-halo')):
     if key in c.get('layout', {}):
@@ -45,10 +49,9 @@ fig = plt.figure(figsize=(14, 9))
 for k, (elev, azim, title) in enumerate(((22, -58, 'three-quarter'), (0, -90, 'side'), (90, -90, 'top'), (8, 180, 'front'))):
     ax = fig.add_subplot(2, 2, k + 1, projection='3d')
     for m, col in meshes:
-        f = m.faces
-        if len(f) > 30000:
-            f = f[np.random.default_rng(0).choice(len(f), 30000, replace=False)]
-        tri = m.vertices[f]
+        if len(m.faces) > 40000:
+            m = m.simplify_quadric_decimation(face_count=40000)
+        tri = m.vertices[m.faces]
         n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]); n /= np.linalg.norm(n, axis=1, keepdims=True) + 1e-12
         shade = 0.45 + 0.55 * np.clip(n @ np.array([0.3, -0.5, 0.8]) / np.linalg.norm([0.3, -0.5, 0.8]), 0, 1)
         base = np.array(matplotlib.colors.to_rgb(col))
@@ -56,7 +59,7 @@ for k, (elev, azim, title) in enumerate(((22, -58, 'three-quarter'), (0, -90, 's
     ctr, span = (lo + hi) / 2, (hi - lo).max() / 2
     ax.set_xlim(ctr[0] - span, ctr[0] + span); ax.set_ylim(ctr[1] - span, ctr[1] + span); ax.set_zlim(ctr[2] - span, ctr[2] + span)
     ax.set_box_aspect((1, 1, 1)); ax.view_init(elev=elev, azim=azim); ax.set_axis_off(); ax.set_title(title)
-fig.suptitle(f"car {seed}/{only}: {len(c['moved'])} settings moved" if seed else "start car", fontsize=14)
+fig.suptitle(f"solver car, start {only}" if seed < 0 else (f"car {seed}/{only}: {len(c['moved'])} settings moved" if seed else "start car"), fontsize=14)
 fig.tight_layout()
 fig.savefig(f'render/car_{seed}_{only}.png', dpi=110)
 print('LAB rendered', seed, only, flush=True)
