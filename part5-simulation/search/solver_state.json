@@ -1,6 +1,6 @@
 {
- "round": 4,
- "phase": "steps",
+ "round": 5,
+ "phase": "adjoint",
  "slopes": "adjoint",
  "sign": 1.0,
  "next_seed": 10,
@@ -158,9 +158,9 @@
      "d_halo": 41.22
     }
    },
-   "T": 1.543488252821011,
+   "T": 1.543730101153373,
    "noise": 0.001,
-   "scale": 0.5,
+   "scale": 0.25,
    "stopped": null,
    "history": [
     {
@@ -189,6 +189,12 @@
      "noise": 0.001,
      "accepted": "step d_halo=41.22",
      "gain_ms": 2.1456732273474888
+    },
+    {
+     "round": 4,
+     "T": 1.543730101153373,
+     "noise": 0.001,
+     "accepted": null
     }
    ],
    "skin_mm": 3.9720693136369287,
@@ -332,10 +338,10 @@
      "d_halo": 25.608150938310715
     }
    },
-   "T": 1.5714926945164651,
+   "T": 1.573407291335176,
    "noise": 0.001,
-   "scale": 0.25,
-   "stopped": null,
+   "scale": 0.125,
+   "stopped": "peak: no step beat the noise, down to a fifth of the size",
    "history": [
     {
      "round": 0,
@@ -360,6 +366,12 @@
     {
      "round": 3,
      "T": 1.5714926945164651,
+     "noise": 0.001,
+     "accepted": null
+    },
+    {
+     "round": 4,
+     "T": 1.573407291335176,
      "noise": 0.001,
      "accepted": null
     }
@@ -677,10 +689,10 @@
      "d_halo": 29.063724590926572
     }
    },
-   "T": 1.5569660070633153,
+   "T": 1.5572937881461013,
    "noise": 0.001,
-   "scale": 0.25,
-   "stopped": null,
+   "scale": 0.125,
+   "stopped": "peak: no step beat the noise, down to a fifth of the size",
    "history": [
     {
      "round": 0,
@@ -705,6 +717,12 @@
     {
      "round": 3,
      "T": 1.5569660070633153,
+     "noise": 0.001,
+     "accepted": null
+    },
+    {
+     "round": 4,
+     "T": 1.5572937881461013,
      "noise": 0.001,
      "accepted": null
     }
@@ -1011,11 +1029,11 @@
     },
     "layout": {
      "W": 120.3,
-     "x_front": 52.159408996721965,
+     "x_front": 51.659408996721965,
      "d_halo": 39.80079935739988
     }
    },
-   "T": 1.5572061885773998,
+   "T": 1.5501542286804944,
    "noise": 0.001,
    "scale": 0.25,
    "stopped": null,
@@ -1045,9 +1063,16 @@
      "T": 1.5572061885773998,
      "noise": 0.001,
      "accepted": null
+    },
+    {
+     "round": 4,
+     "T": 1.5563034294036053,
+     "noise": 0.001,
+     "accepted": "step x_front=51.6594",
+     "gain_ms": 6.149200723110981
     }
    ],
-   "skin_mm": 4.708352909345041,
+   "skin_mm": 4.6309544722121085,
    "starts": 2
   },
   {
@@ -1188,10 +1213,10 @@
      "d_halo": 38.42170744504266
     }
    },
-   "T": 1.5560349741126511,
+   "T": 1.5550194069092338,
    "noise": 0.001,
-   "scale": 0.25,
-   "stopped": null,
+   "scale": 0.125,
+   "stopped": "peak: no step beat the noise, down to a fifth of the size",
    "history": [
     {
      "round": 0,
@@ -1216,6 +1241,12 @@
     {
      "round": 3,
      "T": 1.5560349741126511,
+     "noise": 0.001,
+     "accepted": null
+    },
+    {
+     "round": 4,
+     "T": 1.5550194069092338,
      "noise": 0.001,
      "accepted": null
     }
@@ -1361,9 +1392,9 @@
      "d_halo": 47.24778248227383
     }
    },
-   "T": 1.5457589676214265,
+   "T": 1.5468528244526905,
    "noise": 0.001,
-   "scale": 0.5,
+   "scale": 0.25,
    "stopped": null,
    "history": [
     {
@@ -1392,6 +1423,12 @@
      "noise": 0.001,
      "accepted": "step1",
      "gain_ms": 3.279607806813134
+    },
+    {
+     "round": 4,
+     "T": 1.5468528244526905,
+     "noise": 0.001,
+     "accepted": null
     }
    ],
    "skin_mm": 6.182968866606501,
