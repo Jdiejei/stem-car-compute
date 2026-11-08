@@ -239,7 +239,10 @@ def test_no_attachment_strips_are_needed():
 
     # Mirrored onto the left half by build_unified_geometry, so mirror here too.
     loft = loft | loft[:, ::-1, :]
-    residue = without.phi.hard_mask_solid & ~loft & ~zone
+    # The build rules (nose stub, halo floor, pocket bridge) are specified too.
+    import unified_phi
+    _, rules = unified_phi.build_rule_masks(without)
+    residue = without.phi.hard_mask_solid & ~loft & ~zone & ~rules
     assert int(residue.sum()) == 0, (
         f"{int(residue.sum()):,} cells are forced solid that are none of cargo, "
         f"the halo-canister loft or the T5.5 safety zone -- an attachment strip "

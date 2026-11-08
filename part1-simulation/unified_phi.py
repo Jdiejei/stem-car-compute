@@ -758,7 +758,6 @@ def apply_build_rules(geom: "UnifiedGeometry") -> None:
     stress rounds of 2026-11-07. Forced air and forced solid, so a carving step cannot undo
     them either.
 
-    * The machined body ends at Ref A: the printed nose cone is everything ahead of it (T1.7).
     * T8.5.1: within a cell of Ref A the body stays inside 15 mm of the centreline and 25 mm
       of the track, 0.5 mm inside the rule, since the nose takes its root section from there.
       One cell further aft than the root slice: the surface between a capped node and the
@@ -770,6 +769,15 @@ def apply_build_rules(geom: "UnifiedGeometry") -> None:
     * Across the pocket's rear edge, below the floor and, 2.5 mm behind the pocket, up into
       what stands behind it: cutting the exact pocket severed a body joined there only above
       the floor (2 of 400 random cars, the chamber end a loose piece)."""
+    air, solid = build_rule_masks(geom)
+    phi = geom.phi
+    phi.hard_mask_air |= air
+    phi.hard_mask_solid |= solid & ~phi.hard_mask_air
+    phi.apply_hard_constraints()
+
+
+def build_rule_masks(geom: "UnifiedGeometry"):
+    """(forced air, forced solid) of apply_build_rules, y-symmetric by construction."""
     from halo_pocket import compute_halo_pocket_box_m
     r, d = geom.region, GRID_SPACING_M
     xs = (r.origin_m[0] + np.arange(r.shape[0]) * d) * 1e3
@@ -777,19 +785,15 @@ def apply_build_rules(geom: "UnifiedGeometry") -> None:
     zs = (r.origin_m[2] + np.arange(r.shape[2]) * d) * 1e3
     X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
     x_ref_a = geom.landmarks["ref_plane_A_m"] * 1e3
-    air = X < x_ref_a - 1e-6
-    air |= (X <= x_ref_a + 1.0 + d * 1e3) & ((np.abs(Y) > 14.5) | (Z > 24.5))
+    air = (X <= x_ref_a + 1.0 + d * 1e3) & ((np.abs(Y) > 14.5) | (Z > 24.5))
     solid = (np.abs(Y) <= 4.0) & (Z >= 9.0) & (Z <= 18.0) & (X >= x_ref_a) & (X <= x_ref_a + 2.0)
     pk = compute_halo_pocket_box_m(geom.landmarks["ref_plane_A_m"], geom.d_halo_mm)
-    in_y = (Y >= pk["y_min_m"] * 1e3 + 1.5) & (Y <= pk["y_max_m"] * 1e3 - 1.5)
+    in_y = np.abs(Y) <= min(-pk["y_min_m"], pk["y_max_m"]) * 1e3 - 1.5
     under = (Z >= 13.0) & (Z < pk["z_min_m"] * 1e3 - 1e-6)
     solid |= (X >= pk["x_min_m"] * 1e3 + 1.5) & (X <= pk["x_max_m"] * 1e3 - 1.5) & in_y & under
     xe = pk["x_max_m"] * 1e3
     solid |= (X >= xe - 3.0) & (X <= xe + 6.0) & in_y & (under | ((X > xe + 2.5) & (Z >= 13.0) & (Z <= 28.0)))
-    phi = geom.phi
-    phi.hard_mask_air |= air
-    phi.hard_mask_solid |= solid & ~phi.hard_mask_air
-    phi.apply_hard_constraints()
+    return air, solid
 
 
 def close_pinches(geom: "UnifiedGeometry", spacing_m: float, rounds: int = 4) -> int:
@@ -1032,10 +1036,13 @@ def extract_half_surface(geom: UnifiedGeometry):
 
     clone = PhiGrid("car", geom.region, half_grid.astype(np.float32),
                     geom.phi.hard_mask_solid, geom.phi.hard_mask_air)
-    mesh = SE._repair_mesh(SE._marching_cubes(clone))
-    # Flatten any sub-cell overshoot onto the symmetry plane (y >= 0).
-    mesh.vertices[mesh.vertices[:, 1] < 0.0, 1] = 0.0
-    mesh.merge_vertices()
+    for eps_frac in (1e-6, 1e-4):          # 1e-4: a node a hair off the level welded shut
+        mesh = SE._repair_mesh(SE._marching_cubes(clone, eps_frac))
+        # Flatten any sub-cell overshoot onto the symmetry plane (y >= 0).
+        mesh.vertices[mesh.vertices[:, 1] < 0.0, 1] = 0.0
+        mesh.merge_vertices()
+        if mesh.is_watertight:
+            break
     return mesh
 
 

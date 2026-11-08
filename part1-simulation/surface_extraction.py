@@ -65,7 +65,7 @@ class MeshQualityFailure(SurfaceExtractionError):
 
 # ── Stage 1: Marching Cubes ────────────────────────────────────────────────
 
-def _marching_cubes(phi: PhiGrid) -> "trimesh.Trimesh":
+def _marching_cubes(phi: PhiGrid, eps_frac: float = 1e-6) -> "trimesh.Trimesh":
     """Run marching cubes on phi=0 isosurface, translate to world coordinates."""
     import trimesh
     from skimage import measure
@@ -83,12 +83,12 @@ def _marching_cubes(phi: PhiGrid) -> "trimesh.Trimesh":
     # _repair_mesh then merges them and opens a hole (found 2026-09-25: a
     # 6-edge hole at two phi == 0.0 cells made the CFD STL non-watertight).
     # Nudge them off the level by a negligible amount.
-    # The nudge must clear the vertex weld tolerance (trimesh.tol.merge, 1e-8 m): at
-    # 1e-6 * dx (1e-9 m) a vertex a hair off a node was welded to its neighbours' and
-    # left an edge shared by four faces (car 42211/2, node column x 73, y 13). Values
-    # that small but not zero did the same, so they are moved too, keeping their sign.
+    # eps_frac: at the default 1e-6 * dx (1e-9 m) a vertex a hair off a node can be
+    # welded to its neighbours' (trimesh.tol.merge is 1e-8 m) and leave an edge shared
+    # by four faces (car 42211/2). Callers retry at 1e-4 when the surface comes out
+    # open; that size as the default left 0-degree slivers on a remapped field.
     grid = phi.grid
-    eps = np.float32(1e-4 * dx)
+    eps = np.float32(eps_frac * dx)
     near = np.abs(grid) < eps
     if near.any():
         grid = np.where(near, np.where(grid < 0, -eps, eps), grid)

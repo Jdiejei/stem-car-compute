@@ -250,7 +250,8 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     if field_mm is not None:
         if np.shape(field_mm) != X.shape:
             raise ValueError(f"field_mm has shape {np.shape(field_mm)}, this car's grid is {X.shape}")
-        phi0 = np.asarray(field_mm, dtype=float)
+        # The machined body ends at Ref A: ahead of it is the printed nose cone (T1.7).
+        phi0 = np.maximum(np.asarray(field_mm, dtype=float), x_ref_a - X)
         bp = replace(bp, ft_h=0.0)                 # the field is the whole body: no loft tunnel
     else:
         phi0 = phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm)
