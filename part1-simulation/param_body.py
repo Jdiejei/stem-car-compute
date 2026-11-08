@@ -408,7 +408,11 @@ def _close_pinches(geom, spacing_m: float, rounds: int = 4) -> int:
     # Fill an empty cell of the pair where the rules allow it; where both are forced air
     # (the contact sits on a rule zone's corner), take away a solid one instead.
     A, H = geom.phi.hard_mask_air, geom.phi.hard_mask_solid if hasattr(geom.phi, "hard_mask_solid") else None
-    total = 0
+    # A node exactly on the surface (phi == 0, a setting landing on a grid line) gives
+    # marching cubes an ambiguous cell and the same four-face edge: 42211/2's edge ran along
+    # the node column x 73, y 13. Such nodes go a hair to the air side.
+    total = int((geom.phi.grid == 0).sum())
+    geom.phi.grid[geom.phi.grid == 0] = 1e-4 * spacing_m
     for _ in range(rounds):
         S = geom.phi.grid < 0
         fill, carve = np.zeros_like(S), np.zeros_like(S)
