@@ -59,3 +59,14 @@ def test_a_tunnel_keeps_its_height_at_any_skin():
         at = lambda z: float(pb.phi_mm(bp, x, y, np.array([z]), 30.0, 222.0, skin_mm=skin)[0])
         assert at(floor + 2.0) > 0, f"inside the tunnel at skin {skin}"
         assert at(floor + 4.0) < 0, f"foam above the tunnel at skin {skin}"
+
+
+def test_close_pinches_fills_an_edge_only_contact():
+    from types import SimpleNamespace
+    grid = np.full((4, 4, 3), 1e-3, dtype=np.float32)
+    grid[1, 1, :] = grid[2, 2, :] = -1e-3            # two columns touching only along an edge
+    g = SimpleNamespace(phi=SimpleNamespace(grid=grid, hard_mask_air=np.zeros(grid.shape, bool)))
+    assert pb._close_pinches(g, 1e-3) > 0
+    S = g.phi.grid < 0
+    assert S[2, 1, :].all() or S[1, 2, :].all()
+    assert pb._close_pinches(g, 1e-3) == 0            # nothing left to fill

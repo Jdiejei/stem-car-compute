@@ -297,6 +297,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         rep = machining.make_machinable(g) if machinable else {}
         up.enforce_symmetry(g)
         rep["islands_removed_mm3"] = _drop_islands(g) * (d * 1e3) ** 3
+        rep["pinch_cells_filled"] = _close_pinches(g, d)
         # The stub at Ref A must belong to the main body. Where sculpting, a thin skin or the
         # cutter leaves the front as its own piece, the mesh keeps only the biggest one, and
         # the nose loses its root (body from x 52.9 with Ref A at 39.7; 16 of 1010 random
@@ -398,6 +399,32 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
             g = make(over[0])
     g.build_report["mass_error_g"] = (mass(g) - target_body_kg) * 1e3
     return g
+
+
+def _close_pinches(geom, spacing_m: float, rounds: int = 4) -> int:
+    """Fill one cell of every 2 x 2 checkerboard (two solid cells meeting only along an
+    edge). The surface there has an edge shared by four faces, so the body STL is not
+    watertight (car 42211/2: x 73, y 13, z 33.5-34.0; 1 car in 3,600). Returns cells filled."""
+    S = geom.phi.grid < 0
+    total = 0
+    for _ in range(rounds):
+        fill = np.zeros_like(S)
+        for a, b in ((0, 1), (0, 2), (1, 2)):
+            def at(da, db):
+                idx = [slice(None)] * 3
+                idx[a] = slice(da, S.shape[a] - 1 + da)
+                idx[b] = slice(db, S.shape[b] - 1 + db)
+                return tuple(idx)
+            p00, p11, p10, p01 = S[at(0, 0)], S[at(1, 1)], S[at(1, 0)], S[at(0, 1)]
+            fill[at(1, 0)] |= p00 & p11 & ~p10 & ~p01
+            fill[at(0, 0)] |= p10 & p01 & ~p00 & ~p11
+        fill &= ~geom.phi.hard_mask_air
+        if not fill.any():
+            break
+        geom.phi.grid[fill] = -0.25 * spacing_m          # just inside: the surface moves a quarter cell
+        S |= fill
+        total += int(fill.sum())
+    return total
 
 
 def _drop_islands(geom) -> int:
