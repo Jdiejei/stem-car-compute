@@ -57,6 +57,9 @@ jobs:
               a = np.array(rows)
               if len(a) >= 100:
                   total = a[:, 1] if total is None else total + a[:, 1] if len(a) == len(total) else total
+          for f in glob.glob("part2-simulation/cfd_case_template/runs/*/checkMesh.log"):
+              cells = [l.strip() for l in open(f) if l.strip().startswith("cells:")]
+              print("VAR ${{ inputs.label }}", ${{ matrix.skin }}, "mesh", cells[:1])
           print("VAR ${{ inputs.label }}", ${{ matrix.skin }}, "by iteration", " ".join(f"{end}:{total[int(end * .8):end].mean():.5f}" for end in (250, 500, 750, 1000, 1500, 2000) if end <= len(total)))
           for line in open(glob.glob("part2-simulation/cfd_case_template/runs/*/logs/snappyHexMesh.log")[0]):
               if line.startswith(("car ", "wheelF", "wheelR", "Mesh with layers")):
