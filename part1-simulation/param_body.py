@@ -403,16 +403,12 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
 
 def _close_pinches(geom, spacing_m: float, rounds: int = 4) -> int:
     """Fill one cell of every 2 x 2 checkerboard (two solid cells meeting only along an
-    edge). The surface there has an edge shared by four faces, so the body STL is not
-    watertight (car 42211/2: x 73, y 13, z 33.5-34.0; 1 car in 3,600). Returns cells filled."""
+    edge). The surface there can have an edge shared by four faces, so the body STL is not
+    watertight. Returns cells changed."""
     # Fill an empty cell of the pair where the rules allow it; where both are forced air
     # (the contact sits on a rule zone's corner), take away a solid one instead.
     A, H = geom.phi.hard_mask_air, geom.phi.hard_mask_solid if hasattr(geom.phi, "hard_mask_solid") else None
-    # A node exactly on the surface (phi == 0, a setting landing on a grid line) gives
-    # marching cubes an ambiguous cell and the same four-face edge: 42211/2's edge ran along
-    # the node column x 73, y 13. Such nodes go a hair to the air side.
-    total = int((geom.phi.grid == 0).sum())
-    geom.phi.grid[geom.phi.grid == 0] = 1e-4 * spacing_m
+    total = 0
     for _ in range(rounds):
         S = geom.phi.grid < 0
         fill, carve = np.zeros_like(S), np.zeros_like(S)

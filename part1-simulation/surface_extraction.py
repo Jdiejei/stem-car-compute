@@ -83,9 +83,15 @@ def _marching_cubes(phi: PhiGrid) -> "trimesh.Trimesh":
     # _repair_mesh then merges them and opens a hole (found 2026-09-25: a
     # 6-edge hole at two phi == 0.0 cells made the CFD STL non-watertight).
     # Nudge them off the level by a negligible amount.
+    # The nudge must clear the vertex weld tolerance (trimesh.tol.merge, 1e-8 m): at
+    # 1e-6 * dx (1e-9 m) a vertex a hair off a node was welded to its neighbours' and
+    # left an edge shared by four faces (car 42211/2, node column x 73, y 13). Values
+    # that small but not zero did the same, so they are moved too, keeping their sign.
     grid = phi.grid
-    if (grid == 0.0).any():
-        grid = np.where(grid == 0.0, np.float32(1e-6 * dx), grid)
+    eps = np.float32(1e-4 * dx)
+    near = np.abs(grid) < eps
+    if near.any():
+        grid = np.where(near, np.where(grid < 0, -eps, eps), grid)
     verts, faces, normals, _ = measure.marching_cubes(
         grid, level=0.0, spacing=(dx, dx, dx),
     )
