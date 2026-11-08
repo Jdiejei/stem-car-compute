@@ -1,6 +1,6 @@
 {
- "round": 5,
- "phase": "steps",
+ "round": 6,
+ "phase": "done",
  "slopes": "adjoint",
  "sign": 1.0,
  "next_seed": 10,
@@ -158,10 +158,10 @@
      "d_halo": 41.22
     }
    },
-   "T": 1.543730101153373,
+   "T": 1.5434971033447848,
    "noise": 0.001,
-   "scale": 0.25,
-   "stopped": null,
+   "scale": 0.125,
+   "stopped": "peak: no step beat the noise, down to a fifth of the size",
    "history": [
     {
      "round": 0,
@@ -193,6 +193,12 @@
     {
      "round": 4,
      "T": 1.543730101153373,
+     "noise": 0.001,
+     "accepted": null
+    },
+    {
+     "round": 5,
+     "T": 1.5434971033447848,
      "noise": 0.001,
      "accepted": null
     }
@@ -1033,10 +1039,10 @@
      "d_halo": 39.80079935739988
     }
    },
-   "T": 1.5501542286804944,
+   "T": 1.5499890221785848,
    "noise": 0.001,
-   "scale": 0.25,
-   "stopped": null,
+   "scale": 0.125,
+   "stopped": "peak: no step beat the noise, down to a fifth of the size",
    "history": [
     {
      "round": 0,
@@ -1070,6 +1076,12 @@
      "noise": 0.001,
      "accepted": "step x_front=51.6594",
      "gain_ms": 6.149200723110981
+    },
+    {
+     "round": 5,
+     "T": 1.5499890221785848,
+     "noise": 0.001,
+     "accepted": null
     }
    ],
    "skin_mm": 4.6309544722121085,
@@ -1392,10 +1404,10 @@
      "d_halo": 47.24778248227383
     }
    },
-   "T": 1.5468528244526905,
+   "T": 1.54676930213444,
    "noise": 0.001,
-   "scale": 0.25,
-   "stopped": null,
+   "scale": 0.125,
+   "stopped": "peak: no step beat the noise, down to a fifth of the size",
    "history": [
     {
      "round": 0,
@@ -1427,6 +1439,12 @@
     {
      "round": 4,
      "T": 1.5468528244526905,
+     "noise": 0.001,
+     "accepted": null
+    },
+    {
+     "round": 5,
+     "T": 1.54676930213444,
      "noise": 0.001,
      "accepted": null
     }
