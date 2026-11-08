@@ -1,6 +1,6 @@
 {
  "round": 5,
- "phase": "adjoint",
+ "phase": "steps",
  "slopes": "adjoint",
  "sign": 1.0,
  "next_seed": 10,
