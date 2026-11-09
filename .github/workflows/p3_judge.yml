@@ -1,0 +1,25 @@
+name: p3_judge
+run-name: "Part 3: score known-answer run ${{ inputs.run_id }} from its saved results"
+
+# Scores a finished known-answer run whose own scoring job never started (GitHub outage),
+# from that run's artifacts in this repository. Nothing is re-simulated.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id: { required: true }
+
+permissions: { contents: read, actions: read }
+
+jobs:
+  judge:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6 scipy==1.17.1
+      - uses: actions/download-artifact@v4
+        with: { path: res, run-id: "${{ inputs.run_id }}", github-token: "${{ github.token }}" }
+      - run: python -u part3-simulation/checks/known_answer.py judge res
+      - uses: actions/upload-artifact@v4
+        with: { name: result, path: res/known_answer_result.json }
