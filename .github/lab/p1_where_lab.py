@@ -71,7 +71,15 @@ if what == "mask":
             print(f"LAB where mask s {s} {name}: {int(stray.sum())} cells outside the exact zone by > a cell", flush=True)
             for c in np.argwhere(stray)[:: max(1, int(stray.sum()) // 5)][:5]:
                 c = tuple(c)
-                print(f"LAB where mask s {s} {name}   ({X[c]:.2f},{Y[c]:.2f},{Z[c]:.2f}) field {f[c]:.3f}", flush=True)
+                col = np.flatnonzero(m[c[0], c[1]])
+                print(f"LAB where mask s {s} {name}   ({X[c]:.2f},{Y[c]:.2f},{Z[c]:.2f}) field {f[c]:.3f}; "
+                      f"mask air in this column from z {Z[c[0], c[1], col[0]]:.2f}", flush=True)
+            back = (f > d) & (Y >= 0) & ~m & ~hw.halo_void_mask & ~vis & ~loft
+            print(f"LAB where mask s {s} {name}: zone cells deeper than a cell with no mask: {int(back.sum())}", flush=True)
+        import halo_pocket as hp
+        bx = hp.compute_halo_pocket_box_m(g.landmarks["ref_plane_A_m"], g.d_halo_mm)
+        print(f"LAB where mask s {s} halo box x1 {bx['x_max_m'] * 1e3:.3f} rear-face top {fh.HALO_REAR_FACE_TOP_MM} "
+              f"top {fh.HALO_CROSS_SECTION_TOP_MM} half width {fh.HALO_CROSS_SECTION_HALF_WIDTH_MM} z origin {r.origin_m[2] * 1e3:.3f}", flush=True)
         print(f"LAB where mask s {s} halo x {hw.halo_void_mask.any(axis=(1, 2)).nonzero()[0][[0, -1]] * d + r.origin_m[0] * 1e3} "
               f"canister front {(hw.canister_cylinder.x_center_m - hw.canister_cylinder.x_half_width_m) * 1e3:.2f}", flush=True)
 

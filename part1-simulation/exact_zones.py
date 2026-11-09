@@ -262,10 +262,12 @@ def halo_zones(X, aY, Z, ref_A_mm, d_halo_mm, canister=None, part="all"):
             z_can = zc + np.sqrt(np.maximum(r * r - np.minimum(aY, yv) ** 2, 0.0))
             crown = z_h + s * (zc + r - z_h)      # the highest valid profile point, at y = 0
             ceil_ = np.where(aY <= yv, z_h + s * (z_can - z_h), crown)
-            ceil_ = np.where(X > xc, zc + r, ceil_)      # flat at the bore's top to the tail
-            # Its front face at the halo's rear, as a true face: the mask starts the ceiling
-            # on the cell holding that face, which a -inf ahead of it put 2-6 mm out.
-            out.append(np.maximum(x1 - X, Z - ceil_))
+            # The deck from the halo's rear face to the bore front, then flat at the bore's top
+            # to the tail; each piece with true end faces. The mask puts each join on the cell
+            # holding it, and a one-sided switch there put mask cells 2-6 mm out (2026-11-10).
+            # (positive inside: a piece is the min of its faces, the union the max)
+            out.append(np.minimum.reduce([X - x1, xc - X, Z - ceil_]))
+            out.append(np.minimum(X - xc, Z - (zc + r)))
     if part == "shadows":
         return np.maximum.reduce(out)
     return np.maximum.reduce(out + [above])

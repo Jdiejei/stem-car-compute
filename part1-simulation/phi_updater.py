@@ -205,14 +205,17 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
             idx[ax] = sh
             nb = pad[tuple(idx)]
             cross = np.sign(nb) != s0
-            # Toward the surface |phi| falls by dec over the cell. Across a crossing this is
-            # the intercept above; along an axis with no crossing, the same line run on.
-            # Dropping such an axis put oblique cells of a sphere 20 % too far (2026-11-10).
-            dec = s0 * (phi0 - nb)
-            t = np.abs(phi0) / np.maximum(dec, 1e-300)
-            best = np.where(dec > 0, np.minimum(best, t), best)
+            t = np.abs(phi0) / np.maximum(np.abs(phi0 - nb), 1e-300)
+            best = np.where(cross, np.minimum(best, t), best)
             near |= cross
-        inv2 += np.where(np.isfinite(best), 1.0 / np.maximum(best, 1e-9) ** 2, 0.0)
+        # An axis with no crossing still has a slope: dropping it put oblique cells of a
+        # sphere 20 % too far (2026-11-10). Centred, not one-sided: a one-sided slope leans
+        # the same way on every cell of a rounded surface and took 0.34 % off the sphere.
+        lo_, hi_ = [slice(1, -1)] * 3, [slice(1, -1)] * 3
+        lo_[ax], hi_[ax] = slice(0, -2), slice(2, None)
+        g = 0.5 * np.abs(pad[tuple(hi_)] - pad[tuple(lo_)])
+        inv2 += np.where(np.isfinite(best), 1.0 / np.maximum(best, 1e-9) ** 2,
+                         (g / np.maximum(np.abs(phi0), 1e-300)) ** 2)
     D = np.where(inv2 > 0, s0 / np.sqrt(np.maximum(inv2, 1e-300)), 0.0) * GRID_SPACING_M
     for _ in range(n_steps):
         grad_mag = _grad_magnitude(grid_f64)
