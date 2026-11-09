@@ -682,22 +682,21 @@ HALO_FILE = "halo_helmet.stl"     # the official download (T4.4.1, T4.5), kept w
 
 def _halo_checks(parts_mm: dict) -> dict:
     """T1.21 / T4.4.1 / T4.5: the halo and helmet are on the car and unchanged: the car's
-    file has the official file's size in every direction (within 0.1 mm) and its volume
-    (within 1 %). The car's file is the right half."""
+    file has the official file's size in every direction, within 0.1 mm."""
     import trimesh
     from paths import PARTS
     if "halo" not in parts_mm:
         return {"T4.4.1_halo_unchanged": _entry(-1.0, "no halo on the car (T1.21: it must be)")}
     off = trimesh.load(str(PARTS["part1-simulation"] / "hardware_cad" / HALO_FILE), force="mesh")
     h = parts_mm["halo"]
+    # Length, full width (the car's file is the right half, or both halves on the centreline)
+    # and height. Volume is not compared: the official file is not a closed solid.
     car = np.array([h.extents[0], 2.0 * float(h.bounds[1, 1]), h.extents[2]])
     ref = np.array([off.extents[0], off.extents[1], off.extents[2]])
     dims = float(np.abs(car - ref).max())
-    dv = 2.0 * abs(float(h.volume)) / abs(float(off.volume)) - 1.0
-    ok = dims <= 0.1 and abs(dv) <= 0.01
     return {"T4.4.1_halo_unchanged": _entry(
-        0.0 if ok else -1.0, f"size differs by up to {dims:.3f} mm, volume by {100 * dv:+.2f} % "
-                             f"from the official halo and helmet")}
+        0.1 - dims, f"length, width, height {np.round(car, 2).tolist()} mm; official "
+                    f"{np.round(ref, 2).tolist()} mm")}
 
 
 def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06, axis_z_mm: float = DEFAULT_AXIS_Z_MM):
