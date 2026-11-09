@@ -23,7 +23,7 @@ jobs:
       - if: always()
         working-directory: part3-simulation
         env: { PART2_PATH: "${{ github.workspace }}/part2-simulation" }
-        run: python -m pytest tests -q -p no:cacheprovider --tb=short -W ignore
+        run: python -m pytest tests -q -s -p no:cacheprovider --tb=short -W ignore
       - if: always()
         working-directory: part2-simulation
         run: python -m pytest tests/test_openfoam_adjoint.py tests/test_adjoint_contract.py -q -p no:cacheprovider --tb=short -W ignore
