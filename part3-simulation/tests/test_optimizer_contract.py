@@ -3,8 +3,6 @@ import math
 from optimizer_contract import (
     CandidateOutcome,
     GradientWeights,
-    OptimizerConfig,
-    PenaltyInputs,
     validate_W,
     validate_d_halo,
 )
@@ -44,28 +42,6 @@ def test_config_and_weight_guards():
     GradientWeights(w_aero=1.0, w_mass=0.1, w_com=0.05, w_mfg=0.0)
     expect_raises(ValueError, GradientWeights, 0.0, 0.0, 0.0, 0.0)
     expect_raises(ValueError, GradientWeights, 1.0, -0.1, 0.0, 0.0)
-
-    OptimizerConfig(
-        rtc_validated_against_track_data=True,
-        cfd_pipeline_validated_on_known_geometry=True,
-        mu=0.08,
-        wheel_moi_kg_m2=1.0e-6,
-    )
-    expect_raises(
-        ValueError,
-        OptimizerConfig,
-        True,
-        True,
-        1.2,
-        1.0e-6,
-    )
-
-
-def test_penalty_inputs_are_non_negative_and_finite():
-    p = PenaltyInputs(manufacturing_penalty_s=0.002, rule_margin_penalty_s=0.003)
-    assert math.isclose(p.total_s, 0.005)
-    expect_raises(ValueError, PenaltyInputs, -0.001, 0.0)
-    expect_raises(ValueError, PenaltyInputs, 0.0, float("nan"))
 
 
 def test_candidate_lifecycle_consistency():

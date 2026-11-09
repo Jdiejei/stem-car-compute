@@ -50,29 +50,6 @@ CARGO_Z_BASE_M: float = mm_to_m(CARGO_Z_BASE_MM)
 N_CANDIDATE_POSITIONS: int = 9       # scan this many evenly-spaced start positions
 
 
-def cargo_mass_com(
-    x_start_m: float, z_base_m: float, flip: bool, density_kg_m3: float,
-) -> tuple:
-    """Analytic (mass_kg, com_x_m, com_y_m, com_z_m) of the cargo wedge.
-
-    No rasterisation -- lets the placement scorer evaluate a candidate's COM
-    contribution without rebuilding the whole geometry (cargo is a fixed-shape
-    body-density block; only its position/orientation move). y=0 by symmetry,
-    z = z_base + H/2. x = x_start + L*(a+2b)/(3(a+b)), the first moment of a
-    linearly tapering width from a (at x_start) to b (at x_end); (a,b) =
-    (wide,narrow) when not flipped, (narrow,wide) when flipped. Matches the
-    rasterised mask's COM to sub-cell accuracy (checked in __main__).
-    """
-    L = mm_to_m(CARGO_LENGTH_MM)
-    H = mm_to_m(CARGO_HEIGHT_MM)
-    wide = mm_to_m(CARGO_WIDE_WIDTH_MM)
-    narrow = mm_to_m(CARGO_NARROW_WIDTH_MM)
-    mass = L * H * (wide + narrow) / 2.0 * density_kg_m3
-    a, b = (narrow, wide) if flip else (wide, narrow)
-    com_x = x_start_m + L * (a + 2.0 * b) / (3.0 * (a + b))
-    return mass, com_x, 0.0, z_base_m + H / 2.0
-
-
 def _boxes_overlap_1d(a_min: float, a_max: float, b_min: float, b_max: float) -> bool:
     return a_min < b_max and b_min < a_max
 

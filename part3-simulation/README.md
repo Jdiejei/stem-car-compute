@@ -27,8 +27,10 @@ The compass: where a cut makes the car faster. Not proven yet; see `BUILD_SPEC.m
 | module | what |
 |---|---|
 | `pipeline_interface.py` | `unified_bindings`: every callable the pipeline needs from Parts 1 and 2 (build the field, quality gates and the CFD-ready half STL, mass report, CFD, race objective, adjoint weight, adjoint, level-set update, candidate record). Part 5's `run_car.py` uses these for every car |
-| `gradient_combiner.py`, `objective_policy.py`, `convergence.py`, `stability_check.py`, `optimizer_contract.py` | weighting of drag, mass and COM slopes, the penalty policy, convergence tests, the static-stability check, and the configuration and outcome types |
-| `inner_loop.py` | the OLD carving loop, retired 2026-09-30. `run_car.py --optimise` still calls it; it is to be replaced by the cutter (Part 1) plus compass step and then deleted |
+| `optimizer_contract.py` | shared types: gradient weights, candidate outcomes, layout validation |
+
+The old one-body carving loop (`inner_loop.py` and its helpers) was removed on 2026-11-09;
+the new step is cutter (Part 1) plus compass (this part).
 
 What is known: the drag adjoint had the right sign on only 3 of 8 settings
 (2026-09-28). Until it passes the compass test in `BUILD_SPEC.md`, nobody may trust it.

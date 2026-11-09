@@ -29,7 +29,7 @@ only built and tested; the final search for the best car is not run yet (see
 
 | file | what |
 |---|---|
-| `run_car.py` | one car end to end: body (Part 1; `--phi-npy block` or a carved field, or the lofted body) sized to the target mass → parts, pockets and manufacturing files (Part 4) → legality → CFD with every part (Part 2) → optional `--optimise` (still the old Part 3 loop, to be replaced) → report |
+| `run_car.py` | one car end to end: body (Part 1; `--phi-npy block` or a carved field, or the lofted body) sized to the target mass → parts, pockets and manufacturing files (Part 4) → legality → CFD with every part (Part 2) → report |
 | `legality.py` | the referee: checks on the assembled car, including T4.6 decal space, T4.7 team number, T4.4 halo floor, T5.5 on the milled body, T7.13 hang-test claw, the Model Block and T3.6 on the manufactured mass, every part attached and every manufacturing file a closed solid |
 | `solver.py` | the search state machine (start → check_adjoint → check_cars → adjoint → steps), with paired re-measurement and a keep rule against noise |
 | `pattern.py` | setting ranges and the older pattern search |

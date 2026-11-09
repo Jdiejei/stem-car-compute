@@ -1,9 +1,9 @@
 """
 run_car.py -- one car through all five parts.
 
-    python run_car.py --out results/ [--body-json '{...}'] [--cfd] [--optimise N] [--final-cfd]
+    python run_car.py --out results/ [--body-json '{...}'] [--phi-npy block|path] [--cfd]
 
-  1. BODY      Part 1: the parametric body (param_body), machinable, sized so
+  1. BODY      Part 1: the lofted body or a carved field (--phi-npy), machinable, sized so
                the car AS MANUFACTURED weighs 48.2 g (no ballast); right-half STL.
   2. PARTS     Part 4: wheels, supports, halo, nose, front + rear wing, tether
                guides as CFD patches; pockets and printed parts (joints); the
@@ -11,10 +11,10 @@ run_car.py -- one car through all five parts.
   3. LEGAL     Part 5: scrutineer checks on the assembled car.
   4. CFD       Part 2 (via Part 3 bindings): forward solve with every patch,
                drag by part, race time.                               [--cfd]
-  5. OPTIMISE  Part 3 inner loop: CFD + adjoint on the whole car, level-set
-               update of the body.                                  [--optimise]
-  6. FINAL     re-place the rear wing on the final body, re-check legality,
-               optional final CFD, and write report.md + summary.json.
+  5. REPORT    report.md + summary.json.
+
+Carving step by step (compass, cut, re-time) is the search loop's job, not this
+script's: the old one-body loop was removed on 2026-11-09.
 
 Every stage writes its artefacts to --out; the run never hides a failure.
 """
@@ -325,15 +325,6 @@ def write_report(out: Path, S: dict) -> None:
         L += ["", "## What-if (race objective)", "", "| change | Δ race time |", "|---|---|"]
         for k, v in S["whatif"].items():
             L.append(f"| {k} | {v:+.1f} ms |")
-    if S.get("optimisation"):
-        o = S["optimisation"]
-        L += ["", f"## Optimisation — {o['iterations']} iterations, stop: {o['stop_reason']}", "",
-              "| iter | state | D20 N | mass g | T_pen s |", "|---|---|---|---|---|"]
-        for h in o["history"]:
-            L.append(f"| {h['iteration']} | {h['lifecycle_state']} | "
-                     f"{h['D20'] if h['D20'] is None else round(h['D20'], 5)} | "
-                     f"{h['total_mass_kg'] if h['total_mass_kg'] is None else round(h['total_mass_kg']*1e3, 2)} | "
-                     f"{h['T_penalized'] if h['T_penalized'] is None else round(h['T_penalized'], 4)} |")
     L += ["", "## Recommendations", ""] + [f"- {r}" for r in S["recommendations"]]
     L += ["", "_Absolute times use the project's thrust curve, which has ~60 % of a real "
           "cartridge's impulse; differences and rankings are what to read._"]
@@ -364,8 +355,6 @@ def parse_args(argv=None):
                     help="a carved body instead of --body-json: 'block' (the whole legal envelope) "
                          "or a .npy field saved by a carving run")
     ap.add_argument("--cfd", action="store_true")
-    ap.add_argument("--optimise", type=int, default=0)
-    ap.add_argument("--final-cfd", action="store_true")
     ap.add_argument("--res", default="coarse")
     ap.add_argument("--np", type=int, default=4)
     ap.add_argument("--cfd-iters", type=int, default=2000)
@@ -434,44 +423,6 @@ def main(argv=None):
             raise SystemExit(f"initial body failed the CFD gate: {gate.failure_reason}")
         S["cfd_initial"] = cfd_and_objective(b, Path(gate.stl_half_path), ms, moi, mu)
         S["whatif"] = what_if(b, ms, S["cfd_initial"], mu, moi)
-
-    if a.optimise:
-        log(f"5 OPTIMISE: {a.optimise} CFD+adjoint iterations")
-        from inner_loop import run_inner_loop
-        from optimizer_contract import GradientWeights, OptimizerConfig
-        cfg = OptimizerConfig(rtc_validated_against_track_data=False,
-                              cfd_pipeline_validated_on_known_geometry=False,
-                              mu=mu, wheel_moi_kg_m2=moi, iteration_budget=a.optimise,
-                              evolution_interval_iters=a.optimise)
-        start = copy.deepcopy(geom)
-        res = run_inner_loop(b, cfg, "car", a.W, a.x_front, a.d_halo, start,
-                             str(out / "records"), GradientWeights(1.0, 1.0, 0.0, 0.0))
-        S["optimisation"] = {"iterations": res.iterations_run, "stop_reason": res.stop_reason,
-                             "history": [h.__dict__ for h in res.history]}
-        # The BEST measured iterate, not the loop's last state: that one is the
-        # geometry after the final update, which no CFD ever saw. On 2026-09-26
-        # every aero-only step raised D20, so "last" was reliably the worst.
-        geom = res.final_phi_grids
-        if res.best is not None and res.best.phi_snapshot_paths:
-            geom.phi.load(next(iter(res.best.phi_snapshot_paths.values())))
-            S["optimisation"]["final_is"] = res.best.candidate_id
-        # The carved field, so the next run carries on from here (--phi-npy).
-        import numpy as np
-        np.save(out / "carved_phi.npy", np.asarray(geom.phi.grid, dtype=np.float32))
-        S["body_final"] = export_body(geom, out / "body_final_half.stl")
-        asm = parts_and_joints(a, out, geom, out / "body_final_half.stl", "parts_final",
-                               **p4kw)
-        ms = mass_state(b, geom)
-        ms["manufactured_mass_g"] = manufactured_mass_kg(asm) * 1e3
-        S["mass"] = {k: v for k, v in ms.items() if not k.startswith("_")}
-        chk = legality.check(str(out / "body_final_half.stl"), asm, S["mass"],
-                             S["body_final"]["field_bodies"],
-                             machined_stl=asm["joints"].get("machined_body_half_stl"))
-        S["legality"] = {"checks": chk, "summary": legality.summary(chk)}
-        if a.final_cfd:
-            log("6 FINAL CFD")
-            b2 = make_bindings(a, out, asm, seed_geom=None)
-            S["cfd_final"] = cfd_and_objective(b2, out / "body_final_half.stl", ms, moi, mu)
 
     S["recommendations"] = recommend(S["legality"]["checks"],
                                      S.get("cfd_final") or S.get("cfd_initial"))

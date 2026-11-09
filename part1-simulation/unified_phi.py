@@ -393,34 +393,6 @@ def measure_cargo_erosion(cargo_solid, hard_air, region, ref_plane_A_m,
     return eaten, requested
 
 
-def cargo_placement_is_buildable(geom_without_cargo, ref_plane_A_m, d_halo_mm,
-                                 x_start_m, z_base_m, flip) -> bool:
-    """Would this cargo placement survive build_unified_geometry's guard?
-
-    Uses the forced-air mask of an already-built cargo-free geometry, so a
-    caller that has one (stage1_search builds exactly that for its scorer) can
-    screen candidate placements for a few mask operations instead of a full
-    rebuild each.
-    """
-    # Local import: virtual_cargo <-> unified_phi would be circular at module
-    # level, which is why build_unified_geometry imports it here too.
-    from virtual_cargo import build_virtual_cargo_solid_mask
-
-    region = geom_without_cargo.region
-    z_base = max(z_base_m, region.origin_m[2])
-    cargo = build_virtual_cargo_solid_mask(
-        region.origin_m, region.shape, x_start_m, z_base, flip=flip,
-    )
-    _mirror_right_onto_left(cargo)
-    eaten, requested = measure_cargo_erosion(
-        cargo, geom_without_cargo.phi.hard_mask_air, region,
-        ref_plane_A_m, d_halo_mm,
-    )
-    if not requested:
-        return False
-    return eaten / requested <= CARGO_MAX_ERODED_FRACTION
-
-
 def build_unified_geometry(
     W_mm: float,
     x_front_mm: float,

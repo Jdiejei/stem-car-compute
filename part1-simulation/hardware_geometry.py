@@ -261,22 +261,3 @@ def canister_front_x_mm(canister_com_mm: tuple[float, float, float]) -> float:
     """
     mesh = build_canister(canister_com_mm)
     return float(mesh.bounds[0, 0] * 1000.0)
-
-
-def build_all_hardware(
-    W_mm: float,
-    x_front_mm: float,
-    d_halo_mm: float,
-    ref_plane_A_m: float,
-    canister_com_mm: tuple[float, float, float],
-) -> dict[str, "trimesh.Trimesh"]:
-    """
-    Every real fixed-hardware solid for one (W, x_front, d_halo) candidate,
-    keyed by name. No rear wing (project owner: "do not make any wings").
-    """
-    parts: dict[str, "trimesh.Trimesh"] = {}
-    parts.update(build_wheel_assembly("front", x_front_mm))
-    parts.update(build_wheel_assembly("rear", x_front_mm + W_mm))
-    parts.update(build_halo(ref_plane_A_m, d_halo_mm))
-    parts["canister"] = build_canister(canister_com_mm)
-    return parts
