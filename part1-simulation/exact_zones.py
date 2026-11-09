@@ -188,6 +188,7 @@ def stamp(g, X, Y, Z) -> int:
     new = np.maximum(g.phi.grid[over], (b[over] / 1e3).astype(np.float32))
     changed += int((new != g.phi.grid[over]).sum())
     g.phi.grid[over] = new
+    g.phi.hard_mask_solid[over & (b > 0)] = False      # and they are no longer required solid
     return changed
 
 
@@ -332,7 +333,11 @@ def cut_boxes(g, mesh):
         c = m3.Manifold.cube([(h - l) / 1e3 for l, h in zip(lo, hi)]).translate([l / 1e3 for l in lo])
         cut = c if cut is None else cut + c
     o = (body - cut).to_mesh()
-    # process=False: merging the output's near-coincident vertices opened it (2026-11-10)
+    # Cleaned as an STL reload would clean it (merged vertices, no degenerate faces): a
+    # result that is a volume only before that reload broke Part 4's booleans (2026-11-10).
     out = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
                           process=False)
+    out.merge_vertices()
+    out.update_faces(out.nondegenerate_faces())
+    out.remove_unreferenced_vertices()
     return out if out.is_volume else mesh

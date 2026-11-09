@@ -130,7 +130,9 @@ def test_halo_zone_fields_match_their_masks(spacing):
             | fh.halo_canister_loft_air_mask(hw.halo_void_mask, hw.canister_cylinder, x_origin_m=r.origin_m[0],
                                              y_origin_m=r.origin_m[1], z_origin_m=r.origin_m[2], d_m=d / 1e3))
     f = ez.halo_zones(X, np.abs(Y), Z, g.landmarks["ref_plane_A_m"] * 1e3, g.d_halo_mm, hw.canister_cylinder)
-    _agree(f, mask, right, d, grown=d, name="halo", shrunk=d)
+    # the loft mask starts its smoothstep at the halo's last cell (up to a cell before its
+    # true rear face) and rounds its ceiling up a cell: up to two cells inside the exact zone
+    _agree(f, mask, right, d, grown=d, name="halo", shrunk=2.0 * d)
 
 
 def test_slot_corners_are_sharp_in_the_half_body():

@@ -582,7 +582,13 @@ def test_redistancing_does_not_move_the_surface():
     reinitialise_sdf(phi)
     # the cells next to the surface are set from their grid-line intercepts (tight); the next
     # ring comes from the first-order sweep, about a third of a cell off on this curvature
-    ring1 = np.abs(sdf) < 0.87 * d
+    pad = np.pad(s0, 1, mode="edge")
+    ring1 = np.zeros_like(s0)
+    for ax in range(3):
+        for sh in (slice(0, -2), slice(2, None)):
+            idx = [slice(1, -1)] * 3
+            idx[ax] = sh
+            ring1 |= pad[tuple(idx)] != s0             # a neighbour on the other side
     ring2 = np.abs(sdf) < 2.0 * d
     assert np.abs(phi.grid[ring1] - sdf[ring1]).max() < 0.1 * d, "the surface cells are not at their distance"
     assert np.abs(phi.grid[ring2] - sdf[ring2]).max() < 0.5 * d, "not a distance again near the surface"

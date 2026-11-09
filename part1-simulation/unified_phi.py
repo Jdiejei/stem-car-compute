@@ -1052,6 +1052,9 @@ def extract_half_surface(geom: UnifiedGeometry):
         v[v[:, 1] < 0.0, 1] = 0.0
         mesh.vertices = v
         mesh = exact_zones.cut_boxes(geom, mesh)
+        v, _n = exact_zones.project_out(geom, mesh.vertices)   # the cut's new vertices too
+        v[v[:, 1] < 0.0, 1] = 0.0
+        mesh.vertices = v
     except AttributeError:          # a bare test geometry without layout
         pass
     return mesh
