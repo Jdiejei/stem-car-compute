@@ -61,7 +61,7 @@ def test_each_zone_field_matches_its_mask(spacing):
     ref_A = g.landmarks["ref_plane_A_m"] * 1e3
 
     _agree(ez.envelope_air(X, aY, Z, g.bv, default_rule_envelope(), d),
-           (g.labels == up.LABEL_NONE) | border, right, d, name="envelope")
+           g.labels == up.LABEL_NONE, right & ~border, d, name="envelope")   # the grid seal is not a zone
     _agree(ez.wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm),
            up.wheel_keepclear_mask(r, g.W_mm, g.x_front_mm), right, d, name="wheel columns")
     t79 = np.zeros(r.shape, bool)
@@ -89,8 +89,8 @@ def test_box_distance_is_exact():
 
 
 def test_stamp_puts_a_flat_face_on_the_zone_at_any_grid():
-    """A body grown into the block slot from below: after the stamp the slot's top face is
-    where the mesh says, within a few hundredths of a mm, at 1.0 and 0.75 mm."""
+    """A solid block stamped: the block slot's top face (exact, no margin: Part 4 cuts it)
+    lands on its drawn height within a few hundredths of a mm, at 1.0 and 0.75 mm."""
     import exact_zones as ez
     from geometry_contract import MODEL_BLOCK_SLOT_TOP_Z_MM as top
     for spacing in (1.0, 0.75):
@@ -101,4 +101,4 @@ def test_stamp_puts_a_flat_face_on_the_zone_at_any_grid():
         col = g.phi.grid[X.shape[0] // 2, j, :] * 1e3
         k = np.where((col[:-1] > 0) & (col[1:] <= 0))[0][0]
         z0 = Z[0, 0, k] + col[k] / (col[k] - col[k + 1]) * (Z[0, 0, k + 1] - Z[0, 0, k])
-        assert abs(z0 - (top + ez.MARGIN_MM)) < 0.02, (spacing, z0)
+        assert abs(z0 - top) < 0.02, (spacing, z0)
