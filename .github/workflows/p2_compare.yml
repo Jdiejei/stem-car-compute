@@ -55,6 +55,8 @@ jobs:
               txt[0], txt[-1] = "solid car", "endsolid car"
               (car / "car_half.stl").write_text("\n".join(txt) + "\n")
               asm = json.loads(next(b.rglob("assembly.json")).read_text())
+              for e in asm["extra_surfaces"]:     # run_car wrote them relative to part5-simulation
+                  e["stl"] = str((Path("part5-simulation") / e["stl"]).resolve())
               (car / "assembly.json").write_text(json.dumps({"extra_surfaces": asm["extra_surfaces"]}))
               m = json.loads((b / "summary.json").read_text())["mass"]
               # as run_car.cfd_and_objective: manufactured mass + cartridge
