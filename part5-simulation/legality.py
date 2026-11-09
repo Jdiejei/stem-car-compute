@@ -619,7 +619,10 @@ def chamber_measures(body_mm) -> dict | None:
         q = max(hs, key=lambda q: q.area)
         c = q.centroid
         plug.append(_thickness(q))
-        across.append(2.0 * max(math.hypot(px - c.x, pz - c.y) for px, pz in q.exterior.coords))
+        # Across the bore, where it is a bore: the last 2 mm is the mouth, whose edge the
+        # remesh rounds (Part 1 scan, 2026-11-09: 18.15 mm to 2 mm from the face, 21 mm at 0.6 mm).
+        if x <= x_rim - 2.0:
+            across.append(2.0 * max(math.hypot(px - c.x, pz - c.y) for px, pz in q.exterior.coords))
         area_d.append(2.0 * math.sqrt(q.area / math.pi))
         cz.append((x, c.y))
     ang = (math.degrees(math.atan2(cz[-1][1] - cz[0][1], cz[-1][0] - cz[0][0]))
