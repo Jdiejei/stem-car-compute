@@ -315,6 +315,171 @@ def _hidden_from_front(pts, ahead: dict, what: str) -> dict:
                   f"{100 * blocked.mean():.1f} % of {what} is hidden")
 
 
+# --------------------------------------------------------------- wings, measured
+# T8.5-T8.6 and T9.4-T9.5 on the wing meshes themselves, not Part 4's design values.
+# A wing file holds separate solids: the wing elements (they run across the span),
+# and supports or end plates (narrow sideways). Measurements are in mm on the right half.
+WING_ELEMENT_MIN_Y_MM = 12.5    # a wing element spans >= 25 per side; an end plate <= 10
+
+
+def _section_polys(mesh, y):
+    """Vertical sections of a mesh at y, as shapely polygons in (x, -z)."""
+    s = mesh.section(plane_origin=[0.0, y, 0.0], plane_normal=[0.0, 1.0, 0.0])
+    if s is None:
+        return []
+    to2d = np.array([[1.0, 0, 0, 0], [0, 0, -1.0, 0], [0, 1.0, 0, -y], [0, 0, 0, 1.0]])
+    p, _ = s.to_planar(to_2D=to2d, check=False)
+    return list(p.polygons_full)
+
+
+def _thickness(poly) -> float:
+    """Largest thickness of a section: the widest circle that fits inside (calipers
+    closed on the thickest point, whatever the wing's tilt)."""
+    lo, hi = 0.0, max(poly.bounds[2] - poly.bounds[0], poly.bounds[3] - poly.bounds[1])
+    for _ in range(30):
+        mid = 0.5 * (lo + hi)
+        if poly.buffer(-mid / 2.0).is_empty:
+            hi = mid
+        else:
+            lo = mid
+    return lo
+
+
+def _clip(mesh, normal, origin):
+    """The part of a mesh on the side `normal` points to, or None."""
+    import trimesh
+    try:
+        m = trimesh.intersections.slice_mesh_plane(mesh, normal, origin, cap=False)
+    except (ValueError, IndexError):
+        return None
+    return m if m is not None and len(m.vertices) else None
+
+
+def _wing_split(mesh_mm):
+    pieces = mesh_mm.split(only_watertight=False)
+    el = [p for p in pieces if p.extents[1] >= WING_ELEMENT_MIN_Y_MM]
+    rest = [p for p in pieces if p.extents[1] < WING_ELEMENT_MIN_Y_MM]
+    return el, rest
+
+
+def _span_blocker_y(elements, others) -> float | None:
+    """Furthest y out at which another part crosses the wing's own region (x, z): the
+    span is split there (T8.6.1's figures). None if nothing crosses it."""
+    import trimesh
+    b = np.vstack([e.bounds for e in elements])
+    region = trimesh.creation.box(bounds=[[b[:, 0].min(), -1.0, b[:, 2].min()],
+                                          [b[:, 0].max(), b[1::2, 1].max(), b[1::2, 2].max()]])
+    y = None
+    for m in others:
+        if not m.is_volume:
+            continue
+        i = trimesh.boolean.intersection([m, region], engine="manifold")
+        if i is not None and not i.is_empty and abs(i.volume) > 1e-3:
+            y = max(y or 0.0, float(i.bounds[1, 1]))
+    return y
+
+
+def _wing_sections(elements, n: int = 9):
+    """Across the span (where the longest element exists): per y, each element's sections."""
+    main = max(elements, key=lambda e: e.extents[1])
+    y0, y1 = main.bounds[:, 1]
+    out = []
+    for y in np.linspace(y0 + 0.01, y1 - 0.01, n):
+        polys = [p for e in elements for p in _section_polys(e, y)]
+        if polys:
+            out.append((y, polys))
+    return out
+
+
+def _wing_measures(prefix: str, rule: dict, elements, blockers, n_vanes_max: int) -> dict:
+    """Span, chord, vane overlap and thickness of one wing, against `rule`'s ids."""
+    r = {}
+    y_hi = min(float(e.bounds[1, 1]) for e in elements)          # the shortest edge
+    y_lo = max(float(e.bounds[0, 1]) for e in elements)
+    cut = _span_blocker_y(elements, blockers)
+    if rule["span_segments"]:                                    # front: 1 x 50 or 2 x 25
+        if cut is None and y_lo <= 0.05:
+            r[rule["span"]] = _entry(2 * y_hi - 50.0, f"{2 * y_hi:.2f} mm, one piece")
+        else:
+            seg = y_hi - max(cut or 0.0, y_lo)
+            r[rule["span"]] = _entry(seg - 25.0, f"two segments of {seg:.2f} mm")
+    else:                                                        # rear: one unbroken 50
+        span = 2 * y_hi if (cut is None and y_lo <= 0.05) else y_hi - max(cut or 0.0, y_lo)
+        r[rule["span"]] = _entry(span - 50.0, f"{span:.2f} mm unbroken")
+    chords, thick, gaps, tops = [], [], [], []
+    for y, polys in _wing_sections(elements):
+        iv = sorted((p.bounds[0], p.bounds[2]) for p in polys)
+        chords.append(max(b for _, b in iv) - iv[0][0])          # horizontal, LE to last TE
+        reach = iv[0][1]
+        for a, b in iv[1:]:
+            gaps.append(a - reach)                               # > 0: the vanes do not overlap
+            reach = max(reach, b)
+        thick += [_thickness(p) for p in polys]
+        tops.append(-min(p.bounds[1] for p in polys))
+    if chords:
+        r[rule["chord"] + "_min"] = _entry(min(chords) - 15.0, f"shortest {min(chords):.2f} mm")
+        r[rule["chord"] + "_max"] = _entry(25.0 - max(chords), f"longest {max(chords):.2f} mm")
+        r[rule["thick"] + "_min"] = _entry(min(thick) - 2.0, f"thinnest {min(thick):.2f} mm")
+        r[rule["thick"] + "_max"] = _entry(6.0 - max(thick), f"thickest {max(thick):.2f} mm")
+        r[prefix + "_vanes_overlap"] = _entry(
+            0.0 if (not gaps or max(gaps) <= 0.0) and len(elements) <= n_vanes_max else -1.0,
+            f"{len(elements)} element(s); " + (f"widest gap {max(gaps):.2f} mm" if gaps else "one element"))
+        if "deviation" in rule:
+            dev = max(tops) - min(tops)
+            r[rule["deviation"]] = _entry(15.0 - dev, f"top surface varies {dev:.2f} mm")
+    return r
+
+
+def _wing_checks(assembly: dict, body_mm, parts_mm: dict) -> dict:
+    """The wing rules measured on the wing files (mm)."""
+    W, xf = assembly["W_mm"], assembly["x_front_mm"]
+    ref_a, ref_b = xf - 16.0, xf + W + 16.0
+    r = {}
+    others = {k: m for k, m in parts_mm.items() if not k.startswith(("wheel", "fwing", "rwing"))}
+    if "fwing" in parts_mm:
+        el, rest = _wing_split(parts_mm["fwing"])
+        plates = [p for p in rest if p.bounds[0, 1] > 0.5]       # off the centreline
+        mounts = [p for p in rest if p.bounds[0, 1] <= 0.5]
+        if el:
+            r.update(_wing_measures("T8.6.2_front", {"span": "T8.6.1_front_span", "span_segments": True,
+                                                     "chord": "T8.6.2_front_chord", "thick": "T8.6.3_front_thickness"},
+                                    el, [body_mm] + list(others.values()) + mounts, 3))
+            front = max(float(m.bounds[1, 0]) for m in el + plates)
+            r["T8.5.2_front_wing_ahead_of_ref_A"] = _entry(ref_a - front, f"reaches {front - ref_a:+.2f} mm past Ref A")
+            out = [c for e in el if (c := _clip(e, [0, 1.0, 0], [0, 15.0, 0])) is not None]
+            if out:
+                z = max(float(c.bounds[1, 2]) for c in out)
+                r["T8.5.2_front_wing_height_outboard"] = _entry(20.0 - z, f"{z:.2f} mm high beyond 15 mm out")
+        wheel_y = parts_mm["wheelF"].bounds[1, 1] if "wheelF" in parts_mm else 0.0
+        for i, p in enumerate(plates):
+            w = float(p.extents[1])
+            r[f"T8.5.3_endplate{i}_width"] = _entry(10.0 - w, f"{w:.2f} mm wide")
+            r[f"T8.5.3_endplate{i}_outside_span"] = _entry(float(p.bounds[0, 1]) - 25.0,
+                                                           f"starts {p.bounds[0, 1]:.2f} mm out")
+            c = _clip(p, [0, 1.0, 0], [0, wheel_y, 0])
+            if c is not None:
+                r[f"T8.5.3_endplate{i}_height"] = _entry(25.0 - float(c.bounds[1, 2]),
+                                                         f"{c.bounds[1, 2]:.2f} mm high beyond the wheel")
+        others = dict(others, **{f"fwing_support{i}": m for i, m in enumerate(mounts)})
+    if "rwing" in parts_mm:
+        el, rest = _wing_split(parts_mm["rwing"])
+        # The wing's own pylon stands under it and does not break the span (T9.5.1).
+        if el:
+            r.update(_wing_measures("T9.5.2_rear", {"span": "T9.5.1_rear_span", "span_segments": False,
+                                                    "chord": "T9.5.2_rear_chord", "thick": "T9.5.3_rear_thickness",
+                                                    "deviation": "T9.5.4_rear_height_deviation"},
+                                    el, [body_mm] + list(others.values()), 2))
+        back = float(parts_mm["rwing"].bounds[0, 0])
+        r["T9.4.1_rear_wing_behind_ref_B"] = _entry(back - ref_b, f"starts {back - ref_b:+.2f} mm behind Ref B")
+    # T8.5.1 for the printed nose and the front wing's supports (the body's own nose is
+    # measured in check()).
+    ahead = [c for k, m in others.items() if k == "nose" or k.startswith("fwing_support")
+             if (c := _clip(m, [-1.0, 0, 0], [ref_a - 0.5, 0, 0])) is not None]
+    r["_nose_parts_zy"] = (max((float(c.bounds[1, 2]) for c in ahead), default=None),
+                           max((float(c.bounds[1, 1]) for c in ahead), default=None))
+    return r
+
+
 def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06):
     """The Model Block as it arrives (Appendix ii), placed in the car: rear face
     at the car's rear face, bore on the chamber axis, slot along the underside.
@@ -495,12 +660,23 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     r["T9.4.2_rear_overhang"] = _entry(REGS["T9.4.2_rear_overhang"] - (rear - ref_b),
                                        f"{rear - ref_b:.2f} mm behind Ref B")
 
-    # Nose: body material forward of Ref A (the printed nose) and the wing mount.
+    # Wings measured on their own meshes; the printed nose and the wing mount ahead of Ref A.
+    def mm(m):
+        c = m.copy()
+        c.apply_scale(1e3)
+        return c
+    wr =_wing_checks(assembly, mm(body), {n: mm(m) for n, m in parts.items()})
+    pz, py = wr.pop("_nose_parts_zy")
+    r.update(wr)
+
+    # Nose: body material forward of Ref A, and the printed nose and wing supports there.
     v = body.vertices * 1e3
     nose = v[v[:, 0] < ref_a - 0.5]
-    if len(nose):
-        r["T8.5.1_nose_z"] = _entry(REGS["T8.5.1_nose_z"] - nose[:, 2].max())
-        r["T8.5.1_nose_half_width"] = _entry(REGS["T8.5.1_nose_half_width"] - nose[:, 1].max())
+    zs = ([float(nose[:, 2].max())] if len(nose) else []) + ([pz] if pz is not None else [])
+    ys = ([float(nose[:, 1].max())] if len(nose) else []) + ([py] if py is not None else [])
+    if zs:
+        r["T8.5.1_nose_z"] = _entry(REGS["T8.5.1_nose_z"] - max(zs), f"{max(zs):.2f} mm high")
+        r["T8.5.1_nose_half_width"] = _entry(REGS["T8.5.1_nose_half_width"] - max(ys), f"{max(ys):.2f} mm out")
 
     # Model Block: milled body is everything aft of Ref A.
     milled = v[v[:, 0] >= ref_a - 0.5]

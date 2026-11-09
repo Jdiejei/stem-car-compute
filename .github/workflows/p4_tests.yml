@@ -1,4 +1,5 @@
 name: p4_tests
+run-name: "Part 4: referee and parts unit tests"
 
 # Part 4's slice of the main account: the Part 4 and Part 5 unit tests (referee included).
 on:

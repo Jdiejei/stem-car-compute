@@ -36,21 +36,38 @@ def _save(tmp, name, mesh_mm):
 
 
 def build(tmp, W=130.0, **o):
-    """A legal half car (mm, y >= 0): body with a nose stub ahead of Ref A, rear wing on
-    top, two wheels. Keyword overrides move one thing."""
+    """A legal half car (mm, y >= 0): body with a nose stub ahead of Ref A, a front wing
+    on a centre mount, a rear wing on a pylon, two wheels. Keyword overrides move one thing."""
     xf = 50.0
     ra, rb = xf - 16.0, xf + W + 16.0
     top = o.get("top", 50.0)
     body = trimesh.boolean.union(
         [_box((ra, 0, 5), (o.get("rear", rb + 40.0 - 0.2), 14.5, top)),
-         _box((o.get("nose_x", ra - 20.0), 0, o.get("nose_lo", 8.0)),
+         _box((o.get("nose_x", ra - 20.0), 0, o.get("nose_lo", 9.0)),
               (ra + 0.5, o.get("nose_y", 10.0), o.get("nose_z", 20.0)))]
         + [_box(*b) for b in o.get("extra", [])], engine="manifold")
     if "loose" in o:                        # a second, separate piece of foam
         body = trimesh.util.concatenate([body, _box(*o["loose"])])
-    gap = o.get("rw_gap", 0.0)
+    # Front wing: one element (chord 16, 2.5 thick, 30 out), a centre mount into the nose.
+    x1, ft, fc = o.get("fw_x1", 26.0), o.get("fw_top", 8.5), o.get("fw_chord", 16.0)
+    fwing = [_box((x1 - fc, 0, ft - o.get("fw_t", 2.5)), (x1, o.get("fw_half", 30.0), ft)),
+             _box((15, 0, 7), (35, 1.5, 12))]
+    if "fw_flap" in o:                      # (gap) main 10 long + flap 6 long, above it
+        g = o["fw_flap"]
+        fwing[0] = _box((10, 0, 6), (20, 30, 8.5))
+        fwing.append(_box((20 + g, 0, 8.6), (26, 30, 11.1)))
+    if "fw_plate" in o:                     # (y0, width, z0, z1)
+        y0, w, z0, z1 = o["fw_plate"]
+        fwing.append(_box((10, y0, z0), (26, y0 + w, z1)))
+    # Rear wing: chord 16, 2.5 thick, 26 out, on a pylon from the body.
+    x0, rz = o.get("rw_x0", rb + 4.0), o.get("rw_z", top + 6.0)
+    rw = _box((x0, 0, rz), (x0 + o.get("rw_chord", 16.0), o.get("rw_half", 26.0), rz + o.get("rw_t", 2.5)))
+    if "rw_shear" in o:                     # the wing's top rises (or falls) along the span
+        rw.apply_transform([[1, 0, 0, 0], [0, 1, 0, 0], [0, o["rw_shear"], 1, 0], [0, 0, 0, 1.0]])
+    pylon = _box((x0 + 5, 0, top + o.get("rw_gap", 0.0)), (x0 + 11, 1.0, rz + 0.5))
     parts = {
-        "rwing": _box((rb + 4.0, 0, top + gap), (o.get("rw_x1", rb + 34.0), 25.0, o.get("rw_top", top + 3.0))),
+        "fwing": trimesh.util.concatenate(fwing),
+        "rwing": trimesh.util.concatenate([rw, pylon]),
         "wheelF": _box((xf - 14.0, FY, 0), (xf + 14.0, o.get("wf_y", 36.5), 28.1)),
         "wheelR": _box((xf + W - 14.0, RY, 0), (xf + W + 14.0, o.get("wr_y", 33.5), 28.1)),
     }
@@ -72,7 +89,13 @@ def test_the_base_car_passes_every_check(tmp_path):
               "T1.22_ballast_capacity", "T7.3_W_min", "T7.3_W_max", "T8.2_nose_overhang",
               "T8.5.1_nose_z", "T8.5.1_nose_half_width", "T9.4.2_rear_overhang", "block_length",
               "block_width", "block_height", "T4.1_single_body", "attached_rwing", "T5.5_wall",
-              "T7.13_front_claw_clearance", "T7.13_rear_claw_clearance"):
+              "T7.13_front_claw_clearance", "T7.13_rear_claw_clearance", "attached_fwing",
+              "T8.6.1_front_span", "T8.6.2_front_chord_min", "T8.6.2_front_chord_max",
+              "T8.6.3_front_thickness_min", "T8.6.3_front_thickness_max", "T8.6.2_front_vanes_overlap",
+              "T8.5.2_front_wing_ahead_of_ref_A", "T8.5.2_front_wing_height_outboard",
+              "T9.5.1_rear_span", "T9.5.2_rear_chord_min", "T9.5.2_rear_chord_max",
+              "T9.5.3_rear_thickness_min", "T9.5.3_rear_thickness_max", "T9.5.2_rear_vanes_overlap",
+              "T9.5.4_rear_height_deviation", "T9.4.1_rear_wing_behind_ref_B"):
         assert k in r, k
 
 
@@ -83,14 +106,36 @@ WALL = AXIS_Z + BORE_R                  # top of the bore
 EDGES = {
     "T3.4_width_min": ({"wf_y": 32.6, "wr_y": 32.6}, {"wf_y": 32.4, "wr_y": 32.4}, set()),
     "T3.4_width_max": ({"wf_y": 42.4}, {"wf_y": 42.6}, set()),
-    "T3.5_height": ({"rw_top": 64.8}, {"rw_top": 65.2}, set()),
-    "T3.7_clearance": ({"nose_lo": 1.7}, {"nose_lo": 1.3}, set()),
+    "T3.5_height": ({"rw_z": 64.8 - 2.5}, {"rw_z": 65.2 - 2.5}, set()),
+    "T3.7_clearance": ({"fw_plate": (31, 5, 1.7, 10)}, {"fw_plate": (31, 5, 1.3, 10)}, set()),
     "T7.3_W_min": ({"W": 120.2}, {"W": 119.8}, set()),
     "T7.3_W_max": ({"W": 139.8}, {"W": 140.2}, set()),
     "T8.2_nose_overhang": ({"nose_x": RA - 39.8}, {"nose_x": RA - 40.2}, set()),
     "T8.5.1_nose_z": ({"nose_z": 24.8}, {"nose_z": 25.2}, set()),
     "T8.5.1_nose_half_width": ({"nose_y": 14.8}, {"nose_y": 15.2}, set()),
-    "T9.4.2_rear_overhang": ({"rw_x1": 196.0 + 39.8}, {"rw_x1": 196.0 + 40.2}, set()),
+    "T9.4.2_rear_overhang": ({"rw_x0": 196.0 + 39.8 - 16}, {"rw_x0": 196.0 + 40.2 - 16}, set()),
+    "T9.4.1_rear_wing_behind_ref_B": ({"rw_x0": 196.2}, {"rw_x0": 195.8}, set()),
+    # Front wing (Ref A at 34; the centre mount splits the span into two segments).
+    "T8.6.1_front_span": ({"fw_half": 1.5 + 25.2}, {"fw_half": 1.5 + 24.8}, set()),
+    "T8.6.2_front_chord_min": ({"fw_chord": 15.2}, {"fw_chord": 14.8}, set()),
+    "T8.6.2_front_chord_max": ({"fw_chord": 24.8}, {"fw_chord": 25.2}, set()),
+    "T8.6.3_front_thickness_min": ({"fw_t": 2.2}, {"fw_t": 1.8}, set()),
+    "T8.6.3_front_thickness_max": ({"fw_t": 5.8}, {"fw_t": 6.2}, set()),
+    "T8.6.2_front_vanes_overlap": ({"fw_flap": -0.2, "nose_lo": 11.5}, {"fw_flap": 0.2, "nose_lo": 11.5}, set()),
+    # Past Ref A the wing runs into the body, which also splits its span.
+    "T8.5.2_front_wing_ahead_of_ref_A": ({"fw_x1": 33.8}, {"fw_x1": 34.2}, {"T8.6.1_front_span"}),
+    "T8.5.2_front_wing_height_outboard": ({"fw_top": 19.8, "nose_z": 15}, {"fw_top": 20.2, "nose_z": 15}, set()),
+    "T8.5.3_endplate0_width": ({"fw_plate": (30, 9.8, 6, 12)}, {"fw_plate": (30, 10.2, 6, 12)}, set()),
+    "T8.5.3_endplate0_outside_span": ({"fw_plate": (25.2, 5, 6, 12)}, {"fw_plate": (24.8, 5, 6, 12)}, set()),
+    "T8.5.3_endplate0_height": ({"fw_plate": (30, 9.8, 6, 24.8)}, {"fw_plate": (30, 9.8, 6, 25.2)}, set()),
+    # Rear wing.
+    "T9.5.1_rear_span": ({"rw_half": 25.2}, {"rw_half": 24.8}, set()),
+    "T9.5.2_rear_chord_min": ({"rw_chord": 15.2}, {"rw_chord": 14.8}, set()),
+    "T9.5.2_rear_chord_max": ({"rw_chord": 24.8}, {"rw_chord": 25.2}, set()),
+    "T9.5.3_rear_thickness_min": ({"rw_t": 2.2}, {"rw_t": 1.8}, set()),
+    "T9.5.3_rear_thickness_max": ({"rw_t": 5.8}, {"rw_t": 6.2}, set()),
+    # Highest at the centre, falling outboard; measured over the 26 mm half span.
+    "T9.5.4_rear_height_deviation": ({"rw_z": 62.0, "rw_shear": -14.8 / 26}, {"rw_z": 62.0, "rw_shear": -15.2 / 26}, set()),
     "block_width": ({"extra": [((100, 0, 10), (150, 32.4, 40))]},
                     {"extra": [((100, 0, 10), (150, 32.6, 40))]}, set()),
     "block_height": ({"top": 5.0 + 49.8}, {"top": 5.0 + 50.2}, set()),
