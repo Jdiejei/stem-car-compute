@@ -606,6 +606,32 @@ def _chamber_checks(ch: dict | None) -> dict:
     }
 
 
+# --------------------------------------------------------------- tether guides, measured
+def _tether_checks(parts_mm: dict, x_front: float, x_rear: float) -> dict:
+    """T6.1 and T6.2 on the guides as made (mm): exactly two, each a closed ring within
+    10 mm of its axle (ahead of the front, behind the rear), the hole taking a 3.5 mm tool
+    and no more than a 6.0 mm one (the widest circle that fits through it)."""
+    if "tethers" not in parts_mm:
+        return {"T6.1_two_guides": _entry(-1.0, "no tether guides")}
+    pieces = parts_mm["tethers"].split(only_watertight=False)
+    r = {"T6.1_two_guides": _entry(0.0 if len(pieces) == 2 else -1.0, f"{len(pieces)} guide(s)")}
+    mid = 0.5 * (x_front + x_rear)
+    for p in pieces:
+        x = float(p.bounds[:, 0].mean())
+        tag = "front" if x < mid else "rear"
+        off = x_front - x if tag == "front" else x - x_rear          # >= 0: on the outer side
+        r[f"T6.1_{tag}_guide_position"] = _entry(min(off, 10.0 - off),
+                                                 f"{off:+.2f} mm {'ahead of the front' if tag == 'front' else 'behind the rear'} axle")
+        holes = _x_section_holes(p, x)
+        if not holes:
+            r[f"T6.3_{tag}_guide_closed"] = _entry(-1.0, "no closed hole through the guide")
+            continue
+        d = _thickness(max(holes, key=lambda q: q.area))
+        r[f"T6.2_{tag}_hole_min"] = _entry(d - 3.5, f"{d:.2f} mm tool fits")
+        r[f"T6.2_{tag}_hole_max"] = _entry(6.0 - d, f"{d:.2f} mm tool fits")
+    return r
+
+
 def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06):
     """The Model Block as it arrives (Appendix ii), placed in the car: rear face
     at the car's rear face, bore on the chamber axis, slot along the underside.
@@ -794,6 +820,9 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     pz, py = wr.pop("_nose_parts_zy")
     r.update(wr)
     r.update(_wheel_checks(assembly, {n: mm(m) for n, m in parts.items() if n.startswith("wheel")}))
+    xF = float(parts["wheelF"].bounds[:, 0].mean()) * 1e3 if "wheelF" in parts else xf
+    xR = float(parts["wheelR"].bounds[:, 0].mean()) * 1e3 if "wheelR" in parts else xf + W
+    r.update(_tether_checks({n: mm(m) for n, m in parts.items() if n == "tethers"}, xF, xR))
 
     # Nose: body material forward of Ref A, and the printed nose and wing supports there.
     v = body.vertices * 1e3

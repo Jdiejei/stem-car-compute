@@ -81,6 +81,9 @@ def build(tmp, W=130.0, **o):
         "rwing": trimesh.util.concatenate([rw, pylon]),
         "wheelF": _box((xf - 14.0, o.get("wf_y0", FY), 0), (xf + 14.0, o.get("wf_y", 36.5), 28.1)),
         "wheelR": _box((xf + W - 14.0, o.get("wr_y0", RY), 0), (xf + W + 14.0, o.get("wr_y", 33.5), 28.1)),
+        # Tether guides, 5 mm out from each axle, hole 4.5 mm, each on a stalk into the body.
+        "tethers": trimesh.util.concatenate(
+            [guide(x, o.get("tg_id", 4.5)) for x in o.get("tg_x", (xf - 5.0, xf + W + 5.0))]),
     }
     # The wheels' own files (mm): (diameter, contact width), 0.5 mm chamfers each side.
     wf = {"front": (30.0, 13.5), "rear": (30.0, 17.5)} | o.get("wheels", {})
@@ -92,6 +95,14 @@ def build(tmp, W=130.0, **o):
     asm = {"W_mm": W, "x_front_mm": xf, "wheel_files": files,
            "extra_surfaces": [{"name": k, "stl": _save(tmp, k, m)} for k, m in parts.items()]}
     return _save(tmp, "body", body), asm
+
+
+def guide(x, hole, od=8.0, bottom=2.0):
+    """Right half of a ring along x (hole `hole` mm), its top set into the body's floor (mm)."""
+    ring = trimesh.creation.annulus(r_min=hole / 2.0, r_max=od / 2.0, height=2.0, sections=96)
+    ring.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [0, 1, 0]))
+    ring.apply_translation([x, 0.0, bottom + od / 2.0])
+    return trimesh.intersections.slice_mesh_plane(ring, [0, 1.0, 0], [0, 0, 0], cap=True)
 
 
 def wheel(d, contact, chamfer=0.5):
@@ -155,6 +166,11 @@ EDGES = {
     "T8.5.3_endplate0_width": ({"fw_plate": (30, 9.8, 6, 12)}, {"fw_plate": (30, 10.2, 6, 12)}, set()),
     "T8.5.3_endplate0_outside_span": ({"fw_plate": (25.2, 5, 6, 12)}, {"fw_plate": (24.8, 5, 6, 12)}, set()),
     "T8.5.3_endplate0_height": ({"fw_plate": (30, 9.8, 6, 24.8)}, {"fw_plate": (30, 9.8, 6, 25.2)}, set()),
+    # Tether guides (axles at 50 and 180): within 10 mm, on the outer side; hole 3.5-6.0.
+    "T6.1_front_guide_position": ({"tg_x": (40.2, 185.0)}, {"tg_x": (39.8, 185.0)}, set()),
+    "T6.1_rear_guide_position": ({"tg_x": (45.0, 189.8)}, {"tg_x": (45.0, 190.2)}, set()),
+    "T6.2_front_hole_min": ({"tg_id": 3.6}, {"tg_id": 3.4}, {"T6.2_rear_hole_min"}),
+    "T6.2_front_hole_max": ({"tg_id": 5.8}, {"tg_id": 6.2}, {"T6.2_rear_hole_max"}),
     # The cartridge chamber, found and measured on the body.
     "T5.1_diameter_min": ({"bore_d": 18.2}, {"bore_d": 17.8}, set()),
     "T5.1_diameter_max": ({"bore_d": 18.3}, {"bore_d": 18.7}, set()),
@@ -211,6 +227,19 @@ def test_the_team_wheels_meet_the_wheel_rules():
                                                      legality.TEAM_WHEELS[tag]), force="mesh"))
         print(tag, m)
         assert 28.0 <= m["diameter_mm"] <= 32.0 and m["contact_mm"] >= need, (tag, m)
+
+
+@pytest.mark.parametrize("xs,rule", [((50.2, 185.0), "T6.1_front_guide_position"),
+                                     ((45.0, 179.8), "T6.1_rear_guide_position"),
+                                     ((45.0, 185.0, 100.0), "T6.1_two_guides")])
+def test_guides_on_the_wrong_side_or_too_many(xs, rule, tmp_path):
+    bad, r = fails(tmp_path, tg_x=xs)
+    assert rule in bad, r.get(rule)
+    if rule != "T6.1_two_guides":
+        assert bad == {rule}, bad
+    (tmp_path / "ok").mkdir()
+    bad, _ = fails(tmp_path / "ok", tg_x=(49.8, 180.2))          # 0.2 mm out from each axle
+    assert not bad, bad
 
 
 def test_a_body_without_a_chamber_fails(tmp_path):
