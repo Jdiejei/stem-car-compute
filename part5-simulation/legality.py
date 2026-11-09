@@ -917,9 +917,10 @@ def manufactured_checks(assembly: dict) -> dict:
         r["mesh_longest_edge"] = _entry(MESH_MAX_EDGE_MM - worst, f"{worst:.1f} mm")
         body_s = parts["machined_body"].get("faces_under_5deg_pct", 0.0)
         r["mesh_slivers_body"] = _entry(MESH_MAX_SLIVER_BODY_PCT - body_s, f"{body_s:.2f} % of faces under 5 deg")
-        slivers = max(v["faces_under_5deg_pct"] for k, v in meshed.items() if k != "machined_body")
+        sk = max((k for k in meshed if k != "machined_body"), key=lambda k: meshed[k]["faces_under_5deg_pct"])
+        slivers = meshed[sk]["faces_under_5deg_pct"]
         r["mesh_slivers_printed"] = _entry(MESH_MAX_SLIVER_PRINTED_PCT - slivers,
-                                           f"{slivers:.2f} % of faces under 5 deg, worst file")
+                                           f"{slivers:.2f} % of faces under 5 deg in {sk}")
     # T5.1-T5.4 and T5.6 are measured on the milled body in check().
     return r
 
