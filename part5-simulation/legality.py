@@ -691,12 +691,17 @@ def _halo_checks(parts_mm: dict) -> dict:
     h = parts_mm["halo"]
     # Length, full width (the car's file is the right half, or both halves on the centreline)
     # and height. Volume is not compared: the official file is not a closed solid.
-    car = np.array([h.extents[0], 2.0 * float(h.bounds[1, 1]), h.extents[2]])
-    ref = np.array([off.extents[0], off.extents[1], off.extents[2]])
+    # The official file is itself one half: the left, y -12.5 to 0 (the drawn width is 25.0, p56).
+    def full_width(m):
+        lo, hi = float(m.bounds[0, 1]), float(m.bounds[1, 1])
+        return 2.0 * max(abs(lo), abs(hi)) if lo > -0.01 or hi < 0.01 else hi - lo
+    car = np.array([h.extents[0], full_width(h), h.extents[2]])
+    ref = np.array([off.extents[0], full_width(off), off.extents[2]])
     dims = float(np.abs(car - ref).max())
     return {"T4.4.1_halo_unchanged": _entry(
-        0.1 - dims, f"length, width, height {np.round(car, 2).tolist()} mm; official "
-                    f"{np.round(ref, 2).tolist()} mm")}
+        0.1 - dims, f"length, width, height {np.round(car, 2).tolist()} mm (y {h.bounds[0, 1]:.2f} to "
+                    f"{h.bounds[1, 1]:.2f}); official {np.round(ref, 2).tolist()} mm (file y "
+                    f"{off.bounds[0, 1]:.2f} to {off.bounds[1, 1]:.2f})")}
 
 
 def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06, axis_z_mm: float = DEFAULT_AXIS_Z_MM):

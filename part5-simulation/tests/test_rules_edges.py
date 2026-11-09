@@ -110,12 +110,15 @@ HALO_STL = Path(__file__).resolve().parents[2] / "part1-simulation" / "hardware_
 
 
 def halo(scale=1.0, x0=100.0):
-    """The official halo and helmet (mm), front at x0, base on the 24 mm floor, right half."""
+    """The official halo and helmet (mm), front at x0, base on the 24 mm floor. The file is
+    the left half (y -12.5 to 0); the car's file is its mirror, the right half."""
     m = trimesh.load(str(HALO_STL), force="mesh")
     m.apply_scale(scale)
+    m.vertices[:, 1] *= -1.0
+    m.invert()
     b = m.bounds
-    m.apply_translation([x0 - b[0, 0], -0.5 * (b[0, 1] + b[1, 1]), 24.0 - b[0, 2]])
-    return trimesh.intersections.slice_mesh_plane(m, [0, 1.0, 0], [0, 0, 0], cap=True)
+    m.apply_translation([x0 - b[0, 0], 0.0, 24.0 - b[0, 2]])
+    return m
 
 
 def guide(x, hole, od=8.0, bottom=2.0):
