@@ -4,6 +4,7 @@
 
 variants: asis | norules (no build rules anywhere) | norules_dst (none on the new grid)
           | pinch (close pinches after the remap)
+          | milled (ball-end milling on the source) | milled_dst (on the remapped field)
 Prints LAB lines: did the remapped body pass the mesh check, and where the slivers are.
 """
 import sys
@@ -35,12 +36,18 @@ if variant == "norules":
 src = up.build_unified_geometry(130.0, 46.0, 20.0, init_mode="full", seed=0)
 up.enforce_symmetry(src)
 carve(src, 4)
+if variant == "milled":
+    import machining
+    print(f"LAB {variant} milled src {machining.make_machinable(src)}")
 print(f"LAB {variant} src volume {up.extract_unified_surface(src, allow_inaccessible=True)[0].volume*1e9:.0f} mm3")
 
 coarse.use_spacing(1.5)
 if variant == "norules_dst":
     up.apply_build_rules = lambda g: None
 dst = up.remap_geometry(src)
+if variant == "milled_dst":
+    import machining
+    print(f"LAB {variant} milled dst {machining.make_machinable(dst)}")
 if variant == "pinch":
     print(f"LAB {variant} pinch cells {up.close_pinches(dst, 0.0015)}")
 
