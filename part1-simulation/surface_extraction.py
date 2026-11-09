@@ -132,10 +132,20 @@ def _repair_mesh(mesh: "trimesh.Trimesh", pin_plane_y0: bool = False) -> "trimes
     # y = 0 and held there through the smoothing. Free, the smoothing pulled them a little
     # into y > 0, and the mirrored half then had a crack along the centreline: a 0.85 mm
     # notch at the top and bottom of the chamber, 19.9 mm against T5.1's 18.5 (2026-11-09).
-    cap = None
+    # Held only in y, the cap's rim (where it meets the body's surface) still slid along the
+    # plane: the chamber's bottom edge moved 0.6 mm down it (a notch, 19.4 mm), and the half
+    # body lost 1.2 cm3 against the field's mass (0.18 g). So the rim is held still; only
+    # the cap's inside moves, within the plane.
+    cap = rim = rim_xyz = None
     if pin_plane_y0:
         cap = mesh.vertices[:, 1] <= 0.0
         mesh.vertices[cap, 1] = 0.0
+        e = mesh.edges_unique
+        mixed = cap[e[:, 0]] != cap[e[:, 1]]
+        rim = np.zeros(len(cap), bool)
+        rim[e[mixed].ravel()] = True
+        rim &= cap
+        rim_xyz = mesh.vertices[rim].copy()
 
     trimesh.repair.fill_holes(mesh)
     trimesh.repair.fix_normals(mesh)
@@ -175,6 +185,7 @@ def _repair_mesh(mesh: "trimesh.Trimesh", pin_plane_y0: bool = False) -> "trimes
                 _sm.filter_taubin(mesh, iterations=1)
                 v = mesh.vertices.copy()
                 v[cap, 1] = 0.0
+                v[rim] = rim_xyz
                 mesh.vertices = v
     except Exception:
         pass
