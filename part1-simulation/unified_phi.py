@@ -1052,10 +1052,6 @@ def extract_half_surface(geom: UnifiedGeometry):
         v, _n = exact_zones.project_out(geom, mesh.vertices)
         v[v[:, 1] < 0.0, 1] = 0.0
         mesh.vertices = v
-        mesh = exact_zones.cut_boxes(geom, mesh)
-        v, _n = exact_zones.project_out(geom, mesh.vertices)   # the cut's new vertices too
-        v[v[:, 1] < 0.0, 1] = 0.0
-        mesh.vertices = v
         # The repair gave back the smoothing's lost volume by an even outward move, on the
         # zone faces too, and the steps above took that back off them: the mesh came out
         # 0.47 cm3 under the field (2026-11-10). Give it back again through the faces that
@@ -1075,6 +1071,9 @@ def extract_half_surface(geom: UnifiedGeometry):
         v, _n = exact_zones.project_out(geom, mesh.vertices)
         v[v[:, 1] < 0.0, 1] = 0.0
         mesh.vertices = v
+        # The exact box cut last: projecting after it pushed vertices off one zone onto the
+        # seam with the next (the halo's side shadow and the air above it, 2026-11-10).
+        mesh = exact_zones.cut_boxes(geom, mesh)
     except AttributeError:          # a bare test geometry without layout
         pass
     return mesh
