@@ -9,6 +9,9 @@ on:
       morph: { default: "0.10" }
       refine: { default: "0" }
       setup: { default: "car" }
+      shapes:
+        default: '[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]'
+      bump_parallel: { default: "10" }
       variants:
         default: '["car", "car_raw", "car_cancel", "car_mm", "sst"]'
 
@@ -27,7 +30,7 @@ env:
 jobs:
   base:
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       max-parallel: 5
@@ -48,11 +51,12 @@ jobs:
 
   bump:
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 10
-      matrix: { k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29] }
+      max-parallel: ${{ fromJSON(inputs.bump_parallel) }}
+      matrix:
+        k: ${{ fromJSON(inputs.shapes) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -61,7 +65,8 @@ jobs:
         run: bash -c "$INSTALL"
       - shell: bash
         run: |
-          for a in 1 -1 0.5 -0.5; do python -u part3-simulation/checks/known_answer.py bump ${{ matrix.k }} $a out > log_$a.txt 2>&1 & done
+          amps="1 -1 0.5 -0.5"; [ ${{ matrix.k }} -ge 30 ] && amps="1 -1"     # modes: 2 runs each (12.7)
+          for a in $amps; do python -u part3-simulation/checks/known_answer.py bump ${{ matrix.k }} $a out > log_$a.txt 2>&1 & done
           wait
           cat log_*.txt
       - if: always()

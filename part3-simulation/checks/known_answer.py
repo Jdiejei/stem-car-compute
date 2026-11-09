@@ -55,6 +55,12 @@ OFFICIAL = 10
 # on single bumps; these can make drag go either way, so the sign check can fail (user,
 # 2026-11-09). They are official for the sign mark.
 PAIRS = [(0, 1), (2, 1), (2, 3), (4, 3), (5, 6), (7, 6), (7, 8), (9, 8), (0, 5), (9, 4)]
+# Backup measured map dry run (BUILD_SPEC 7 Step 4, 12.7): 40 Gaussian modes on a grid over
+# the wing (20 a side), each measured by central difference; the map they give is judged on
+# the 30 test shapes above, which it never saw.
+MODE_X = np.round(np.linspace(0.02, 0.95, 20), 4)
+MODES = [("suction", x) for x in MODE_X] + [("pressure", x) for x in MODE_X]
+N_TEST = 20 + 10                                     # singles + pairs; modes follow
 # Adjoint variants run side by side. "car" is exactly the car's setting.
 VARIANTS = {
     "car":        dict(ras="adjointLaminar", atc="standard", mesh_move=False),
@@ -203,11 +209,11 @@ def read_mesh(case: Path, walls=WALLS, flat: bool = True) -> dict:
 
 def bump(mesh: dict, k: int) -> np.ndarray:
     """Outward move of every wall point (chords) for shape k at amplitude 1: a*b_i.
-    k < len(CENTRES): one bump; after that the PAIRS (grow at i minus grow at j)."""
-    if k >= len(CENTRES):
+    k < 20: one test bump; 20..29 the PAIRS (grow at i minus grow at j); 30.. the MODES."""
+    if len(CENTRES) <= k < N_TEST:
         i, j = PAIRS[k - len(CENTRES)]
         return bump(mesh, i) - bump(mesh, j)
-    w, xc = CENTRES[k]
+    w, xc = CENTRES[k] if k < len(CENTRES) else MODES[k - N_TEST]
     Pw = mesh["P"][mesh["wall"]]
     chord, x0 = mesh["chord"], Pw[:, 0].min()
     on = np.flatnonzero(mesh["side"] == w)
@@ -260,7 +266,7 @@ def run_base(name: str, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     np.savez(out / f"base_{name}.npz", P=mesh["P"][mesh["wall"]], n_out=mesh["n_out"], area=mesh["area"],
              side=mesh["side"], chord=mesh["chord"], J=J, spread=spread,
-             bumps=np.array([bump(mesh, k) for k in range(len(CENTRES) + len(PAIRS))]),
+             bumps=np.array([bump(mesh, k) for k in range(N_TEST + len(MODES))]),
              **{"f_" + k: v for k, v in fields.items()}, **geom)
 
 
@@ -293,13 +299,38 @@ def stats(pred: np.ndarray, meas: np.ndarray) -> dict:
                 slope=float(np.dot(pred, meas) / np.dot(pred, pred)))
 
 
+def measured_map(src: Path, runs: dict, meas, singles, sign_set, result: dict) -> None:
+    """The backup measured map (12.7) built from the 40 modes alone, judged on the test shapes.
+    Map density m (per unit area) is the least-squares one in the modes' span that reproduces
+    every mode's measured slope: sum_i m_i phi_k(i) A_i = c_k. A shape b then predicts
+    sum_i m_i b_i A_i."""
+    idx = [N_TEST + m for m in range(len(MODES))]
+    if not all((k, a) in runs for k in idx for a in (1.0, -1.0)):
+        print(f"LAB measured map: modes not all run ({sum((k, 1.0) in runs for k in idx)}/{len(idx)}), skipped")
+        return
+    c = np.array([(runs[(k, 1.0)]["J"] - runs[(k, -1.0)]["J"]) / 2 for k in idx])
+    z = np.load(next(src.rglob("base_*.npz")))
+    Phi, A, B = z["bumps"][idx], z["area"], z["bumps"][:len(meas)]
+    G = (Phi * A) @ Phi.T
+    m = Phi.T @ np.linalg.solve(G, c)
+    pred = B @ (m * A)
+    resid = np.linalg.norm(B - (B @ (Phi.T * A[:, None])) @ np.linalg.solve(G, Phi) , axis=1) / np.linalg.norm(B, axis=1)
+    off = stats(pred[singles], meas[singles])
+    sg = float(np.mean(np.sign(pred[sign_set]) == np.sign(meas[sign_set])))
+    result["measured_map"] = dict(official=off, sign_set=sg, pred=pred.tolist(), modes=c.tolist())
+    print(f"LAB measured map (40 modes, 80 runs): official r {off['r']:+.3f} slope {off['slope']:+.3g} | "
+          f"signs incl. pairs {sg:.2f} ({len(sign_set)}); share of each test shape outside the modes' span "
+          f"p50 {np.median(resid):.2f} max {resid.max():.2f}", flush=True)
+    print(f"LAB measured map VERDICT (sign >= 90% of singles and pairs, r >= 0.9 on the 10 official singles): "
+          f"{'PASS' if sg >= 0.9 and off['r'] >= 0.9 else 'FAIL'}", flush=True)
+
+
 def judge(src: Path) -> int:
     runs = {}
     for f in src.rglob("bump_*.json"):
         d = json.loads(f.read_text())
         runs[(d["k"], d["amp"])] = d
-    K = len(CENTRES) + len(PAIRS)
-    K = max(k for k in range(K) if all((j, a) in runs for j in range(k + 1) for a in (1.0, -1.0, 0.5, -0.5))) + 1
+    K = max(k for k in range(N_TEST) if all((j, a) in runs for j in range(k + 1) for a in (1.0, -1.0, 0.5, -0.5))) + 1
     singles = np.arange(OFFICIAL)                                    # r mark
     sign_set = np.r_[singles, np.arange(len(CENTRES), K)]            # sign mark: singles and pairs
     cd = {a: np.array([(runs[(k, a)]["J"] - runs[(k, -a)]["J"]) / 2 for k in range(K)]) for a in (1.0, 0.5)}
@@ -348,6 +379,7 @@ def judge(src: Path) -> int:
         ok = v and not bad_mesh and bool(clear[sign_set].all())
         print(f"LAB VERDICT car settings, {how} (sign >= 90% of singles and pairs, r >= 0.9 on the 10 official "
               f"singles, all clear of 3x noise): {'PASS' if ok else 'FAIL'}")
+    measured_map(src, runs, meas, singles, sign_set, result)
     (src / "known_answer_result.json").write_text(json.dumps(result, indent=1))
     return 0
 
