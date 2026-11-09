@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -36,7 +37,7 @@ def _synthetic_csv():
     return f.name
 
 
-def _model_and_params(com_height_m=0.040, time_coefficient=1.0, lift_20_n=0.5, com_x_m=0.005):
+def _model_and_params(com_height_m=0.040, time_coefficient=1.0, lift_20_n=0.5, com_x_m=0.110):
     path = _synthetic_csv()
     try:
         model = build_smooth_sheet_model(
@@ -69,75 +70,16 @@ def test_objective_physics_is_unchanged_by_edits():
     T, grads = race_value_and_grad(p, model)
 
     assert 1.0 < T < 20.0, f"race time {T} s is not physical for a 20 m run"
-    # Signs are the physics: heavier and draggier are slower, a lower COM helps.
+    # Signs are the physics: heavier and draggier are slower. (The COM height's
+    # sign depends on where it sits against the thrust line: tests/test_race_com.)
     assert grads["car_weight_kg"] > 0, "a heavier car must be slower"
     assert grads["drag_20_n"] > 0, "more drag must be slower"
-    assert grads["com_height_m"] < 0, "a lower COM must not be penalised"
+    assert np.isfinite(grads["com_height_m"]) and np.isfinite(grads["com_x_m"])
     # Determinism: repeated calls must agree exactly. This is also what caught
     # the retrace leak -- a fresh trace per call still returns the same number,
     # so only the mapping count exposed it. Kept as a cheap sanity anchor.
     T2, _ = race_value_and_grad(p, model)
     assert T == T2, f"objective is not deterministic: {T} != {T2}"
-
-
-def test_com_height_clamps_instead_of_killing_a_working_optimiser():
-    """dT/dh_com is negative, so the optimiser lowers the COM toward the fitted
-    range's floor. Raising there meant the better it worked, the sooner it
-    killed its own candidate -- ~320 iterations from the measured 29.2 mm start
-    against an 18 mm floor.
-    """
-    import warnings as _w
-    from race_objective_adapter import COM_HEIGHT_FIT_RANGE_M, _COM_CLAMP_WARNED
-
-    model, params = _model_and_params()
-    lo, _hi = COM_HEIGHT_FIT_RANGE_M
-    params = np.asarray(params, dtype=np.float64).copy()
-    params[PARAM_NAMES.index("com_height_m")] = lo - 0.002   # 2 mm below the floor
-
-    _COM_CLAMP_WARNED.clear()
-    with _w.catch_warnings(record=True) as caught:
-        _w.simplefilter("always")
-        T_raw, T_pen, grads = race_value_and_grad_guarded(params, model)
-    assert any("clamping" in str(c.message) for c in caught), (
-        "clamping must be announced, not silent")
-    assert T_raw > 0 and T_pen > 0, "clamped call must still return a race time"
-    # Flat beyond the data: two points below the floor must agree.
-    p2 = params.copy()
-    p2[PARAM_NAMES.index("com_height_m")] = lo - 0.004
-    T2_raw, T2_pen, _ = race_value_and_grad_guarded(p2, model)
-    assert abs(T_pen - T2_pen) < 1e-12, (
-        f"penalty is not flat below the fitted range: {T_pen} vs {T2_pen}")
-
-
-def test_com_height_far_outside_is_still_a_units_bug():
-    """Clamping must not swallow a genuine units/origin error."""
-    from race_objective_adapter import COM_HEIGHT_FIT_RANGE_M
-    model, params = _model_and_params()
-    lo, hi = COM_HEIGHT_FIT_RANGE_M
-    params = np.asarray(params, dtype=np.float64).copy()
-    params[PARAM_NAMES.index("com_height_m")] = hi + 2.0 * (hi - lo)
-    try:
-        race_value_and_grad_guarded(params, model)
-    except ValueError as exc:
-        assert "units or origin bug" in str(exc)
-        return
-    raise AssertionError("a far-outside COM height was silently clamped")
-
-
-def test_clamping_does_not_disable_the_com_x_guard():
-    """Regression: an early return on the clamp path skipped the com_x check."""
-    from race_objective_adapter import COM_HEIGHT_FIT_RANGE_M
-    model, params = _model_and_params()
-    lo, _hi = COM_HEIGHT_FIT_RANGE_M
-    params = np.asarray(params, dtype=np.float64).copy()
-    params[PARAM_NAMES.index("com_height_m")] = lo - 0.002    # triggers clamping
-    params[PARAM_NAMES.index("com_x_m")] = 999.0              # absurd
-    try:
-        race_value_and_grad_guarded(params, model)
-    except ValueError as exc:
-        assert "com_x_m" in str(exc), f"wrong guard fired: {exc}"
-        return
-    raise AssertionError("com_x sanity guard was skipped on the clamp path")
 
 
 def test_mapping_leak_is_documented_where_it_bites():
@@ -226,13 +168,8 @@ def test_adapt_gradients_key_mapping():
     _value, locked_grads = race_value_and_grad(params, model)
     assert adapted["dT_dD20"] == locked_grads["drag_20_n"]
     assert adapted["dT_dmass"] == locked_grads["car_weight_kg"]
-    assert adapted["dT_dx_com"] != 0.0  # now non-zero with com_x penalty
-
-
-def test_dT_dh_com_is_now_nonzero():
-    model, params = _model_and_params(com_height_m=0.040)
-    _T_raw, _T_penalized, adapted = race_value_and_grad_guarded(params, model)
-    assert adapted["dT_dh_com"] != 0.0
+    assert adapted["dT_dh_com"] == locked_grads["com_height_m"]
+    assert adapted["dT_dx_com"] == locked_grads["com_x_m"]
 
 
 def test_dT_dL_is_nonzero():
@@ -241,13 +178,6 @@ def test_dT_dL_is_nonzero():
     _T_raw, _T_penalized, adapted = race_value_and_grad_guarded(params, model)
     assert "dT_dL" in adapted
     assert adapted["dT_dL"] != 0.0
-
-
-def test_dT_dx_com_is_nonzero():
-    """Fore-aft COM gradient must be non-zero now that com_x penalty is modeled."""
-    model, params = _model_and_params(com_x_m=0.005)
-    _T_raw, _T_penalized, adapted = race_value_and_grad_guarded(params, model)
-    assert adapted["dT_dx_com"] != 0.0
 
 
 def test_time_coefficient_guard_blocks_non_unity():
@@ -274,25 +204,15 @@ def test_time_coefficient_guard_allows_the_calibration_and_scales_time():
 
 
 def test_returns_three_tuple_T_raw_T_penalized_gradients():
-    """Per the Part 2 spec, the adapter must return (T_raw, T_penalized, gradients).
-    T_raw excludes the COM penalty; T_penalized includes it."""
-    model, params = _model_and_params(com_height_m=0.040)
-    T_raw, T_penalized, gradients = race_value_and_grad_guarded(params, model)
-    assert isinstance(T_raw, float)
-    assert isinstance(T_penalized, float)
-    assert isinstance(gradients, dict)
-    assert T_penalized > T_raw, "T_penalized must include COM penalty above T_raw"
-    assert set(gradients) == {"dT_dD20", "dT_dmass", "dT_dh_com", "dT_dx_com", "dT_dL"}
-
-
-def test_T_raw_at_target_com_equals_T_penalized():
-    """When COM height is exactly at the 30mm target, COM penalty is ~0,
-    so T_raw ≈ T_penalized."""
-    model, params = _model_and_params(com_height_m=0.030, com_x_m=0.0)
-    T_raw, T_penalized, _grads = race_value_and_grad_guarded(params, model)
-    assert abs(T_penalized - T_raw) < 1e-6, (
-        f"COM penalty at target should be ~0, got diff {T_penalized - T_raw}"
-    )
+    """The adapter returns (T_raw, T_penalized, gradients). Since 2026-11-09 the
+    COM acts inside the physics, so there is no penalty and the two are equal at
+    every COM height."""
+    for h in (0.020, 0.030, 0.045):
+        model, params = _model_and_params(com_height_m=h)
+        T_raw, T_penalized, gradients = race_value_and_grad_guarded(params, model)
+        assert isinstance(T_raw, float) and isinstance(gradients, dict)
+        assert T_penalized == T_raw
+        assert set(gradients) == {"dT_dD20", "dT_dmass", "dT_dh_com", "dT_dx_com", "dT_dL"}
 
 
 def test_negative_mass_rejected():
@@ -328,22 +248,14 @@ def test_negative_drag_rejected():
     raise AssertionError("Expected ValueError for negative drag")
 
 
-def test_com_height_out_of_fitted_range_is_clamped_not_rejected():
-    """Superseded 2026-07-28: outside the FITTED range now clamps.
-
-    This used to assert that 50 mm raises. It does not any more, and that is
-    deliberate: dT/dh_com is negative, so a working optimiser walks the COM
-    toward the fitted range's 18 mm floor and out of it -- raising there meant
-    the better the optimiser worked, the sooner it killed its own candidate.
-    50 mm is a legal COM height on a 65 mm car, so it is clamped to the fitted
-    ceiling and the penalty goes flat. What still raises is a PHYSICALLY
-    impossible height (see the next test).
-    """
+def test_any_legal_com_height_is_timed_not_clamped():
+    """50 mm is a legal COM height on a 65 mm car: timed as it is (the old
+    placeholder penalty clamped it; there is nothing to clamp now)."""
     model, _ = _model_and_params()
-    params = np.array([12.0, 0.050, 0.02, 1e-7, 1.0, 0.050, 0.5, 0.005],
+    params = np.array([12.0, 0.050, 0.02, 1e-7, 1.0, 0.050, 0.5, 0.110],
                       dtype=np.float64)
     T_raw, T_pen, _ = race_value_and_grad_guarded(params, model)
-    assert T_raw > 0 and T_pen > 0, "a clamped call must still produce a time"
+    assert T_raw > 0 and T_pen == T_raw
 
 
 def test_com_height_outside_the_car_is_still_rejected():
@@ -361,11 +273,9 @@ def test_com_height_outside_the_car_is_still_rejected():
 
 
 def test_com_height_at_boundary_accepted():
-    """COM height at the boundary of the fitted range should be accepted
-    (with small float tolerance)."""
+    """A low but legal COM height is accepted."""
     model, _ = _model_and_params()
-    # 0.018 is the lower boundary
-    params = np.array([12.0, 0.050, 0.02, 1e-7, 1.0, 0.018, 0.5, 0.005], dtype=np.float64)
+    params = np.array([12.0, 0.050, 0.02, 1e-7, 1.0, 0.018, 0.5, 0.110], dtype=np.float64)
     race_value_and_grad_guarded(params, model)
 
 
@@ -378,48 +288,6 @@ def test_negative_wheel_moi_rejected():
     except ValueError:
         return
     raise AssertionError("Expected ValueError for negative wheel_moi")
-
-
-def test_the_com_penalty_is_never_negative():
-    """A penalty that pays you back breaks the layer above.
-
-    The adapter derives T_raw = T_penalized - tc*com_h_penalty, so a negative
-    penalty puts T_raw ABOVE T_penalized and CandidateOutcome.__post_init__
-    rejects the iteration outright ("penalties are additive and non-negative,
-    this is a bug upstream"). That raise killed d_halo=16 three iterations into
-    the live run of 2026-07-30, with a reported gap of 2.03e-7 s.
-
-    The cause was a fitting artefact: the degree-4 fit through nine placeholder
-    points bottoms out at +0.4 mm rather than at the 30 mm target, so
-    subtracting the value AT the target left a well from 30.05 mm to 30.80 mm
-    reaching -3.79e-5 s. A 2 mm sample grid steps straight over it, which is
-    how it survived an earlier check -- so this samples finely, and across the
-    whole physical range rather than near the target only.
-    """
-    import numpy as np
-    import jax.numpy as jnp
-    from race_objective import com_height_time_penalty, PARAM_NAMES
-
-    def pen(h_mm):
-        p = np.zeros(len(PARAM_NAMES))
-        p[0], p[1], p[2], p[3] = 0.64, 0.149, 0.010, 1e-7
-        p[4], p[5], p[6], p[7] = 1.0, h_mm / 1000.0, 0.0, 0.122
-        return float(com_height_time_penalty(jnp.asarray(p)))
-
-    heights = np.linspace(15.0, 45.0, 6001)          # 5 micron steps
-    values = np.array([pen(h) for h in heights])
-    worst = values.min()
-    assert worst >= -1e-12, (
-        f"COM height penalty goes to {worst:.3e} s at "
-        f"h_com={heights[values.argmin()]:.3f} mm. T_raw is derived by "
-        f"subtracting this, so a negative value inverts T_raw and T_penalized "
-        f"and the candidate is rejected upstream.")
-
-    # And it must still be ~zero at the declared target, or the target means
-    # nothing -- the two constraints together are what forced a clamp rather
-    # than a re-baseline to the fit's own minimum.
-    assert abs(pen(30.0)) < 1e-9, (
-        f"penalty at the 30 mm target is {pen(30.0):.3e}, not ~0")
 
 
 def test_propellant_remaining_is_never_negative():

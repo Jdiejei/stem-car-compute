@@ -1,7 +1,8 @@
 """
 JAX differentiable race-time objective for a STEM Racing / F1 in Schools car.
 
-Version 3 adds a differentiable COM-height term for the 3D optimizer.
+Version 4 (2026-11-09): the centre of mass acts through physics (pitch_balance),
+not through placeholder penalties.
 
 Purpose
 -------
@@ -23,7 +24,13 @@ The equations are:
 
 where:
 
-    a = [F_thrust(t) - D20*q/20^2 - mu*m(t)*g] / [m(t) + N*I/r^2]
+    a = [T_x(t) - D20*q/20^2 - R(t, q)] / [m(t) + N*I/r^2]
+
+T_x is the forward thrust component and R the rolling and guide resistance,
+both from pitch_balance.axle_loads: the pitch moment of the thrust line, drag,
+lift and weight about the COM (car + unspent CO2) sets the front and rear axle
+loads; a pair that would lift is held down by its tether guide, which rubs.
+See acceleration() and wheel_resistance().
 
 Using q = v^2 avoids the old timestep loop and avoids a branch-based finish
 event. Race time is simply t at x = 20 m, so JAX can differentiate it.
@@ -34,11 +41,13 @@ Inputs to the differentiable objective:
     mu               rolling friction coefficient
     wheel_moi_kg_m2  MOI of one wheel, kg*m^2
     time_coefficient coefficient multiplier; use 1.0 for normal time
-    com_height_m     COM height above the track/thrust reference, m
+    com_height_m     car COM (without CO2) height above the TRACK, m
+    lift_20_n        lift at 20 m/s, N, + up
+    com_x_m          car COM (without CO2) x from the NOSE TIP, + towards the tail, m
 
 Outputs:
     race time in seconds
-    gradients wrt D20, car_weight_kg, mu, wheel_moi_kg_m2, time_coefficient, COM height
+    gradients wrt every input above; the COM slopes are gradients of the same time
 
 Notes
 -----
@@ -55,10 +64,9 @@ Notes
 - This is single-point aero for now: D(v)=D20*(v/20)^2.
 - Version 2 uses a non-uniform distance grid clustered near launch so the
   distance-domain singularity at v=0 is resolved without needing 20k steps.
-- Version 3 adds a smooth COM-height penalty. By default the target COM height
-  is 30 mm and the penalty is +0.001 s per mm away from that target. This sign
-  makes 30 mm the optimum; using a negative sign would make the optimizer push
-  the COM away from the target.
+- Version 3's placeholder COM penalties were removed in version 4.
+- Placeholders still to measure: mu (rolling), the guide-on-line friction
+  mu_guide = 0.25, the bearing load law exponent, tether drag (absent).
 """
 
 from __future__ import annotations
@@ -74,6 +82,8 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
+from pitch_balance import CarGeometry, axle_loads, com_with_gas
+
 
 G = 9.81
 TRACK_LENGTH = 20.0
@@ -86,28 +96,46 @@ N_WHEELS = 4
 # spinning up. Must stay equal to geometry_contract.R_WHEEL_M.
 R_WHEEL = 0.01413
 
-# COM penalty model.
-# Placeholder data points: (offset_mm, penalty_s) where offset = com_height_mm - 30.
-# Slightly asymmetric: nose-up (negative offset, COM below thrust line) costs more.
-# REPLACE these with real ballast experiment measurements when available.
-_COM_PENALTY_DATA_MM = np.array([-12.0, -8.0, -5.0, -2.0, 0.0, 2.0, 5.0, 8.0, 12.0])
-_COM_PENALTY_DATA_S  = np.array([ 0.028, 0.015, 0.007, 0.002, 0.0, 0.001, 0.005, 0.011, 0.020])
-
-# Fit degree-4 polynomial (offset in metres). Subtract value at delta=0 so
-# penalty is exactly 0 at the 30 mm target regardless of polyfit residuals --
-# COM_TARGET_HEIGHT_M declares 30 mm as THE target and
-# test_T_raw_at_target_com_equals_T_penalized holds this file to it.
-_COM_PENALTY_DATA_M = _COM_PENALTY_DATA_MM * 1e-3
-_COM_POLY_COEFFS_NP = np.polyfit(_COM_PENALTY_DATA_M, _COM_PENALTY_DATA_S, 4)
-_COM_POLY_BASELINE  = float(np.polyval(_COM_POLY_COEFFS_NP, 0.0))
-_COM_POLY_COEFFS    = jnp.asarray(_COM_POLY_COEFFS_NP, dtype=jnp.float64)
+# CENTRE OF MASS (2026-11-09). The placeholder COM penalties are gone; the COM
+# now acts through physics (pitch_balance.py): wheel and tether-guide loads from
+# the pitch moment of the thrust line about the COM, plus drag, lift and weight.
+#   com_x_m       x of the car's COM from the NOSE TIP, positive towards the tail
+#                 (the car frame of Parts 1 and 4), WITHOUT the CO2 charge
+#   com_height_m  z of the car's COM above the TRACK, WITHOUT the CO2 charge
+# The unspent CO2 is added at the cartridge centre at every instant (com_with_gas).
+# COM_TARGET_HEIGHT_M is kept only as a nominal default height; it is no longer a
+# target and nothing is penalised for leaving it.
 COM_TARGET_HEIGHT_M = 0.030
 
-# COM-x (fore-aft) penalty model.
-# Simple quadratic: penalty = k_x * (com_x_m - com_x_target)^2
-# k_x = 0.001 s/m^2 (1 ms per mm^2 deviation from target)
-_COM_X_TARGET_M = 0.0
-_COM_X_PENALTY_K = 0.001
+# Default geometry: the default layout (front axle 46 mm from the nose tip,
+# wheelbase 120.3 mm, Part 4's tether guides 5 mm outside each axle with the
+# line touching the top of a 4.5 mm hole whose ring sits 2 mm up, the cartridge
+# axis at 31 mm with its centre 26 mm ahead of the 222.3 mm rear face). A car
+# folder's assembly.json overrides it (geometry_from_assembly).
+# x_thrust_m: the cartridge's rear centre is taken at the rear face; the exact
+# protrusion is still to come from Part 4. It only matters for a tilted thrust.
+DEFAULT_GEOMETRY = CarGeometry(
+    x_front_axle_m=0.046, wheelbase_m=0.1203, x_thrust_m=0.2223, z_thrust_m=0.031,
+    x_guide_front_m=0.041, x_guide_rear_m=0.1713, z_guide_m=0.00825)
+DEFAULT_GAS_XZ_M = (0.1963, 0.031)
+# Wheel bearing load law (see wheel_resistance): 1.0 = plain Coulomb rolling
+# resistance; > 1 makes friction grow faster than the load on an axle.
+DEFAULT_BEARING_P = 1.0
+
+
+def geometry_from_assembly(asm: dict, mu_guide: float = 0.25):
+    """(CarGeometry, (x_gas, z_gas)) from a Part 4 assembly.json dict (metres)."""
+    xf = asm["x_front_mm"] / 1e3
+    wb = asm["W_mm"] / 1e3
+    gx, _gy, gz = asm["fixed_hardware_kwargs"]["co2_cartridge_com"]
+    guides = sorted(asm["info"]["tethers"], key=lambda t: t["x_mm"])
+    top = lambda t: (t["bottom_mm"] + (t["od_mm"] + t["id_mm"]) / 2.0) / 1e3   # top of the hole
+    geo = CarGeometry(x_front_axle_m=xf, wheelbase_m=wb,
+                      x_thrust_m=gx + 0.026, z_thrust_m=gz,      # bore mid-depth -> rear face
+                      x_guide_front_m=guides[0]["x_mm"] / 1e3, x_guide_rear_m=guides[-1]["x_mm"] / 1e3,
+                      z_guide_m=top(guides[0]), mu_guide=mu_guide)
+    return geo, (gx, gz)
+
 
 # Parameter order for the optimizer-facing vector.
 PARAM_NAMES = (
@@ -134,6 +162,9 @@ class SmoothSheetModel(NamedTuple):
     x_start: jnp.ndarray
     x_grid_power: jnp.ndarray
     n_steps: int
+    geometry: CarGeometry = DEFAULT_GEOMETRY
+    gas_xz_m: tuple = DEFAULT_GAS_XZ_M
+    bearing_p: float = DEFAULT_BEARING_P
 
 
 @dataclass(frozen=True)
@@ -314,57 +345,54 @@ def car_mass_from_time(
     return car_weight_kg + propellant_kg
 
 
-def com_height_time_penalty(params: jnp.ndarray) -> jnp.ndarray:
-    """COM-height penalty fitted from ballast experiment data.
-
-    Evaluates a degree-4 polynomial in (com_height_m - 30mm).
-    _COM_POLY_COEFFS are fitted at module load from _COM_PENALTY_DATA_*.
-    Replace those data arrays with real measurements when available.
-    """
-    p = unpack_params(params)
-    delta = p["com_height_m"] - COM_TARGET_HEIGHT_M
-    raw = jnp.polyval(_COM_POLY_COEFFS, delta) - _COM_POLY_BASELINE
-    # CLAMPED AT ZERO. A penalty that pays you back is incoherent, and this one
-    # did: the degree-4 fit through nine placeholder points bottoms out at
-    # +0.4 mm rather than at the 30 mm target, so subtracting the value at the
-    # target leaves a well from 30.05 mm to 30.80 mm reaching -3.79e-5 s.
-    #
-    # Downstream that is not cosmetic. The adapter derives
-    # T_raw = T_penalized - tc*com_h_penalty, so a negative penalty puts T_raw
-    # ABOVE T_penalized and CandidateOutcome.__post_init__ rejects the iteration
-    # outright ("penalties are additive and non-negative, this is a bug
-    # upstream"). That raise killed d_halo=16 three iterations into the live run
-    # of 2026-07-30, once the carving walked com_z into the well; the reported
-    # gap was 2.03e-7 s, right at its edge.
-    #
-    # Clamping rather than re-baselining to the fit's minimum, because
-    # COM_TARGET_HEIGHT_M declares 30 mm as the target and a test holds this
-    # file to "penalty is exactly zero there". _smooth_positive is used instead
-    # of jnp.maximum because JAX differentiates this for dT/dh_com and a hard
-    # max puts a kink at the well boundary; scale is small enough that the
-    # softening is ~7e-10 s at the target, far below the 1e-9 the contract
-    # test allows and vastly below the +/-15 ms of drag noise.
-    #
-    # The well is a fitting artefact, not physics: the DATA has its minimum at
-    # 0.0 mm offset and only the degree-4 FIT wanders below. When the nine
-    # placeholder points are replaced by real ballast measurements, refit and
-    # re-check whether this clamp is still doing anything.
-    return _smooth_positive(raw, scale=1e-9)
-
-
-def com_x_time_penalty(params: jnp.ndarray) -> jnp.ndarray:
-    """Fore-aft COM penalty: quadratic in distance from optimal x_com.
-
-    penalty = k_x * (com_x_m - com_x_target)^2
-    Default k_x = 0.001 s/m^2, target = 0.0 m (reference origin).
-    """
-    p = unpack_params(params)
-    delta = p["com_x_m"] - _COM_X_TARGET_M
-    return _COM_X_PENALTY_K * delta * delta
-
-
 def unpack_params(params: jnp.ndarray) -> dict[str, jnp.ndarray]:
     return {name: params[i] for i, name in enumerate(PARAM_NAMES)}
+
+
+def wheel_resistance(pr, weight_n, x_com_m, mu, geo: CarGeometry, bearing_p):
+    """Backward force from both axles and both guides, N.
+
+    Per axle, F = mu * N0 * (N / N0)**p, with N0 that axle's share of the net
+    load if the car were not pitching (lever rule about the COM). p = 1 is plain
+    Coulomb rolling resistance, mu * N, and then the total does not depend on
+    how the load is split. p > 1 is a bearing whose drag grows faster than its
+    load, so moving weight onto one axle costs time even before a wheel lifts.
+    Guides: mu_guide times the line's pull."""
+    x_rear = geo.x_front_axle_m + geo.wheelbase_m
+    n0_f = weight_n * (x_rear - x_com_m) / geo.wheelbase_m
+    n0_r = weight_n * (x_com_m - geo.x_front_axle_m) / geo.wheelbase_m
+
+    def axle(n, n0):
+        return mu * n0 * jnp.power(jnp.maximum(n, 0.0) / n0, bearing_p)
+
+    return (axle(pr.n_front, n0_f) + axle(pr.n_rear, n0_r)
+            + geo.mu_guide * (pr.g_front + pr.g_rear))
+
+
+def acceleration(t: jnp.ndarray, q: jnp.ndarray, params: jnp.ndarray,
+                 model: SmoothSheetModel) -> jnp.ndarray:
+    """dv/dt at time t and speed^2 q.
+
+    Thrust, drag, lift and weight (car + unspent CO2 at the cartridge centre)
+    set the pitch moment about the COM; pitch_balance turns that into axle and
+    guide loads, and those into rolling and guide friction. Thrust counts only
+    its forward component. Lift L(v) = lift_20_n (v/20)^2, + up; drag likewise.
+    """
+    p = unpack_params(params)
+    m = car_mass_from_time(t, p["car_weight_kg"], model)
+    gas = m - p["car_weight_kg"]
+    gx, gz = model.gas_xz_m
+    m_tot, xc, zc = com_with_gas(p["car_weight_kg"], p["com_x_m"], p["com_height_m"], gas, gx, gz)
+    m_eff = m_tot + N_WHEELS * p["wheel_moi_kg_m2"] / (R_WHEEL ** 2)
+
+    F_thrust = thrust_force(t, model)
+    F_drag = p["drag_20_n"] * q / (REFERENCE_SPEED ** 2)
+    L_v = p["lift_20_n"] * q / (REFERENCE_SPEED ** 2)
+    geo = model.geometry._replace(mu_front=p["mu"], mu_rear=p["mu"])
+    pr = axle_loads(F_thrust, F_drag, L_v, m_tot, xc, zc, geo)
+    w = m_tot * G - L_v - F_thrust * jnp.sin(geo.thrust_angle_rad)
+    resist = wheel_resistance(pr, w, xc, p["mu"], geo, model.bearing_p)
+    return (pr.thrust_x - F_drag - resist) / m_eff
 
 
 def initial_state(params: jnp.ndarray, model: SmoothSheetModel) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -378,15 +406,10 @@ def initial_state(params: jnp.ndarray, model: SmoothSheetModel) -> tuple[jnp.nda
         x = 0.5*a0*t^2
         q = v^2 = 2*a0*x
 
-    where a0 is the initial acceleration at t=0, v=0.
+    where a0 is the acceleration at t=0, v=0 (same physics as the run).
     """
-    p = unpack_params(params)
     t0 = jnp.asarray(0.0, dtype=params.dtype)
-    m0 = car_mass_from_time(t0, p["car_weight_kg"], model)
-    m_eff0 = m0 + N_WHEELS * p["wheel_moi_kg_m2"] / (R_WHEEL ** 2)
-    # Friction at launch: at v=0 there is no lift.
-    friction0 = p["mu"] * m0 * G
-    a0 = (thrust_force(t0, model) - friction0) / m_eff0
+    a0 = acceleration(t0, jnp.asarray(0.0, dtype=params.dtype), params, model)
 
     # Valid cars should have positive launch acceleration. The smooth floor keeps
     # gradients finite for bad inputs instead of crashing.
@@ -405,31 +428,11 @@ def distance_derivatives(
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Return dt/dx and dq/dx at the current distance location."""
     t, q = state
-    p = unpack_params(params)
-
     # q = v^2. Keep it positive smoothly so invalid designs become slow/penalized
     # instead of producing NaNs.
     q_safe = _smooth_positive(q, scale=1e-6) + 1e-10
-
-    m = car_mass_from_time(t, p["car_weight_kg"], model)
-    m_eff = m + N_WHEELS * p["wheel_moi_kg_m2"] / (R_WHEEL ** 2)
-
-    F_thrust = thrust_force(t, model)
-    F_drag = p["drag_20_n"] * q_safe / (REFERENCE_SPEED ** 2)
-    # Lift-dependent friction: L(v) = lift_20_n * v^2 / 20^2
-    # Normal force: N = m*g - L(v). L is lift, + up (the CFD's liftDir is +z): lift
-    # unloads the wheels and cuts rolling friction; downforce (L < 0) adds to it.
-    # Friction: F_fric = mu * N = mu * (m*g - L(v))
-    v_sq = q_safe  # q = v^2
-    L_v = p["lift_20_n"] * v_sq / (REFERENCE_SPEED ** 2)
-    F_normal = m * G - L_v
-    F_fric = p["mu"] * F_normal
-
-    a = (F_thrust - F_drag - F_fric) / m_eff
-
-    dt_dx = 1.0 / jnp.sqrt(q_safe)
-    dq_dx = 2.0 * a
-    return dt_dx, dq_dx
+    a = acceleration(t, q_safe, params, model)
+    return 1.0 / jnp.sqrt(q_safe), 2.0 * a
 
 
 def rk4_step(
@@ -484,10 +487,8 @@ def race_time_seconds(params: jnp.ndarray, model: SmoothSheetModel) -> jnp.ndarr
     q_safe_finish = _smooth_positive(q_finish, scale=1e-6)
     low_speed_penalty = 0.05 * _smooth_positive(0.01 - q_safe_finish, scale=1e-4)
 
-    com_penalty = com_height_time_penalty(params)
-    com_x_pen = com_x_time_penalty(params)
-
-    return p["time_coefficient"] * (t_finish + low_speed_penalty + com_penalty + com_x_pen)
+    # No COM penalty: the COM acts through the wheel and guide loads above.
+    return p["time_coefficient"] * (t_finish + low_speed_penalty)
 
 
 # Built once rather than per call. This is tidiness, NOT a fix -- and an earlier
@@ -587,7 +588,7 @@ def make_param_vector(
     time_coefficient_percent: float = 100.0,
     com_height_mm: float = 30.0,
     lift_20_n: float = 0.0,
-    com_x_mm: float = 0.0,
+    com_x_mm: float = 110.0,          # from the nose tip (car frame)
 ) -> np.ndarray:
     """Helper matching the old script's user-facing units."""
     return np.array(

@@ -84,27 +84,37 @@ def extra_surfaces(folder: Path) -> tuple:
     return tuple(out)
 
 
-def race(D20: float, L20: float, mass: dict) -> tuple:
+def race(D20: float, L20: float, mass: dict, assembly: dict | None = None) -> tuple:
     """(race time s, dT_d dict, model inputs) for full-car forces and a mass report.
-    The time and slopes include the calibration factor TIME_COEFFICIENT."""
-    from race_objective import build_smooth_sheet_model, race_value_and_grad
+    The time and slopes include the calibration factor TIME_COEFFICIENT and the
+    centre of mass through the pitch balance (axles, cartridge and tether guides
+    from `assembly` when it carries them, else the default layout)."""
+    from race_objective import (build_smooth_sheet_model, geometry_from_assembly,
+                                race_value_and_grad)
     from race_objective_adapter import race_value_and_grad_guarded
 
     mu = float(mass.get("mu", pc.DEFAULT_ROLLING_MU))
     moi = float(mass.get("wheel_moi_kg_m2", pc.DEFAULT_WHEEL_MOI_KG_M2))
-    com = mass.get("com_mm", (0.0, 0.0, 30.0))
+    com = mass["com_mm"]          # car frame: x from the nose tip, z above the track
     tc = pc.TIME_COEFFICIENT
-    # com_x does not enter the dynamics (its penalty is a placeholder, see 12.2), so 0
-    params = np.array([D20, float(mass["car_weight_kg"]), mu, moi, tc, com[2] / 1e3, L20, 0.0])
+    params = np.array([D20, float(mass["car_weight_kg"]), mu, moi, tc, com[2] / 1e3, L20,
+                       com[0] / 1e3])
     model = build_smooth_sheet_model(str(THRUST_CSV))
+    geometry = "default layout"
+    if assembly and "fixed_hardware_kwargs" in assembly:
+        geo, gas = geometry_from_assembly(assembly)
+        model = model._replace(geometry=geo, gas_xz_m=gas)
+        geometry = "from assembly.json"
     T_raw, _, _ = race_value_and_grad_guarded(params, model)
     _, g = race_value_and_grad(params, model)
     inputs = {"thrust_csv": THRUST_CSV.name, "mu": mu, "wheel_moi_kg_m2": moi,
+              "geometry": geometry, "mu_guide": model.geometry.mu_guide,
               "time_coefficient": tc,
               "time_coefficient_note": "calibration factor on the model time (team lead, 2026-11-09)",
               "race_time_uncalibrated_s": T_raw / tc,
               "co2_mass_curve": "derived from thrust (8 g charge), not measured",
-              "placeholders": [k for k in ("mu", "wheel_moi_kg_m2") if k not in mass]}
+              "placeholders": [k for k in ("mu", "wheel_moi_kg_m2") if k not in mass]
+              + ["mu_guide", "bearing_load_law", "tether_drag (not modelled)"]}
     return T_raw, {k: g[k] for k in DT_NAMES}, inputs
 
 
@@ -123,7 +133,9 @@ def time_car(folder, res=None, iters=None, n_subdomains=4, cfd=None, noise_s=NOI
     half, health = run_half_car_cfd(str(body), n_subdomains=n_subdomains,
                                     extra_surfaces=extra_surfaces(folder), **kw)
     full = half.to_full_car()
-    T, dT_d, inputs = race(full.D20, full.L, mass)
+    asm_path = folder / "assembly.json"
+    asm = json.loads(asm_path.read_text()) if asm_path.exists() else None
+    T, dT_d, inputs = race(full.D20, full.L, mass, asm)
     parts = {}
     for k, v in (health.patch_forces or {}).items():
         parts[k] = {"D_N": 2 * v["D_half_N"], "L_N": 2 * v["L_half_N"]}

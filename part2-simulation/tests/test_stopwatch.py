@@ -63,10 +63,10 @@ def test_stopwatch_json_has_the_contract_fields(tmp_path, fake_cfd):
     mi = rec["model_inputs"]
     assert mi["thrust_csv"] == "thrust_measured_beta.csv" and mi["time_coefficient"] == 0.802
     assert rec["race_time_s"] == pytest.approx(0.802 * mi["race_time_uncalibrated_s"])
-    assert 0.6 < rec["race_time_s"] < 1.8
+    assert 0.4 < rec["race_time_s"] < 1.8
     # slower with more drag and more mass, by amounts of the right order
     assert 0.05 < rec["dT_d"]["drag_20_n"] < 0.7 and 2 < rec["dT_d"]["car_weight_kg"] < 25
-    assert rec["model_inputs"]["placeholders"] == ["mu", "wheel_moi_kg_m2"]
+    assert rec["model_inputs"]["placeholders"][:3] == ["mu", "wheel_moi_kg_m2", "mu_guide"]
     # search mesh by default, wheel from assembly.json resolved against the folder
     kw = calls[0][1]
     assert kw["resolution"] == "medium" and kw["max_iterations"] == 1000

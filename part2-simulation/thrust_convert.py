@@ -25,6 +25,7 @@ RAW = HERE / "thrust_measured_beta_raw.csv"
 SHEET = HERE / "thrust_measured_beta.csv"
 CO2_KG = 0.008
 FINAL_MASS_KG = 0.048          # as the old sheet's end value; cancels out in the model
+PAD_TO_S = 1.0                 # zero thrust written explicitly after the burn
 
 
 def cumulative_impulse(t: np.ndarray, f: np.ndarray) -> np.ndarray:
@@ -34,11 +35,18 @@ def cumulative_impulse(t: np.ndarray, f: np.ndarray) -> np.ndarray:
 def convert(raw=RAW, out=SHEET) -> pd.DataFrame:
     d = pd.read_csv(raw)
     t, f = d["time_s"].to_numpy(float), d["beta_fit_N"].to_numpy(float)
+    # The burn is over at 0.5 s (the data ends at 0.0000 N). Say so explicitly
+    # out to PAD_TO_S: without it the smooth fit's end gate and its constant and
+    # linear terms carried ~0.2 N s (9 %) of phantom impulse past the data.
+    dt = t[1] - t[0]
+    extra = np.arange(t[-1] + dt, PAD_TO_S + dt / 2, dt)
+    t, f = np.concatenate([t, extra]), np.concatenate([f, np.zeros_like(extra)])
     imp = cumulative_impulse(t, f)
     mass = FINAL_MASS_KG + CO2_KG * (1.0 - imp / imp[-1])
     df = pd.DataFrame({"time (s)": t, "force (N)": f, "mass (kg)": mass})
     with open(out, "w", newline="") as fh:
-        fh.write("# Measured thrust (team load cell, beta fit, 2026-11-09), from thrust_measured_beta_raw.csv.\n"
+        fh.write("# Measured thrust (team load cell, beta fit, 2026-11-09), from thrust_measured_beta_raw.csv;\n"
+                 "# zero thrust added from 0.501 to 1.0 s (the burn ends at 0.5 s).\n"
                  "# mass (kg) is DERIVED, not measured: 48 g + an 8 g CO2 charge leaving in proportion\n"
                  "# to the impulse so far. Written by thrust_convert.py; do not edit by hand.\n")
         df.to_csv(fh, index=False, float_format="%.9g")
@@ -58,14 +66,14 @@ def fit_report(sheet=SHEET) -> dict:
     fit = np.asarray(jax.vmap(lambda x: thrust_force(x, model))(jnp.asarray(t)))
     err = fit - f
     i = int(np.argmax(np.abs(err)))
-    tt = np.linspace(0.0, 1.0, 20001)          # the fit keeps a short tail past the data
+    tt = np.linspace(0.0, 2.0, 40001)          # the race lasts ~1 s; check well past it
     fit_long = np.asarray(jax.vmap(lambda x: thrust_force(x, model))(jnp.asarray(tt)))
     return {"max_abs_err_N": float(abs(err[i])), "at_s": float(t[i]),
             "rms_err_N": float(np.sqrt(np.mean(err ** 2))),
             "max_abs_err_after_10ms_N": float(np.max(np.abs(err[t >= 0.010]))),
             "impulse_data_Ns": float(cumulative_impulse(t, f)[-1]),
-            "impulse_fit_0_to_end_Ns": float(cumulative_impulse(t, fit)[-1]),
-            "impulse_fit_0_to_1s_Ns": float(cumulative_impulse(tt, fit_long)[-1]),
+            "impulse_fit_over_data_Ns": float(cumulative_impulse(t, fit)[-1]),
+            "impulse_fit_0_to_2s_Ns": float(cumulative_impulse(tt, fit_long)[-1]),
             "peak_data_N": float(f.max()), "peak_at_s": float(t[np.argmax(f)])}
 
 
