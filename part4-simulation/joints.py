@@ -413,6 +413,8 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
     bore.apply_translation([(bore_end - MODEL_BLOCK_BORE_DEPTH_MM / 2.0 + 1.0) / 1e3, 0.0,
                             CHAMBER_AXIS_Z_MM / 1e3])
     body_full = _bool("difference", [body_full, bore])
+    report["bore_end_x_mm"] = bore_end - MODEL_BLOCK_BORE_DEPTH_MM      # the chamber's closed end
+    report["bore_axis_z_mm"] = CHAMBER_AXIS_Z_MM
     # The halo pocket too, floor at exactly 24 mm (T4.4.4). Open to the top: T4.4.3 wants
     # the halo clear in plan view.
     from halo_pocket import ballast_capsule_mesh_m, compute_halo_pocket_box_m

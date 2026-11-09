@@ -266,6 +266,9 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, body_half_stl: str,
     return result
 
 
+CARTRIDGE_LENGTH_MM = 65.0       # Appendix vi, nominal (65.00 -0.5)
+
+
 def write_mass_report(asm: dict, path) -> dict:
     """mass_report.json: the car as it is made. Every manufactured file's own volume x its
     material at its own centre of mass, the wheels with their bearings on their axles, the
@@ -290,18 +293,27 @@ def write_mass_report(asm: dict, path) -> dict:
         rows["ballast"] = (float(asm["ballast_g"]), rows["halo_and_helmet"][1])
     car_g = sum(g for g, _c in rows.values())
     com = [sum(g * c[i] for g, c in rows.values()) / car_g for i in range(3)]
+    # The cartridge's EMPTY shell (Appendix vi: 28.9-29.4 g full, less the 8 g charge): Part 2's
+    # race model adds the gas itself.
     cart_g = fhk["co2_cartridge_mass_kg"] * 1e3
     cc_ = [v * 1e3 for v in fhk["co2_cartridge_com"]]
     tot = car_g + cart_g
     com_w = [(car_g * com[i] + cart_g * cc_[i]) / tot for i in range(3)]
+    jr = asm["joints"]
+    guides = asm.get("info", {}).get("tethers", [])
     report = {
+        "car_weight_kg": tot * 1e-3,                       # car + empty cartridge shell, no CO2
+        "com_mm": com_w,                                   # [x from the nose tip, y, z], same, no CO2
+        "wheel_moi_kg_m2": asm["wheel_moi_kg_m2"],         # one wheel; the race model takes 4
         "mass_g_without_cartridge": car_g,                # T3.6, the scrutineer's scale
         "com_mm_without_cartridge": com,
-        "cartridge_g": cart_g,
-        "mass_g_with_cartridge": tot,
-        "car_weight_kg": tot * 1e-3,                       # what the race model moves
-        "com_mm": com_w,
-        "wheel_moi_kg_m2": asm["wheel_moi_kg_m2"],         # one wheel; the race model takes 4
+        "cartridge_shell_g": cart_g,
+        # A 65.0 mm cartridge (Appendix vi) home against the chamber's closed end.
+        "cartridge_rear_centre_x_mm": (jr["bore_end_x_mm"] + CARTRIDGE_LENGTH_MM
+                                       if "bore_end_x_mm" in jr else None),
+        "cartridge_axis_z_mm": jr.get("bore_axis_z_mm"),
+        # The tether line through the guides' centres (T6), as built.
+        "tether_line_z_mm": (guides[0]["bottom_mm"] + guides[0]["od_mm"] / 2.0) if guides else None,
         "parts": {k: {"g": g, "com_mm": c} for k, (g, c) in rows.items()},
         "placeholders": "densities of the printed parts and the wheel masses are not yet weighed",
     }
