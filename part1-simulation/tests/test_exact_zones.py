@@ -25,14 +25,25 @@ def _setup(spacing):
     r, d = g.region, up.GRID_SPACING_M
     X, Y, Z = np.meshgrid(*[(r.origin_m[a] + np.arange(r.shape[a]) * d) * 1e3 for a in range(3)], indexing="ij")
     right = Y >= -1e-9
+    _XYZ[:] = [(X, Y, Z)]
     return g, X, Y, Z, right, d * 1e3
 
 
+_XYZ = []
+
+
+def _where(sel, field):
+    """Where the disagreeing cells are, for the message: x, |y|, z ranges (mm) and field values."""
+    X, Y, Z = _XYZ[0]
+    return (f"x {X[sel].min():.2f}..{X[sel].max():.2f} |y| {np.abs(Y[sel]).min():.2f}..{np.abs(Y[sel]).max():.2f} "
+            f"z {Z[sel].min():.2f}..{Z[sel].max():.2f} field {field[sel].min():.3f}..{field[sel].max():.3f}")
+
+
 def _agree(field, mask, right, d_mm, grown=0.0, name=""):
-    inside = (field > EPS) & right
-    assert not (inside & ~mask).any(), f"{name}: {int((inside & ~mask).sum())} cells inside the zone, not in the mask"
+    bad = (field > EPS) & right & ~mask
+    assert not bad.any(), f"{name}: {int(bad.sum())} cells inside the zone, not in the mask: {_where(bad, field)}"
     stray = mask & right & (field < -(grown + EPS))
-    assert not stray.any(), f"{name}: {int(stray.sum())} mask cells outside the zone by > {grown} mm"
+    assert not stray.any(), f"{name}: {int(stray.sum())} mask cells outside the zone by > {grown} mm: {_where(stray, field)}"
 
 
 @pytest.mark.parametrize("spacing", [1.0, 0.75])
@@ -49,7 +60,7 @@ def test_each_zone_field_matches_its_mask(spacing):
     border[[0, -1], :, :] = border[:, [0, -1], :] = border[:, :, [0, -1]] = True
     ref_A = g.landmarks["ref_plane_A_m"] * 1e3
 
-    _agree(ez.envelope_air(X, aY, Z, g.bv, default_rule_envelope()),
+    _agree(ez.envelope_air(X, aY, Z, g.bv, default_rule_envelope(), d),
            (g.labels == up.LABEL_NONE) | border, right, d, name="envelope")
     _agree(ez.wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm),
            up.wheel_keepclear_mask(r, g.W_mm, g.x_front_mm), right, d, name="wheel columns")
@@ -61,7 +72,7 @@ def test_each_zone_field_matches_its_mask(spacing):
     _agree(ez.t79_zones(X, aY, Z, g.W_mm, g.x_front_mm), t79, right, d, grown=d, name="T7.9")
     pb = (hp.build_halo_pocket_forbidden_mask(r.origin_m, r.shape, ref_A / 1e3, g.d_halo_mm)
           | hp.build_ballast_container_forbidden_mask(r.origin_m, r.shape, ref_A / 1e3, g.d_halo_mm))
-    _agree(ez.halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm), pb, right, d, name="pocket and ballast")
+    _agree(ez.halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm, d), pb, right, d, name="pocket and ballast")
     _agree(ez.block_slot(X, aY, Z), up.model_block_slot_mask(r), right, d, name="block slot")
     cap = up.build_rule_masks(g)[0]
     _agree(ez.t851_cap(X, aY, Z, ref_A), cap, right, d, grown=d, name="T8.5.1 cap")

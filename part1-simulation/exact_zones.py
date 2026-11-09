@@ -32,7 +32,7 @@ def _box(X, Y, Z, x=(None, None), y=(None, None), z=(None, None)):
     return -(out + np.minimum(m, 0.0))
 
 
-def envelope_air(X, aY, Z, bv, re):
+def envelope_air(X, aY, Z, bv, re, d_mm=1.0):
     """Outside the legal envelope (unified_phi._zone_masks): the union of the nose, sidepod,
     rearpod and main-body boxes; positive outside all of them."""
     mm = 1e3
@@ -47,7 +47,7 @@ def envelope_air(X, aY, Z, bv, re):
         _box(X, aY, Z, x=(bv.ref_plane_A_m * mm, bv.rearpod.origin_m[0] * mm),
              y=(None, re.y_body_half_m * mm), z=(re.z_floor_m * mm, re.z_body_top_m * mm)),
     ]
-    return -np.maximum.reduce(boxes)
+    return -union(boxes, d_mm)
 
 
 def wheel_columns(X, aY, Z, W_mm, x_front_mm):
@@ -88,7 +88,7 @@ def t79_zones(X, aY, Z, W_mm, x_front_mm):
     return np.maximum.reduce([rect_f, rect_r, w_f, w_r])
 
 
-def halo_pocket_and_ballast(X, aY, Z, ref_A_mm, d_halo_mm):
+def halo_pocket_and_ballast(X, aY, Z, ref_A_mm, d_halo_mm, d_mm=1.0):
     """halo_pocket.build_halo_pocket_forbidden_mask and build_ballast_container_forbidden_mask
     (the capsule at its true size; the mask's one-cell inset is not needed here)."""
     import halo_pocket as hp
@@ -102,7 +102,7 @@ def halo_pocket_and_ballast(X, aY, Z, ref_A_mm, d_halo_mm):
     z_top, z_bot = b["z_min_m"], b["z_min_m"] - hp.BALLAST_DEPTH_MM
     plan = r - np.hypot(np.maximum(np.abs(X - cx) - hs, 0.0), aY)
     capsule = np.minimum(plan, np.minimum(Z - z_bot, z_top - Z))
-    return np.maximum(pocket, capsule)
+    return union([pocket, capsule], d_mm)
 
 
 def block_slot(X, aY, Z):
@@ -115,29 +115,65 @@ def t851_cap(X, aY, Z, ref_A_mm):
     """unified_phi.build_rule_masks' T8.5.1 cap: within 1 mm of Ref A the body stays inside
     14.5 mm of the centreline and 24.5 mm of the track (the mask adds a cell; not needed)."""
     return np.minimum(ref_A_mm + 1.0 - X, np.maximum(aY - 14.5, Z - 24.5))
+def _shift(a, s, axis, fill=0.0):
+    """a moved by s cells along axis (value at p is a[p - s]); the cells it uncovers get fill."""
+    out = np.full_like(a, fill)
+    src = [slice(None)] * 3
+    dst = [slice(None)] * 3
+    if s > 0:
+        src[axis], dst[axis] = slice(0, -s), slice(s, None)
+    else:
+        src[axis], dst[axis] = slice(-s, None), slice(0, s)
+    out[tuple(dst)] = a[tuple(src)]
+    return out
+
+
+def union(fields, d_mm):
+    """Signed distance to the union of shapes, positive inside, from each shape's own field.
+
+    max() of the fields is exact outside the union but only a lower bound inside: where two
+    shapes touch (the envelope's boxes at Ref A, the pocket on the ballast slot) it is 0 on
+    the seam, deep inside, and a body stamped with it was grooved along every seam (a 1 g
+    loss, 2026-11-09). Inside, the distance is taken from the nearest cells that are truly
+    outside, up to two cells along each axis: |step| - their outside distance, exact for a
+    flat face. Further in than two cells it is 2 cells (deep enough for the stamp)."""
+    lb = np.maximum.reduce(fields)
+    out = np.maximum(-lb, 0.0)
+    est = np.full(lb.shape, 2.0 * d_mm)
+    for ax in range(3):
+        for s in (1, -1, 2, -2):
+            o = _shift(out, s, ax)
+            est = np.where(o > 0, np.minimum(est, abs(s) * d_mm - o), est)
+    return np.where(lb > 0, np.maximum(lb, est), lb)
 
 
 def air_field_mm(g, X, Y, Z) -> np.ndarray:
-    """All the zones above for geometry g, cell centres X, Y, Z in mm: positive inside any."""
+    """All the zones above for geometry g, cell centres X, Y, Z in mm: positive inside any.
+    Limits the referee checks (envelope, wheels, T7.9, T8.5.1) carry MARGIN_MM; the pocket,
+    ballast slot and block slot, which Part 4 cuts exactly, keep cells on their faces solid."""
     from bounding_volumes import default_rule_envelope
+    d = float(X[1, 0, 0] - X[0, 0, 0]) if X.shape[0] > 1 else 1.0
     aY = np.abs(Y)
     ref_A = g.landmarks["ref_plane_A_m"] * 1e3
-    return np.maximum.reduce([
-        envelope_air(X, aY, Z, g.bv, default_rule_envelope()),
-        wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm),
-        t79_zones(X, aY, Z, g.W_mm, g.x_front_mm),
-        halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm),
-        block_slot(X, aY, Z),
-        t851_cap(X, aY, Z, ref_A),
-    ])
+    exact = -1e-6
+    return union([
+        envelope_air(X, aY, Z, g.bv, default_rule_envelope(), d) + MARGIN_MM,
+        wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm) + MARGIN_MM,
+        t79_zones(X, aY, Z, g.W_mm, g.x_front_mm) + MARGIN_MM,
+        t851_cap(X, aY, Z, ref_A) + MARGIN_MM,
+        halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm, d) + exact,
+        block_slot(X, aY, Z) + exact,
+    ], d)
 
 
 def stamp(g, X, Y, Z) -> int:
-    """phi = max(phi, zone distance + MARGIN_MM) near the zones' faces: the body's surface
-    sits MARGIN_MM clear of each zone's true face. Returns the cells changed."""
+    """phi = max(phi, zone distance) within two cells of the zones' faces, so the body's
+    surface sits on (or MARGIN_MM clear of) each zone's true face at any grid. Cells the
+    rules force solid are left alone (air wins only where the masks themselves overlap).
+    Returns the cells changed."""
     d_mm = float(X[1, 0, 0] - X[0, 0, 0]) if X.shape[0] > 1 else 1.0
-    a = air_field_mm(g, X, Y, Z) + MARGIN_MM
-    near = a > -2.0 * d_mm
+    a = air_field_mm(g, X, Y, Z)
+    near = (a > -2.0 * d_mm) & ~g.phi.hard_mask_solid
     new = np.maximum(g.phi.grid[near], (a[near] / 1e3).astype(np.float32))
     changed = int((new != g.phi.grid[near]).sum())
     g.phi.grid[near] = new
