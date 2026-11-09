@@ -154,3 +154,24 @@ if what == "inside":
             break
         who = {k: round(float(v[i]), 3) for k, v in parts.items() if v[i] > -0.5}
         print(f"LAB where inside   ({P[i, 0]:.3f},{P[i, 1]:.3f},{P[i, 2]:.3f}) {a[i]:.3f} mm: {who}", flush=True)
+
+if what == "sphere3":
+    import phi_updater as pu
+    from bounding_volumes import BoundingRegion
+    from geometry_contract import GRID_SPACING_M as d
+    from phi_grid import PhiGrid
+    n = 32
+    bv = BoundingRegion("main_body", (0.0, -(n // 2) * d, 0.0), (n, n, n))
+    i = np.indices((n, n, n)).astype(np.float64)
+    c = np.array([15.5, n // 2, 15.7])[:, None, None, None]
+    sdf = (np.sqrt(((i - c) ** 2).sum(0)) - 9.3) * d
+    z = np.zeros((n, n, n), bool)
+    phi = PhiGrid("main_body", bv, (3.0 * sdf).astype(np.float32), z, z.copy())
+    vol = lambda gr: float(np.clip(0.5 - gr.astype(np.float64) / d, 0.0, 1.0).sum())
+    v0 = vol(sdf)
+    band = np.abs(sdf) < 2 * d
+    for k in range(4):
+        pu.reinitialise_sdf(phi)
+        e = (phi.grid - sdf)[band] / d
+        print(f"LAB where sphere3 pass {k + 1}: volume {vol(phi.grid):.2f} vs {v0:.2f} ({(vol(phi.grid) - v0) / v0 * 100:+.3f} %), "
+              f"band error mean {e.mean():+.4f} max {np.abs(e).max():.3f} cells", flush=True)

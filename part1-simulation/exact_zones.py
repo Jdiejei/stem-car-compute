@@ -267,7 +267,10 @@ def halo_zones(X, aY, Z, ref_A_mm, d_halo_mm, canister=None, part="all"):
             # holding it, and a one-sided switch there put mask cells 2-6 mm out (2026-11-10).
             # (positive inside: a piece is the min of its faces, the union the max)
             out.append(np.minimum.reduce([X - x1, xc - X, Z - ceil_]))
-            out.append(np.minimum(X - xc, Z - (zc + r)))
+            # The flat part from the halo's rear, not the bore front: ahead of the bore it is
+            # inside the deck part anyway, and a face at the join gave points above both
+            # ceilings no depth there; the projection bounced them across it (2026-11-10).
+            out.append(np.minimum(X - x1, Z - (zc + r)))
     if part == "shadows":
         return np.maximum.reduce(out)
     return np.maximum.reduce(out + [above])

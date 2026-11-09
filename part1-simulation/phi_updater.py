@@ -95,6 +95,33 @@ def _godunov_gradient(phi: np.ndarray, axis: int) -> np.ndarray:
     return grad
 
 
+def _minmod(a, b):
+    return np.where(a * b > 0, np.where(np.abs(a) < np.abs(b), a, b), 0.0)
+
+
+def _eno2_grad_magnitude(phi: np.ndarray, sgn: np.ndarray) -> np.ndarray:
+    """|grad phi| for redistancing: second-order ENO one-sided slopes, Godunov upwinded by
+    sgn (Min & Gibou 2007). First-order slopes left the cells one step off the surface a
+    third of a cell out on a sphere, and the surface cells' curved fit read them: each
+    further pass took another 0.2 % off (2026-11-10)."""
+    dx = GRID_SPACING_M
+    p = np.pad(phi, 2, mode="edge")
+    total = np.zeros_like(phi)
+    for ax in range(3):
+        def at(k):
+            idx = [slice(2, -2)] * 3
+            idx[ax] = slice(2 + k, p.shape[ax] - 2 + k)
+            return p[tuple(idx)]
+        c, m1, p1 = at(0), at(-1), at(1)
+        d2c = p1 - 2.0 * c + m1
+        dp = (p1 - c - 0.5 * _minmod(d2c, at(2) - 2.0 * p1 + c)) / dx
+        dm = (c - m1 + 0.5 * _minmod(d2c, c - 2.0 * m1 + at(-2))) / dx
+        total += np.where(sgn > 0,
+                          np.maximum(np.maximum(dm, 0.0) ** 2, np.minimum(dp, 0.0) ** 2),
+                          np.maximum(np.minimum(dm, 0.0) ** 2, np.maximum(dp, 0.0) ** 2))
+    return np.sqrt(total)
+
+
 def _grad_magnitude(phi: np.ndarray) -> np.ndarray:
     """Compute |grad phi| using Godunov scheme on all three axes."""
     gx = _godunov_gradient(phi, 0)
@@ -235,8 +262,8 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
                          (g / np.maximum(np.abs(phi0), 1e-300)) ** 2)
     D = np.where(inv2 > 0, s0 / np.sqrt(np.maximum(inv2, 1e-300)), 0.0) * GRID_SPACING_M
     for _ in range(n_steps):
-        grad_mag = _grad_magnitude(grid_f64)
         sign_phi = grid_f64 / np.sqrt(grid_f64 * grid_f64 + eps * eps)
+        grad_mag = _eno2_grad_magnitude(grid_f64, sign_phi)
         far = grid_f64 - dt_reinit * sign_phi * (grad_mag - 1.0)
         fix = grid_f64 - (dt_reinit / GRID_SPACING_M) * (s0 * np.abs(grid_f64) - D)
         grid_f64 = np.where(near, fix, far)
