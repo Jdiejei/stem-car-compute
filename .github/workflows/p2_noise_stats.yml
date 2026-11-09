@@ -1,0 +1,29 @@
+name: p2_noise_stats
+run-name: "Part 2: noise statistics of an earlier run (${{ inputs.run_id }})"
+
+# Re-reads a finished p2_noise / p2_noise_morph run in this repository and
+# prints the residual SD, its 95 % interval, and how much of it each car's own
+# averaging error (the wake swing) accounts for.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id: { required: true }
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  stats:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6 scipy==1.17.1
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh run download ${{ inputs.run_id }} -R ${{ github.repository }} -p "noise-*" -D got
+          args=$(for d in got/noise-*; do s=${d##*-}; [ -f "$d/summary.json" ] && echo "$s=$d/summary.json"; done)
+          python part2-simulation/noise_stats.py $args | tee -a "$GITHUB_STEP_SUMMARY"
