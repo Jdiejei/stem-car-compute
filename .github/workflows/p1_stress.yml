@@ -1,0 +1,34 @@
+name: p1_stress
+run-name: "Part 1: random carving test, ${{ inputs.label }}"
+
+# Part 1's carve stress test: each listed seed is one machine carving and building n cars.
+# par = jobs at once: 5 on the shared main account, up to 20 on Part 1's own account.
+on:
+  workflow_dispatch:
+    inputs:
+      seeds: { default: '[41100]' }
+      n: { default: "10" }
+      par: { default: "5" }
+      label: { default: "small round" }
+
+permissions:
+  contents: read
+
+jobs:
+  car:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.par) }}
+      matrix:
+        seed: ${{ fromJSON(inputs.seeds) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 20
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+      - working-directory: part5-simulation
+        run: python -W ignore ../.github/lab/p1_carve_stress.py ${{ matrix.seed }} ${{ inputs.n }} 2>&1 | grep --line-buffered -E '^LAB|^car |Traceback|Error|^  File'
