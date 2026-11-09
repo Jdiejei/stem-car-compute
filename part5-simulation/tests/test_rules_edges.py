@@ -303,10 +303,14 @@ def test_nothing_may_sit_in_the_chamber(tmp_path):
     made.mkdir()
     m = trimesh.load(body, force="mesh")
     m.apply_scale(1e3)
-    full = m.copy()
-    full.vertices[:, 1] *= -1
-    full.invert()
-    full = trimesh.boolean.union([m, full], engine="manifold")
+    # Both halves as one solid, as Part 4's joints._full makes the milled file: each half
+    # pushed 10 um through the centre plane first, so they overlap instead of touching.
+    m.vertices[abs(m.vertices[:, 1]) < 1e-6, 1] = -0.01
+    other = m.copy()
+    other.vertices[:, 1] *= -1
+    other.invert()
+    full = trimesh.boolean.union([m, other], engine="manifold")
+    assert full.is_volume
     full.export(str(made / "machined_body.stl"))
     rear = 50.0 + 130.0 + 16.0 + 40.0 - 0.2
 
@@ -317,7 +321,9 @@ def test_nothing_may_sit_in_the_chamber(tmp_path):
             files["printed_plug"] = {"file": str(made / "printed_plug.stl")}
         a = dict(asm, d_halo_mm=40.0, joints={"manufactured": files, "parts": {}},
                  wheel_design={"front": {"R_mm": 14.05}, "rear": {"R_mm": 14.05}})
-        return legality.manufactured_checks(a)["T5.5_chamber_clear"]
+        r = legality.manufactured_checks(a)
+        assert "T5.5_chamber_clear" in r, r
+        return r["T5.5_chamber_clear"]
 
     assert judge(None)["pass"]
     plug = trimesh.creation.cylinder(radius=4.0, height=10.0, sections=48)
