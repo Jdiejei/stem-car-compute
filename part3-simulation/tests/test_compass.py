@@ -18,13 +18,13 @@ def _car(seed=0, n=400):
     return P, A, rng.normal(100.0, 300.0, n), rng.normal(0, 100.0, n), rng.normal(1.0, 1.0, n)
 
 
-def _mass():
-    return {"car_weight_kg": 0.055, "com_mm": [100.0, 0.0, 30.0]}
+def _mass(z_mm=30.0):
+    return {"car_weight_kg": 0.055, "com_mm": [100.0, 0.0, z_mm]}
 
 
-def _time(eps, P, A, dD, dL, move):
+def _time(eps, P, A, dD, dL, move, z_mm=30.0):
     """Race time after moving the vertices by eps*move, then the uniform skin re-sizing."""
-    m = _mass()
+    m = _mass(z_mm)
     d = eps * move
     d_skin = -np.sum(d * A) / np.sum(A)           # puts the mass back exactly
     dm = 2 * RHO * (d + d_skin) * A              # sums to zero
@@ -47,16 +47,21 @@ def test_chain_rule_matches_race_model_within_1_percent(seed):
     assert pred == pytest.approx(fd, rel=0.01)
 
 
-def test_chain_rule_centre_of_mass_part_alone():
-    """No aero at all: only where the mass goes. Checks the centre-of-mass terms on their own."""
+@pytest.mark.parametrize("z_mm", [30.0, 39.0])
+def test_chain_rule_centre_of_mass_part_alone(z_mm):
+    """No aero at all: only where the mass goes. At 30 mm no wheel lifts and Part 2's
+    centre-of-mass slopes are zero; at 39 mm (about 8 mm above the 31 mm thrust line, past the
+    front-lift point near 35 mm and clear of its kink) they are not, so the terms are exercised."""
     P, A, _, _, move = _car(3)
     zero = np.zeros(len(P))
-    _, dT_d, _ = stopwatch.race(D0, L0, _mass())
+    _, dT_d, _ = stopwatch.race(D0, L0, _mass(z_mm))
     slope = compass.race_slope(zero, zero, dT_d, P, A, RHO, _mass()["car_weight_kg"])
     eps = 5e-4
-    fd = (_time(eps, P, A, zero, zero, move) - _time(-eps, P, A, zero, zero, move)) / 2
+    fd = (_time(eps, P, A, zero, zero, move, z_mm) - _time(-eps, P, A, zero, zero, move, z_mm)) / 2
     pred = eps * np.sum(slope * move * A)
     print(f"centre-of-mass part: fd {fd:.3e} s, predicted {pred:.3e} s; dT_d {dT_d}")
+    if z_mm > 35:
+        assert abs(fd) > 1e-6, "with a wheel lifted the centre of mass must matter"
     assert pred == pytest.approx(fd, rel=0.01, abs=1e-9)
 
 
