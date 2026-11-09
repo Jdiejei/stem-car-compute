@@ -35,4 +35,6 @@ jobs:
         if: always()
         with:
           name: lab
-          path: out/lab.log
+          path: |
+            out/lab.log
+            out/*.json
