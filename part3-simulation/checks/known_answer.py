@@ -134,7 +134,7 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
         od = re.sub(r"(\"[A-Za-z.*]+\"\s+)1\.e-6;", r"\g<1>1.e-14;", od)   # residual targets only
         od = re.sub(r"includeMeshMovement\s+\w+;", f"includeMeshMovement {str(variant['mesh_move']).lower()};", od)
         od = re.sub(r"includeDistance\s+\w+;", f"includeDistance {str(variant['distance']).lower()};", od)
-        geo = f"includeSurfaceArea {str(variant.get('raw', False)).lower()};\n        writeGeometricInfo true;"
+        geo = f"includeSurfaceArea {str(variant.get('raw', False)).lower()};"
         od, n = re.subn(r"includeSurfaceArea\s+\w+;", geo, od)
         assert n == 1, od
         assert "lift" not in re.sub(r"//.*", "", od) and od.count("1.e-14") == 6, od
@@ -156,9 +156,10 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
     od = re.sub(r"(\"[A-Za-z]+\.\*\"\s+)1\.e-5;", r"\g<1>1.e-14;", od)
     if variant["mesh_move"]:
         od = od.replace("includeMeshMovement false;", "includeMeshMovement true;")
-    # OpenFOAM's own point areas and normals (writeGeometricInfo); raw: dJ/dx with no division
-    # by the point's face area (includeSurfaceArea true), to pin down the map's units.
-    geo = f"writeGeometricInfo true;\n        includeSurfaceArea {str(variant.get('raw', False)).lower()};\n"
+    # raw: dJ/dx with no division by the point area (includeSurfaceArea true), for the units.
+    # (writeGeometricInfo would give OpenFOAM's point areas, but v2412 crashes on it:
+    # "cannot find file nfOnPatch"; read_mesh computes the same pointMagSf instead.)
+    geo = f"includeSurfaceArea {str(variant.get('raw', False)).lower()};\n"
     od, n = re.subn(r"^(\s*)(includeMeshMovement (true|false);)", lambda m: m.group(1) + geo + m.group(1) + m.group(2),
                     od, flags=re.M)
     assert n == 1, od
@@ -177,6 +178,7 @@ def read_mesh(case: Path, walls=WALLS, flat: bool = True) -> dict:
     ftxt = read(poly / "faces")
     area_vec = np.zeros_like(P)
     area = np.zeros(len(P))
+    magsf = np.zeros(len(P))     # OpenFOAM's pointMagSf: the FULL area of every wall face at the point
     side = {}
     for w in walls:
         for f in oa._read_faces(ftxt, *bnd[w]):
@@ -184,6 +186,7 @@ def read_mesh(case: Path, walls=WALLS, flat: bool = True) -> dict:
             av = 0.5 * np.cross(q, np.roll(q, -1, axis=0)).sum(axis=0)   # OpenFOAM: out of the fluid
             area_vec[f] += av / len(f)
             area[f] += np.linalg.norm(av) / len(f)
+            magsf[f] += np.linalg.norm(av)
             for i in f:
                 side[int(i)] = w
     wall = np.array(sorted(side))
@@ -194,7 +197,8 @@ def read_mesh(case: Path, walls=WALLS, flat: bool = True) -> dict:
         n_out /= np.linalg.norm(n_out, axis=1)[:, None]
     c = P[wall].mean(axis=0)
     assert np.sum(((P[wall] - c) * n_out).sum(axis=1) * area[wall]) > 0, "normals do not point out of the body"
-    return dict(P=P, wall=wall, n_out=n_out, area=area[wall], side=np.array([side[i] for i in wall]))
+    return dict(P=P, wall=wall, n_out=n_out, area=area[wall], magsf=magsf[wall],
+                side=np.array([side[i] for i in wall]))
 
 
 def bump(mesh: dict, k: int) -> np.ndarray:
@@ -245,20 +249,9 @@ def run_base(name: str, out: Path) -> None:
             continue
         if len(v) == len(mesh["P"]):
             fields[f.name] = v[mesh["wall"]] * (oa.OUTWARD_SIGN if v.ndim == 1 else 1.0)
-    geom = {}
-    for g in ("pointMagSf", "pointNf"):                  # OpenFOAM's own point areas and normals
-        hits = sorted(case.glob(f"[0-9]*/{g}"), key=lambda p: float(p.parent.name))
-        if hits:
-            txt = hits[-1].read_text()
-            v = oa._parse_foam_vector_list(txt) if g == "pointNf" else oa._parse_foam_scalar_list(txt)
-            geom["m_" + g] = v[mesh["wall"]]
-    if "m_pointMagSf" in geom:
-        ratio = geom["m_pointMagSf"] / mesh["area"]
-        print(f"LAB base {name}: OpenFOAM point area / my point area: p5 p50 p95 "
-              f"{np.round(np.percentile(ratio, [5, 50, 95]), 3).tolist()}", flush=True)
-    if "m_pointNf" in geom:
-        print(f"LAB base {name}: OpenFOAM point normal . my outward normal: mean "
-              f"{np.mean((geom['m_pointNf'] * mesh['n_out']).sum(axis=1)):+.4f}", flush=True)
+    geom = {"m_pointMagSf": mesh["magsf"]}               # as sensitivitySurfacePoints.C computes it
+    print(f"LAB base {name}: pointMagSf / my point area: p5 p50 p95 "
+          f"{np.round(np.percentile(mesh['magsf'] / mesh['area'], [5, 50, 95]), 3).tolist()}", flush=True)
     print(f"LAB base {name}: J {J:.8e} spread {spread:.2e} chord {mesh['chord']:.4f} nu {mesh['nu']:.3e}"
           f" wall points {len(mesh['wall'])} fields {list(fields)}", flush=True)
     log = (case / "log.run").read_text()
