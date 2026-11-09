@@ -27,7 +27,7 @@
 | `openfoam_case.py` | the forward CFD case for a half car on ESI OpenFOAM v2412: domain (3 lengths ahead, 8 behind, symmetry plane, moving ground), snappyHexMesh with wake boxes, k-omega SST, Spalding wall function or a wall-resolved (y+ <= 2) layer stack, every Part 4 part as its own patch (wheels as rotating walls), forces per patch, y+ distribution per patch |
 | `cfd_wrapper.py` | `run_half_car_cfd`: validate the STL, run the case, return full-car drag and lift with health (residual, standard error and drift of the force mean); `run_half_car_adjoint` for the drag adjoint |
 | `openfoam_adjoint.py` | the adjoint case (`adjointOptimisationFoam`, frozen turbulence). Not trusted yet: its first check had the right sign on only 3 of 8 settings. Part 3 must prove it, fix it, or replace it with measured slopes |
-| `race_objective.py` | the differentiable race-time model (JAX): thrust curve, rolling and aero drag, wheel inertia. Its hash is in `race_objective_hash.txt`. The thrust curve and the centre-of-mass penalties are placeholders until the team measures them |
+| `race_objective.py` | the differentiable race-time model (JAX): thrust curve, rolling and aero drag, wheel inertia. The thrust curve and the centre-of-mass penalties are placeholders until the team measures them |
 | `race_objective_adapter.py`, `adjoint_contract.py` | the objective's parameter vector, guarded evaluation, and the drag weight dT/dD20 |
 | `physics_contract.py`, `mass_com_ingest.py`, `candidate_record.py` | units and the half-car contract, mass and COM of the whole car, one JSON record per candidate |
 
