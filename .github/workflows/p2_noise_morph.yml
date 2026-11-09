@@ -91,6 +91,15 @@ jobs:
         with:
           name: noise-${{ inputs.label }}-${{ matrix.skin }}
           path: out/s${{ matrix.skin }}/summary.json
+      - name: Mesh quality
+        if: always()
+        run: |
+          mkdir -p mq && cp part2-simulation/cfd_case_template/runs/*/logs/checkMesh.log mq/ 2>/dev/null; cp part2-simulation/cfd_case_template/runs/*/logs/moveMesh.log mq/ 2>/dev/null; true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mesh-${{ inputs.label }}-${{ matrix.skin }}
+          path: mq/
 
   noise:
     needs: car
