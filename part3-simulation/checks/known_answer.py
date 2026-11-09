@@ -156,10 +156,14 @@ def bump(mesh: dict, k: int) -> np.ndarray:
 
 def objective(case: Path) -> tuple[float, float]:
     """Final J and its spread over the last 500 primal iterations (the convergence noise)."""
-    def col1(name):
-        return np.array([float(l.split()[1]) for l in (case / "optimisation/objective/0" / name).read_text()
-                         .splitlines() if l.strip() and not l.startswith("#")])
-    return float(col1("dragadjS1")[-1]), float(np.ptp(col1("dragInstantadjS1")[:PRIMAL_ITERS][-500:]))
+    def rows(name):
+        return np.array([[float(x) for x in l.split()[:2]] for l in (case / "optimisation/objective/0" / name)
+                         .read_text().splitlines() if l.strip() and not l.startswith("#")])
+    inst = rows("dragInstantadjS1")
+    primal = inst[inst[:, 0] <= PRIMAL_ITERS]
+    print(f"LAB {case}: instant J rows {len(inst)} (primal {len(primal)}), first {inst[:3, 1].round(3).tolist()},"
+          f" last {inst[-3:, 1].tolist()}", flush=True)
+    return float(rows("dragadjS1")[-1, 1]), float(np.ptp(primal[-500:, 1]))
 
 
 def run_base(name: str, out: Path) -> None:
@@ -167,9 +171,14 @@ def run_base(name: str, out: Path) -> None:
     mesh = case_setup(case, ADJOINT_ITERS, VARIANTS[name])
     foam(case, "adjointOptimisationFoam", "log.run")
     J, spread = objective(case)
-    tdir = case / str(PRIMAL_ITERS + ADJOINT_ITERS)
+    times = sorted((p for p in case.iterdir() if re.fullmatch(r"[0-9.e+-]+", p.name)), key=lambda p: float(p.name))
+    print(f"LAB base {name}: time dirs {[p.name for p in times]}; last holds {sorted(q.name for q in times[-1].iterdir())}",
+          flush=True)
+    sens = [f for f in case.rglob("*Sens*") if f.is_file() and "processor" not in str(f)]
+    print(f"LAB base {name}: sensitivity files {[str(f.relative_to(case)) for f in sens]}", flush=True)
     fields = {}
-    for f in sorted(tdir.glob("*Sens*")):
+    last = max((f.parent for f in sens if re.fullmatch(r"[0-9.e+-]+", f.parent.name)), key=lambda p: float(p.name), default=None)
+    for f in sorted(f for f in sens if f.parent == last):
         txt = f.read_text()
         try:
             v = oa._parse_foam_vector_list(txt) if "Vector" in txt[:600] else oa._parse_foam_scalar_list(txt)
