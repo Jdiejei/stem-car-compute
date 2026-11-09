@@ -149,3 +149,12 @@ def test_slot_corners_are_sharp_in_the_half_body():
     assert h.is_volume, "the half body is not a closed volume"
     inside = h.intersection(slot, engine="manifold").volume
     assert inside < 0.5, f"{inside:.2f} mm3 of body inside the block slot"
+    import halo_pocket as hp
+    import fixed_hardware as fh
+    from geometry_contract import HALO_MIN_Z_MM
+    b = hp.compute_halo_pocket_box_m(g.landmarks["ref_plane_A_m"], g.d_halo_mm)
+    zf = HALO_MIN_Z_MM + fh.HALO_VISIBILITY_FILLET_MM
+    front = trimesh.creation.box(bounds=[[b["x_min_m"] * 1e3 - 300.0, -fh.HALO_CROSS_SECTION_HALF_WIDTH_MM, zf],
+                                         [b["x_min_m"] * 1e3, fh.HALO_CROSS_SECTION_HALF_WIDTH_MM, fh.HALO_CROSS_SECTION_TOP_MM]])
+    ahead = h.intersection(front, engine="manifold").volume
+    assert ahead < 0.5, f"{ahead:.2f} mm3 of body in the halo's front view (T4.4.2)"

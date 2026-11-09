@@ -298,6 +298,16 @@ def _air_boxes(g):
                 (None, wv.T79_ZONE_HEIGHT_MM + m)))
     b = {kk: v * 1e3 for kk, v in hp.compute_halo_pocket_box_m(ref_A / 1e3, g.d_halo_mm).items()}
     out.append(((b["x_min_m"], b["x_max_m"]), (None, b["y_max_m"]), (b["z_min_m"], b["z_max_m"])))
+    # the halo and the air above it (exact), and its front and side view shadows (T4.4.2,
+    # margin): 480 of 1,008 carved cars had 6-13 mm3 ahead of the halo (Part 4, 2026-11-10)
+    import fixed_hardware as fh
+    from geometry_contract import HALO_MIN_Z_MM
+    hw, zt = fh.HALO_CROSS_SECTION_HALF_WIDTH_MM, fh.HALO_CROSS_SECTION_TOP_MM
+    zf = HALO_MIN_Z_MM + fh.HALO_VISIBILITY_FILLET_MM
+    x0, x1 = b["x_min_m"], b["x_max_m"]
+    out.append(((x0, x1), (None, hw), (HALO_MIN_Z_MM, None)))
+    out.append(((None, x0 + m), (None, hw + m), (zf - m, zt + m)))
+    out.append(((x0 - m, x1 + m), (hw - m, None), (zf - m, zt + m)))
     return out
 
 
