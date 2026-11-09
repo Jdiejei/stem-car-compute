@@ -346,8 +346,8 @@ def test_gradient_balance_is_physical_not_normalised():
     bit-identical fields). Only against a fixed mass term does aero's magnitude
     change the balance.
     """
-    single, _ = _step_real(3.497e3, w_mass=1.0)
-    double, _ = _step_real(2.0 * 3.497e3, w_mass=1.0)
+    single, _ = _step_real(3.497e3, w_mass=1.0, substeps=6)
+    double, _ = _step_real(2.0 * 3.497e3, w_mass=1.0, substeps=6)
     assert single != double, (
         "doubling the aero sensitivity left the same {:,} solid cells -- the "
         "magnitude is being normalised away, which is the bug this "
@@ -580,8 +580,12 @@ def test_redistancing_does_not_move_the_surface():
 
     v0, s0 = vol(sdf), sdf < 0
     reinitialise_sdf(phi)
-    band = np.abs(sdf) < 2.0 * d
-    assert np.abs(phi.grid[band] - sdf[band]).max() < 0.25 * d, "not a distance again near the surface"
+    # the cells next to the surface are set from their grid-line intercepts (tight); the next
+    # ring comes from the first-order sweep, about a third of a cell off on this curvature
+    ring1 = np.abs(sdf) < 0.87 * d
+    ring2 = np.abs(sdf) < 2.0 * d
+    assert np.abs(phi.grid[ring1] - sdf[ring1]).max() < 0.1 * d, "the surface cells are not at their distance"
+    assert np.abs(phi.grid[ring2] - sdf[ring2]).max() < 0.5 * d, "not a distance again near the surface"
     assert ((phi.grid < 0) == s0).all(), "a cell changed side"
     assert abs(vol(phi.grid) - v0) / v0 < 0.002, (vol(phi.grid), v0)
     reinitialise_sdf(phi)                         # and again: nothing moves

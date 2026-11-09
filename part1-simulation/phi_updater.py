@@ -223,12 +223,11 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
         grid_f64 = np.clip(grid_f64, -max_sdf, max_sdf)
 
         # Re-enforce hard constraints in float64 space each step.
-        grid_f64[phi.hard_mask_solid] = np.minimum(
-            grid_f64[phi.hard_mask_solid], -GRID_SPACING_M
-        )
-        grid_f64[phi.hard_mask_air] = np.maximum(
-            grid_f64[phi.hard_mask_air], +GRID_SPACING_M
-        )
+        # Only the SIGN is forced here. Clamping to a full cell (-dx / +dx) next to a surface
+        # cell held at its sub-cell distance left |grad phi| at 1.35 along every rule face
+        # (2026-11-09); the final apply_hard_constraints still guards the masks.
+        grid_f64[phi.hard_mask_solid] = np.minimum(grid_f64[phi.hard_mask_solid], -1e-9)
+        grid_f64[phi.hard_mask_air] = np.maximum(grid_f64[phi.hard_mask_air], 1e-9)
 
     phi.grid = grid_f64.astype(np.float32)
     phi.apply_hard_constraints()
