@@ -1,4 +1,5 @@
 name: p1_lab
+run-name: "Part 1: lab experiment (${{ inputs.script }})"
 
 # Part 1 lab scripts on the main account, at most 5 jobs at once (Part 1's share there).
 on:

@@ -993,7 +993,7 @@ def apply_adjoint_to_unified(
         return True
 
     ok0 = _drop_islands()        # False: pinned material already detached
-    n_done, p90 = 0, 0.0
+    n_done, p90, pinned = 0, 0.0, False
     for _k in range(max(1, int(max_substeps))):
         if step_dt <= 0:
             break
@@ -1002,6 +1002,7 @@ def apply_adjoint_to_unified(
         enforce_symmetry(geom)
         if not _drop_islands() and ok0:
             phi.grid = before
+            pinned = True                      # this sub-step would cut pinned material loose
             break
         n_done += 1
         if iface.any():
@@ -1032,9 +1033,11 @@ def apply_adjoint_to_unified(
     from unified_phi import close_pinches, drop_thin_strips
     thin = drop_thin_strips(geom, GRID_SPACING_M)     # sub-cell strips mesh as slivers
     pinches = close_pinches(geom, GRID_SPACING_M)
+    enforce_symmetry(geom)                 # close_pinches picks a side per pair: re-mirror
     moved = np.abs(phi.grid - phi0)[iface] if iface.any() else np.zeros(1)
     return {"substeps": n_done, "dt": step_dt,
             "disp_median_m": float(np.median(moved)),
             "disp_p90_m": float(np.percentile(moved, 90)),
             "machinability_filled": int(filled), "thin_cells": int(thin),
-            "pinch_cells": int(pinches)}
+            "pinch_cells": int(pinches),
+            "pinned_detached": pinned, "detached_at_start": not ok0}

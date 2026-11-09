@@ -1,0 +1,96 @@
+"""The cutter: Part 1's stand-alone cut API (BUILD_SPEC section 7, Step 1).
+
+    g = start_block({"W": 120.3, "x_front": 46.0, "d_halo": 43.72})   # the legal block
+    g2, rep = cut(g, dT_dn, half_mesh, step_m=5e-4)                   # one carving step
+    save_field(g2, "carved_phi.npy"); g3 = load_field(layout, "carved_phi.npy")
+
+A cut never decides what is faster: it moves the surface where it is told and keeps every
+body rule true (forced air and solid, symmetry, one piece, no sub-cell strips, no pinches,
+reachable by the 6.25 mm ball end from four sides). Mass sizing and the finished files
+stay in param_body.build(..., field_mm=...).
+
+dT_dn is Part 3's sensitivity on the half-body vertices: seconds of race time per metre of
+OUTWARD surface move per square metre, positive where growing the body makes the car
+slower. The carving step grows the solid where its speed is positive, so the descent is
+-dT_dn (BUILD_SPEC 12.3, the sign trap); this module does the negation, callers must not.
+"""
+from __future__ import annotations
+
+import copy
+
+import numpy as np
+
+import coarse
+
+
+def start_block(layout: dict, spacing_mm: float = 1.0):
+    """The whole legal Model Block envelope with every rule zone applied, at `spacing_mm`.
+    Sets the module-wide grid spacing (coarse.use_spacing) before anything is built."""
+    coarse.use_spacing(spacing_mm)
+    import unified_phi as up
+    g = up.build_unified_geometry(layout["W"], layout["x_front"], layout["d_halo"], init_mode="full")
+    up.enforce_symmetry(g)
+    return g
+
+
+def save_field(geom, path) -> None:
+    """The carved field as float32 metres, the exact in-memory format."""
+    np.save(path, np.asarray(geom.phi.grid, dtype=np.float32))
+
+
+def load_field(layout: dict, path, spacing_mm: float = 1.0):
+    """A field saved by save_field, back on this layout's grid with the rules re-applied."""
+    g = start_block(layout, spacing_mm)
+    f = np.load(path)
+    if f.shape != g.phi.grid.shape:
+        raise ValueError(f"field {f.shape} does not fit this layout's grid {g.phi.grid.shape}")
+    g.phi.grid = f.astype(np.float32)
+    g.phi.apply_hard_constraints()
+    return g
+
+
+def cut(geom, dT_dn, half_mesh, step_m: float, max_substeps: int = 6,
+        trust_radius_m: float = 1e-3, mass_report=None, dT_dscalars: dict | None = None,
+        aero_smooth_m: float = 0.0):
+    """One carving step. Returns (geometry, report); never changes `geom`.
+
+    report["status"] is "ok" (the new geometry) or "refused" with a named reason, and then
+    the geometry returned is `geom` itself, untouched:
+      bad_input        sensitivity not one finite value per mesh vertex
+      pinned_detached  forced-solid material is loose on entry, or the first sub-step
+                       would cut it loose
+      no_motion        nothing moved (zero speed or zero step)
+      rule_air_violated / rule_solid_violated   a rule zone ended up wrong (should never happen)
+
+    dT_dscalars: the race model's dT_dmass, dT_dh_com, dT_dx_com (Part 2, via Part 5); they
+    need the current mass_report (total_mass_kg, com_x_m, com_z_m). Without them the cut is
+    aero only."""
+    from phi_updater import apply_adjoint_to_unified
+
+    if dT_dscalars and mass_report is None:
+        raise ValueError("dT_dscalars need the current mass_report")
+    g = copy.deepcopy(geom)
+    try:
+        rep = apply_adjoint_to_unified(
+            g, right_half_sensitivity=-np.asarray(dT_dn, dtype=np.float64),
+            right_half_mesh=half_mesh, dt=step_m,
+            gradient_weights={"w_aero": 1.0, "w_mass": 1.0},
+            objective_gradients=dict(dT_dscalars or {}),
+            # with no scalar slopes the mass term is zero whatever the report says
+            mass_report=mass_report or {"total_mass_kg": 1.0, "com_x_m": 0.0, "com_z_m": 0.0},
+            max_substeps=max_substeps, trust_radius_m=trust_radius_m, aero_smooth_m=aero_smooth_m)
+    except ValueError as exc:
+        return geom, {"status": "refused", "reason": f"bad_input: {exc}"}
+
+    solid = g.phi.grid < 0
+    rep["rule_air_violated"] = int((solid & g.phi.hard_mask_air).sum())
+    rep["rule_solid_violated"] = int((~solid & g.phi.hard_mask_solid).sum())
+    # pinned material already loose on entry is a broken input (T4.1); a loose piece from a
+    # later sub-step just ends the step there, keeping the sub-steps before it
+    reason = ("pinned_detached" if rep["detached_at_start"] or (rep["substeps"] == 0 and rep["pinned_detached"])
+              else "no_motion" if rep["substeps"] == 0 or rep["dt"] <= 0
+              else "rule_air_violated" if rep["rule_air_violated"]
+              else "rule_solid_violated" if rep["rule_solid_violated"]
+              else "")
+    rep["status"], rep["reason"] = ("refused", reason) if reason else ("ok", "")
+    return (geom if reason else g), rep

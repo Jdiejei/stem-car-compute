@@ -1,0 +1,33 @@
+name: p1_tests
+run-name: "Part 1: all checks of the cutter (${{ inputs.label }})"
+
+# Part 1's unit tests only, split over 4 machines (at most 5 at once on the shared account).
+on:
+  workflow_dispatch:
+    inputs:
+      label: { default: "full set" }
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install pytest numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+      - working-directory: part1-simulation
+        env:
+          PART2_PATH: ${{ github.workspace }}/part2-simulation
+        run: |
+          files=$(ls tests/test_*.py | awk -v s=${{ matrix.shard }} -v n=4 'NR % n == s')
+          python -m pytest $files -p no:cacheprovider --tb=short -W ignore -rA | grep -E "^(PASSED|FAILED|ERROR)|passed|failed|^E |Error" ; exit ${PIPESTATUS[0]}
