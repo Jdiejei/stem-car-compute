@@ -6,9 +6,10 @@ i with area A_i, moving it (and its mirror) out by d changes
     lift  by dL_dn[i] * d * A_i      (whole car, N, + up)
     mass  by 2 * rho * d * A_i       (both halves)
 Part 1 then re-sizes the skin (a uniform outward move over the whole body) to put the mass
-back on target, so raw mass drops out and only where the mass sits remains:
-    m_i = g_i - <g>_A,   g_i = 2 rho (dT/dm + dT/dh (z_i - h) / M)
-    dT_dn[i] = dT/dD * dD_dn[i] + dT/dL * dL_dn[i] + m_i          (s per m per m^2)
+back on target. That move costs drag, lift and centre-of-mass height everywhere, so the
+whole unconstrained slope is projected:
+    g_i = dT/dD dD_dn[i] + dT/dL dL_dn[i] + 2 rho (dT/dm + dT/dh (z_i - h) / M)
+    dT_dn[i] = g_i - <g>_A        (s per m per m^2; raw mass drops out)
 Part 1 moves along -dT_dn (it treats + as grow).
 """
 from __future__ import annotations
@@ -32,8 +33,12 @@ def mass_slope(points_m, area_m2, rho_kgm3: float, mass_kg: float, com_height_m:
 
 def race_slope(dD_dn, dL_dn, dT_d: dict, points_m, area_m2, rho_kgm3: float, mass_kg: float,
                com_height_m: float) -> np.ndarray:
-    return (dT_d["drag_20_n"] * np.asarray(dD_dn) + dT_d["lift_20_n"] * np.asarray(dL_dn)
-            + mass_slope(points_m, area_m2, rho_kgm3, mass_kg, com_height_m, dT_d))
+    """dT_dn per vertex under the constant-mass rule. The skin re-sizing moves the WHOLE
+    surface, so it changes drag and lift too, not only the mass: the aero part is
+    mean-subtracted like the mass part (12.3 states it for the mass part only)."""
+    A = np.asarray(area_m2)
+    aero = dT_d["drag_20_n"] * np.asarray(dD_dn) + dT_d["lift_20_n"] * np.asarray(dL_dn)
+    return aero - np.sum(aero * A) / np.sum(A) + mass_slope(points_m, A, rho_kgm3, mass_kg, com_height_m, dT_d)
 
 
 def save(path, points, normals, area, dD_dn, dL_dn, dT_dn, quality: dict) -> None:

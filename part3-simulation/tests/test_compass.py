@@ -14,8 +14,9 @@ def _car(seed=0, n=400):
     rng = np.random.default_rng(seed)
     P = np.column_stack([rng.uniform(0.0, 0.22, n), rng.uniform(0.0, 0.035, n),
                          rng.uniform(0.005, 0.06, n)])
-    A = rng.uniform(0.5e-6, 2e-6, n)
-    return P, A, rng.normal(0, 40.0, n), rng.normal(0, 10.0, n), rng.normal(0, 1.0, n)
+    A = rng.uniform(0.5, 1.5, n) * 0.03 / n            # about the half car's skin, m^2
+    # slopes of a car's size: ~1 % more drag per mm of uniform growth
+    return P, A, rng.normal(100.0, 300.0, n), rng.normal(0, 100.0, n), rng.normal(1.0, 1.0, n)
 
 
 def _mass():
@@ -39,13 +40,10 @@ def test_chain_rule_matches_race_model_within_1_percent(seed):
     _, dT_d, _ = stopwatch.race(D0, L0, _mass())
     m = _mass()
     slope = compass.race_slope(dD, dL, dT_d, P, A, RHO, m["car_weight_kg"], m["com_mm"][2] / 1e3)
-    # the skin's own drag and lift change belong to the prediction too
-    d_skin_per = -np.sum(move * A) / np.sum(A)
-    pred_aero_skin = (dT_d["drag_20_n"] * np.sum(dD * A) + dT_d["lift_20_n"] * np.sum(dL * A)) * d_skin_per
-    eps = 2e-5
+    eps = 5e-4                                    # 0.5 mm, about one cut
     fd = (_time(eps, P, A, dD, dL, move) - _time(-eps, P, A, dD, dL, move)) / 2
-    pred = eps * (np.sum(slope * move * A) + pred_aero_skin)
-    assert abs(fd) > 1e-6
+    pred = eps * np.sum(slope * move * A)
+    assert abs(fd) > 1e-5                         # well above float noise
     assert pred == pytest.approx(fd, rel=0.01)
 
 
