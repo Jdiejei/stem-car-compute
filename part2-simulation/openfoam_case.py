@@ -169,6 +169,12 @@ class OpenFOAMRunConfig:
     # tunnel (Ahmed's model sat ~1.33 m behind its ground plate's edge, ~22 mm
     # of boundary layer at 60 m/s), not at the inlet 3 lengths upstream.
     ground_plate_start_m: Optional[float] = None
+    # WARM START (2026-11-09, Step 4 and the noise study). A finished case
+    # directory (same frame and patch names) whose latest flow field is mapped
+    # onto this mesh (mapFields -consistent) as the starting field, instead of
+    # a uniform cold start. Near-identical cars then start on the same flow
+    # branch, which shows whether the drag levels are a bistable wake.
+    warm_from: Optional[str] = None
     # MESH MORPHING (2026-11-09, noise fix 3 of BUILD_SPEC 12.3). A finished
     # case directory whose constant/polyMesh is reused instead of re-snapping:
     # its `car` patch points are projected onto THIS car's STL and the interior
@@ -1562,6 +1568,11 @@ def _mesh(run: Path, cfg: OpenFOAMRunConfig, bashrc: str, timeout_s: int) -> str
             shutil.rmtree(run / "0", ignore_errors=True)
             held.rename(run / "0")
         add_upstream_ground_entries(run / "0")
+    if cfg.warm_from:
+        if not (Path(cfg.warm_from) / "system" / "controlDict").exists():
+            raise FileNotFoundError(f"warm_from is not a case directory: {cfg.warm_from}")
+        _run(f"mapFields '{cfg.warm_from}' -sourceTime latestTime -consistent",
+             run, bashrc, "mapFields.log", timeout_s)
     return _run("checkMesh", run, bashrc, "checkMesh.log", timeout_s)
 
 

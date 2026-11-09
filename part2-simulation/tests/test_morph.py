@@ -67,3 +67,19 @@ def test_snapping_is_unchanged_without_morph(tmp_path, monkeypatch):
     monkeypatch.setattr(oc, "_run", lambda cmd, *a: calls.append(cmd) or "")
     oc._mesh(tmp_path, oc.OpenFOAMRunConfig(), "bashrc", 60)
     assert calls == ["snappyHexMesh -overwrite", "checkMesh"]
+
+
+def test_warm_start_maps_the_reference_field_after_meshing(tmp_path, monkeypatch):
+    ref = tmp_path / "ref"
+    oc._write(ref / "system" / "controlDict", "x")
+    calls = []
+    monkeypatch.setattr(oc, "_run", lambda cmd, *a: calls.append(cmd) or "")
+    oc._mesh(tmp_path / "run", oc.OpenFOAMRunConfig(warm_from=str(ref)), "bashrc", 60)
+    assert calls == ["snappyHexMesh -overwrite",
+                     f"mapFields '{ref}' -sourceTime latestTime -consistent", "checkMesh"]
+
+
+def test_warm_start_without_a_case_fails_loudly(tmp_path, monkeypatch):
+    monkeypatch.setattr(oc, "_run", lambda cmd, *a: "")
+    with pytest.raises(FileNotFoundError):
+        oc._mesh(tmp_path, oc.OpenFOAMRunConfig(warm_from=str(tmp_path / "nope")), "bashrc", 60)
