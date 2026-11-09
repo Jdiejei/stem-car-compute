@@ -793,7 +793,9 @@ def build_rule_masks(geom: "UnifiedGeometry"):
     solid |= (X >= pk["x_min_m"] * 1e3 + 1.5) & (X <= pk["x_max_m"] * 1e3 - 1.5) & in_y & under
     xe = pk["x_max_m"] * 1e3
     solid |= (X >= xe - 3.0) & (X <= xe + 6.0) & in_y & (under | ((X > xe + 2.5) & (Z >= 13.0) & (Z <= 28.0)))
-    return air, solid
+    # abs(Y) on float cell coordinates is not exactly symmetric: a limit on a grid line
+    # (|y| <= 4 on a 2 mm grid) kept the cell on one side only. Mirror, like every other mask.
+    return _mirror_right_onto_left(air), _mirror_right_onto_left(solid)
 
 
 def close_pinches(geom: "UnifiedGeometry", spacing_m: float, rounds: int = 4) -> int:
@@ -1036,7 +1038,7 @@ def extract_half_surface(geom: UnifiedGeometry):
 
     clone = PhiGrid("car", geom.region, half_grid.astype(np.float32),
                     geom.phi.hard_mask_solid, geom.phi.hard_mask_air)
-    for eps_frac in (1e-6, 1e-4):          # 1e-4: a node a hair off the level welded shut
+    for eps_frac in (0.0, 1e-6, 1e-4):     # nudge only if the half body comes out open
         mesh = SE._repair_mesh(SE._marching_cubes(clone, eps_frac))
         # Flatten any sub-cell overshoot onto the symmetry plane (y >= 0).
         mesh.vertices[mesh.vertices[:, 1] < 0.0, 1] = 0.0

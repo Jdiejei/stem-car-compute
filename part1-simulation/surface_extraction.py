@@ -65,7 +65,7 @@ class MeshQualityFailure(SurfaceExtractionError):
 
 # ── Stage 1: Marching Cubes ────────────────────────────────────────────────
 
-def _marching_cubes(phi: PhiGrid, eps_frac: float = 1e-6) -> "trimesh.Trimesh":
+def _marching_cubes(phi: PhiGrid, eps_frac: float = 0.0) -> "trimesh.Trimesh":
     """Run marching cubes on phi=0 isosurface, translate to world coordinates."""
     import trimesh
     from skimage import measure
@@ -82,11 +82,12 @@ def _marching_cubes(phi: PhiGrid, eps_frac: float = 1e-6) -> "trimesh.Trimesh":
     # Samples EXACTLY on the level produce coincident/degenerate triangles;
     # _repair_mesh then merges them and opens a hole (found 2026-09-25: a
     # 6-edge hole at two phi == 0.0 cells made the CFD STL non-watertight).
-    # Nudge them off the level by a negligible amount.
-    # eps_frac: at the default 1e-6 * dx (1e-9 m) a vertex a hair off a node can be
-    # welded to its neighbours' (trimesh.tol.merge is 1e-8 m) and leave an edge shared
-    # by four faces (car 42211/2). Callers retry at 1e-4 when the surface comes out
-    # open; that size as the default left 0-degree slivers on a remapped field.
+    # eps_frac > 0 nudges them off the level. It is OFF by default: any nudge (1e-6 or
+    # 1e-4 of a cell) left 0-degree slivers on a remapped field (test_remap_geometry,
+    # 2026-11-08), and without it every suite passed. Only extract_half_surface uses it,
+    # as a retry when the half body comes out open: at 1e-6 * dx a vertex a hair off a
+    # node can weld to its neighbours' (trimesh.tol.merge is 1e-8 m) and leave an edge
+    # shared by four faces (car 42211/2); 1e-4 cleared that.
     grid = phi.grid
     eps = np.float32(eps_frac * dx)
     near = np.abs(grid) < eps
