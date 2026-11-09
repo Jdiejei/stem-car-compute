@@ -1127,7 +1127,8 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
                 f"{k} closed {j['manufactured'][k]['closed']} pieces {j['manufactured'][k]['pieces']}"
                 f"/{j['manufactured'][k]['pieces_expected']} remeshed {j['manufactured'][k].get('remeshed')}" for k in bad)
             if bad else
-            f"{len(j.get('manufactured', {}))} files")
+            ("milled half not watertight before the fuse" if not j["machined_body_watertight"]
+             else f"{len(j.get('manufactured', {}))} files"))
     for k, m in assembly.get("gates", {}).items():
         r[f"P4.{k}"] = _entry(m)
     return r
