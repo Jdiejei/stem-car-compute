@@ -40,4 +40,4 @@ jobs:
         run: |
           T=/usr/lib/openfoam/openfoam2412/tutorials/incompressible/adjointOptimisationFoam/${{ inputs.tutorial }}
           find $T -type f | sort
-          for f in $(find $T -type f -size -40k | sort); do echo "===== $f"; grep -v '^ *//\|^ *$\|^ *\\\|^| \|^/\*\|^\\*\|^ *\*' "$f"; done
+          for f in $(find $T -type f -size -40k | sort); do echo "===== $f"; cat "$f"; done
