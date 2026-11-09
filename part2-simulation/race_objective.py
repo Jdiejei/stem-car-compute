@@ -265,8 +265,12 @@ def thrust_force(t: jnp.ndarray, model: SmoothSheetModel) -> jnp.ndarray:
 
     The RBF fit handles the in-sheet curve. A smooth logistic tail turns thrust
     off after the sheet's final time instead of using a hard if-statement.
+
+    Past the sheet the fit is held at its last value instead of extrapolated:
+    its constant and linear terms otherwise pushed on after the burn (+2.4 %
+    impulse on the measured sheet, worse for a slow car still running at 4 s).
     """
-    raw = _eval_rbf_model(t, model, model.force_coeffs)
+    raw = _eval_rbf_model(jnp.minimum(t, model.t_max), model, model.force_coeffs)
     nonnegative = _smooth_positive(raw, scale=1e-4)
     end_gate = jax.nn.sigmoid((model.t_max - t) / model.tail_tau)
     return nonnegative * end_gate

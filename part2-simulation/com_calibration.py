@@ -27,19 +27,19 @@ TARGET_PCT_PER_MM = (T_LAST - T_FIRST) / (OFFSETS_MM[-1] - OFFSETS_MM[0]) / T_FI
 BEST = dict(D20=0.38037, mass=0.0482 + 0.02115, mu=0.010, moi=1.39e-7, x=0.110)
 
 
-def race(model, offset_mm, k, p):
+def race(model, offset_mm, k, p, mu=BEST["mu"]):
     m = model._replace(force_coeffs=model.force_coeffs * k, bearing_p=p)
     h = DEFAULT_GEOMETRY.z_thrust_m + offset_mm / 1e3
-    v = jnp.asarray([BEST["D20"], BEST["mass"], BEST["mu"], BEST["moi"], 1.0, h, 0.0, BEST["x"]])
+    v = jnp.asarray([BEST["D20"], BEST["mass"], mu, BEST["moi"], 1.0, h, 0.0, BEST["x"]])
     return float(race_time_seconds(v, m))
 
 
-def scale_for(model, p, t_target=T_FIRST, offset_mm=OFFSETS_MM[0]):
+def scale_for(model, p, mu=BEST["mu"], t_target=T_FIRST, offset_mm=OFFSETS_MM[0]):
     """Thrust scale k with race time t_target at offset_mm (bisection; T falls as k grows)."""
     lo, hi = 0.05, 1.0
     for _ in range(30):
         mid = 0.5 * (lo + hi)
-        if race(model, offset_mm, mid, p) > t_target:
+        if race(model, offset_mm, mid, p, mu) > t_target:
             lo = mid
         else:
             hi = mid
@@ -49,16 +49,18 @@ def scale_for(model, p, t_target=T_FIRST, offset_mm=OFFSETS_MM[0]):
 def main():
     model = build_smooth_sheet_model(settings=BuildSettings(n_steps=600))
     out = {"target_pct_per_mm": TARGET_PCT_PER_MM, "rows": []}
-    for p in (1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0):
-        k = scale_for(model, p)
-        ts = np.array([race(model, o, k, p) for o in OFFSETS_MM])
+    # rolling friction is itself a placeholder (0.010), so it is varied too: a
+    # slow car spends more of its effort on friction, which load transfer acts on
+    for mu, p in [(mu, p) for mu in (0.010, 0.05, 0.10, 0.20) for p in (1.0, 1.5, 2.0, 4.0)]:
+        k = scale_for(model, p, mu)
+        ts = np.array([race(model, o, k, p, mu) for o in OFFSETS_MM])
         slope = np.polyfit(OFFSETS_MM, ts, 1)[0]
-        row = {"bearing_p": p, "thrust_scale": k, "peak_thrust_N": 8.99 * k,
+        row = {"mu": mu, "bearing_p": p, "thrust_scale": k, "peak_thrust_N": 8.99 * k,
                "T_s": [round(t, 4) for t in ts], "T_last_s": ts[-1],
                "pct_per_mm": slope / ts[0] * 100,
                "pct_per_mm_first_3mm": (ts[4] - ts[0]) / (OFFSETS_MM[4] - OFFSETS_MM[0]) / ts[0] * 100}
         out["rows"].append(row)
-        print(f"CAL p={p:.2f}: thrust x{k:.3f} (peak {8.99*k:.2f} N), {row['pct_per_mm']:.2f} %/mm overall, "
+        print(f"CAL mu={mu:.3f} p={p:.2f}: thrust x{k:.3f} (peak {8.99*k:.2f} N), {row['pct_per_mm']:.2f} %/mm overall, "
               f"{row['pct_per_mm_first_3mm']:.2f} %/mm over the first 3 mm, last {ts[-1]:.3f} s "
               f"(target {TARGET_PCT_PER_MM:.2f} %/mm, {T_LAST} s)", flush=True)
     # where our own car's wheels lift, at peak thrust, launch mass (car + 8 g CO2)
