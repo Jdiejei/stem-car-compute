@@ -1,0 +1,44 @@
+name: p3_known_answer
+run-name: "Part 3: known-answer wing test (${{ inputs.stage }})"
+
+# Step 1 of Part 3: prove the adjoint on a 2-D wing where measured slopes are cheap and quiet.
+# stage=inspect prints the shipped wing case and what its sensitivity run writes.
+on:
+  workflow_dispatch:
+    inputs:
+      stage: { default: "inspect" }
+
+permissions: { contents: read }
+
+jobs:
+  inspect:
+    if: inputs.stage == 'inspect'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - shell: bash
+        run: |
+          source /usr/lib/openfoam/openfoam2412/etc/bashrc || true
+          T=$FOAM_TUTORIALS/incompressible/adjointOptimisationFoam/shapeOptimisation/naca0012/kOmegaSST/lift
+          cp -r "$T" case && cd case
+          find . -type f | sort | xargs ls -la
+          for f in $(find . -type f -size -40k | sort); do
+            case "$(file -b --mime-type "$f")" in text/*) echo "===== $f"; cat "$f";; esac
+          done
+      - shell: bash
+        run: |
+          source /usr/lib/openfoam/openfoam2412/etc/bashrc || true
+          cd case
+          sed -i 's/^\( *nIters *\)[0-9]*/\1300/' system/optimisationDict || true
+          timeout 1200 ./Allrun || echo "Allrun stopped (timeout or error)"
+          for l in log.*; do echo "===== $l (tail)"; tail -40 "$l"; done
+          echo "===== files written"; find . -newer system/controlDict -type f | grep -v processor | sort | head -300
+          for d in $(ls -d [0-9]* | sort -g | tail -1); do
+            for f in $(ls $d); do echo "===== $d/$f (head)"; head -40 "$d/$f"; done
+          done
+          find optimisation -type f | head -50 | while read f; do echo "===== $f"; head -30 "$f"; done
