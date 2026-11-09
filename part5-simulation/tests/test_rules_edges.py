@@ -6,6 +6,7 @@ The cars are boxes (fast, exact): a known-good box car is edited one thing at a 
 Rules the referee does not yet measure itself (RULES_MAP.md "gate only" / "constant")
 are not here; they get their own measurement and tests first.
 """
+import math
 import sys
 from pathlib import Path
 
@@ -41,11 +42,21 @@ def build(tmp, W=130.0, **o):
     xf = 50.0
     ra, rb = xf - 16.0, xf + W + 16.0
     top = o.get("top", 50.0)
+    rear = o.get("rear", rb + 40.0 - 0.2)
     body = trimesh.boolean.union(
-        [_box((ra, 0, 5), (o.get("rear", rb + 40.0 - 0.2), 13.0, top)),
+        [_box((ra, 0, 5), (rear, 13.0, top)),
          _box((o.get("nose_x", ra - 20.0), 0, o.get("nose_lo", 9.0)),
               (ra + 0.5, o.get("nose_y", 10.0), o.get("nose_z", 20.0)))]
         + [_box(*b) for b in o.get("extra", [])], engine="manifold")
+    if o.get("bore", True):                 # the chamber: diameter, centre height, depth, tilt
+        d, z, depth, ang = (o.get("bore_d", 18.15), o.get("bore_z", AXIS_Z), o.get("bore_depth", 52.0),
+                            o.get("bore_deg", 0.0))
+        bore = trimesh.creation.cylinder(radius=d / 2.0, height=depth + 5.0, sections=96)
+        bore.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [0, 1, 0]))
+        bore.apply_translation([rear - depth + (depth + 5.0) / 2.0, 0.0, z])
+        if ang:
+            bore.apply_transform(trimesh.transformations.rotation_matrix(math.radians(ang), [0, 1, 0], [rear, 0, z]))
+        body = trimesh.boolean.difference([body, bore], engine="manifold")
     if "loose" in o:                        # a second, separate piece of foam
         body = trimesh.util.concatenate([body, _box(*o["loose"])])
     # Front wing: one element (chord 16, 2.5 thick, 30 out), a centre mount into the nose.
@@ -144,6 +155,14 @@ EDGES = {
     "T8.5.3_endplate0_width": ({"fw_plate": (30, 9.8, 6, 12)}, {"fw_plate": (30, 10.2, 6, 12)}, set()),
     "T8.5.3_endplate0_outside_span": ({"fw_plate": (25.2, 5, 6, 12)}, {"fw_plate": (24.8, 5, 6, 12)}, set()),
     "T8.5.3_endplate0_height": ({"fw_plate": (30, 9.8, 6, 24.8)}, {"fw_plate": (30, 9.8, 6, 25.2)}, set()),
+    # The cartridge chamber, found and measured on the body.
+    "T5.1_diameter_min": ({"bore_d": 18.2}, {"bore_d": 17.8}, set()),
+    "T5.1_diameter_max": ({"bore_d": 18.3}, {"bore_d": 18.7}, set()),
+    "T5.2_height_min": ({"bore_z": 30.2}, {"bore_z": 29.8}, set()),
+    "T5.2_height_max": ({"bore_z": 39.8, "top": 54.8}, {"bore_z": 40.2, "top": 54.8}, set()),
+    "T5.3_depth_min": ({"bore_depth": 45.2}, {"bore_depth": 44.8}, set()),
+    "T5.3_depth_max": ({"bore_depth": 57.8}, {"bore_depth": 58.2}, set()),
+    "T5.4_angle": ({"bore_deg": 2.8}, {"bore_deg": 3.2}, set()),
     # Wheels: their own files, and where they stand.
     "T7.5_front_diameter_min": ({"wheels": {"front": (28.2, 13.5)}}, {"wheels": {"front": (27.8, 13.5)}}, set()),
     "T7.5_front_diameter_max": ({"wheels": {"front": (31.8, 13.5)}}, {"wheels": {"front": (32.2, 13.5)}}, set()),
@@ -192,6 +211,11 @@ def test_the_team_wheels_meet_the_wheel_rules():
                                                      legality.TEAM_WHEELS[tag]), force="mesh"))
         print(tag, m)
         assert 28.0 <= m["diameter_mm"] <= 32.0 and m["contact_mm"] >= need, (tag, m)
+
+
+def test_a_body_without_a_chamber_fails(tmp_path):
+    bad, _ = fails(tmp_path, bore=False)
+    assert bad == {"T5_chamber_found"}, bad
 
 
 def test_one_piece_of_foam(tmp_path):

@@ -39,7 +39,8 @@ def _x_cylinder(r_m: float, x0_m: float, x1_m: float, z_m: float):
 
 
 def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = None,
-                      bore_r_mm: float | None = None, axis_z_mm: float | None = None) -> float:
+                      bore_r_mm: float | None = None, axis_z_mm: float | None = None,
+                      angle_deg: float = 0.0) -> float:
     """Fraction of probe points inside the body in the 3 mm annulus around the
     chamber, along the whole bore (T5.5). 1.0 = a full 3 mm wall."""
     from geometry_contract import (CHAMBER_AXIS_Z_MM, MODEL_BLOCK_BORE_DEPTH_MM,
@@ -61,6 +62,9 @@ def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = N
         tube = trimesh.boolean.difference(
             [_x_cylinder((bore_r_mm + 2.9) / 1e3, x0, x1, axis_z_mm / 1e3),
              _x_cylinder((bore_r_mm + 1.0) / 1e3, x0 - 1e-3, x1 + 1e-3, axis_z_mm / 1e3)], engine="manifold")
+        if angle_deg:                                   # along a tilted bore, from its rim
+            tube.apply_transform(trimesh.transformations.rotation_matrix(
+                -math.radians(angle_deg), [0, 1, 0], [rear_face_mm / 1e3, 0.0, axis_z_mm / 1e3]))
         right = trimesh.creation.box(bounds=[[x0 - 1e-3, 1e-5, 0.0], [x1 + 1e-3, 0.1, 0.1]])
         tube = trimesh.boolean.intersection([tube, right], engine="manifold")
         return _volume_in(body_half, tube) / abs(tube.volume)
@@ -520,6 +524,88 @@ def _wheel_checks(assembly: dict, parts_mm: dict) -> dict:
     return r
 
 
+# --------------------------------------------------------------- chamber, measured
+def _x_section_holes(body_mm, x):
+    """Holes in the body's cross-section at x, as shapely polygons in (y, z). A right
+    half is mirrored first, so a bore cut by the symmetry plane closes into a hole."""
+    from shapely import affinity
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    s = body_mm.section(plane_origin=[x, 0.0, 0.0], plane_normal=[1.0, 0.0, 0.0])
+    if s is None:
+        return []
+    to2d = np.array([[0, 1.0, 0, 0], [0, 0, 1.0, 0], [1.0, 0, 0, -x], [0, 0, 0, 1.0]])
+    p, _ = s.to_planar(to_2D=to2d, check=False)
+    polys = [q.buffer(0) for q in p.polygons_full]
+    if body_mm.bounds[0, 1] > -0.01:                              # a right half
+        polys += [affinity.scale(q, -1.0, 1.0, origin=(0, 0)) for q in polys]
+    u = unary_union([q.buffer(1e-4) for q in polys]).buffer(-1e-4)
+    geoms = getattr(u, "geoms", [u])
+    return [Polygon(i) for g in geoms for i in g.interiors]
+
+
+def chamber_measures(body_mm) -> dict | None:
+    """The cartridge chamber as a scrutineer finds it on the milled body (mm): the hole
+    open at the back, its diameter along the minimum depth, centre height, depth from
+    the rim to the end, and its angle to the track. None when there is no chamber."""
+    x_back = float(body_mm.bounds[1, 0])
+    holes = _x_section_holes(body_mm, x_back - 3.0)
+    if not holes:
+        return None
+    h = max(holes, key=lambda q: q.area)
+    yc, zc = h.centroid.x, h.centroid.y
+    r0 = math.sqrt(h.area / math.pi)
+    # The end of the bore: a ray down the axis from behind the car.
+    hit, _, _ = body_mm.ray.intersects_location([[x_back + 5.0, max(yc, 0.01), zc]], [[-1.0, 0, 0]])
+    if not len(hit):
+        return None
+    x_end = float(hit[:, 0].max())
+    # The rim: rays in the wall, 1.5 mm out from the bore, all round; the rim is where
+    # the wall starts (the depth is measured from the opening, T5.3).
+    rims = []
+    for a in np.linspace(0.1, math.pi - 0.1, 9):
+        o = [x_back + 5.0, max(yc + (r0 + 1.5) * math.sin(a), 0.01), zc + (r0 + 1.5) * math.cos(a)]
+        loc, _, _ = body_mm.ray.intersects_location([o], [[-1.0, 0, 0]])
+        if len(loc):
+            rims.append(float(loc[:, 0].max()))
+    x_rim = min(rims) if rims else x_back
+    depth = x_rim - x_end
+    d_min, d_max, cz = [], [], []
+    for x in np.linspace(max(x_rim - 45.0, x_end) + 1.0, x_rim - 1.0, 7):
+        hs = [q for q in _x_section_holes(body_mm, x) if q.distance(h.centroid) < r0]
+        if not hs:
+            d_min.append(0.0)
+            continue
+        q = max(hs, key=lambda q: q.area)
+        c = q.centroid
+        d_min.append(_thickness(q))
+        d_max.append(2.0 * max(math.hypot(px - c.x, pz - c.y) for px, pz in q.exterior.coords))
+        cz.append((x, c.y))
+    ang = (math.degrees(math.atan2(cz[-1][1] - cz[0][1], cz[-1][0] - cz[0][0]))
+           if len(cz) >= 2 else 0.0)
+    return {"rim_x_mm": x_rim, "depth_mm": depth, "axis_z_mm": zc, "axis_y_mm": yc,
+            "diameter_min_mm": min(d_min), "diameter_max_mm": max(d_max) if d_max else 0.0,
+            "angle_deg": ang}
+
+
+def _chamber_checks(ch: dict | None) -> dict:
+    if ch is None:
+        return {"T5_chamber_found": _entry(-1.0, "no chamber open at the back of the body")}
+    d0, d1, z, dep, a = (ch["diameter_min_mm"], ch["diameter_max_mm"], ch["axis_z_mm"],
+                         ch["depth_mm"], ch["angle_deg"])
+    return {
+        "T5.1_diameter_min": _entry(d0 - 18.0, f"narrowest {d0:.3f} mm"),
+        "T5.1_diameter_max": _entry(18.5 - d1, f"widest {d1:.3f} mm"),
+        "T5.2_height_min": _entry(z - 30.0, f"centre {z:.2f} mm above the track"),
+        "T5.2_height_max": _entry(40.0 - z, f"centre {z:.2f} mm above the track"),
+        "T5.3_depth_min": _entry(dep - 45.0, f"{dep:.2f} mm deep"),
+        "T5.3_depth_max": _entry(58.0 - dep, f"{dep:.2f} mm deep"),
+        "T5.4_angle": _entry(3.0 - abs(a), f"{a:+.2f} deg to the track"),
+        "T5.6_protrusion": _entry(CARTRIDGE_LENGTH_MIN_MM - dep - 5.0,
+                                  f"shortest cartridge sticks out {CARTRIDGE_LENGTH_MIN_MM - dep:.2f} mm"),
+    }
+
+
 def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06):
     """The Model Block as it arrives (Appendix ii), placed in the car: rear face
     at the car's rear face, bore on the chamber axis, slot along the underside.
@@ -653,13 +739,7 @@ def manufactured_checks(assembly: dict) -> dict:
         slivers = max(v["faces_under_5deg_pct"] for k, v in meshed.items() if k != "machined_body")
         r["mesh_slivers_printed"] = _entry(MESH_MAX_SLIVER_PRINTED_PCT - slivers,
                                            f"{slivers:.2f} % of faces under 5 deg, worst file")
-
-    bore, depth, axis = gc.MODEL_BLOCK_BORE_DIA_MM, gc.MODEL_BLOCK_BORE_DEPTH_MM, gc.CHAMBER_AXIS_Z_MM
-    # These four compare design constants with the rule; they are not measurements.
-    r["T5.1_diameter"] = _entry(min(bore - 18.0, 18.5 - bore), f"{bore} mm (constant)")
-    r["T5.2_height"] = _entry(min(axis - 30.0, 40.0 - axis), f"{axis} mm (constant)")
-    r["T5.3_depth"] = _entry(min(depth - 45.0, 58.0 - depth), f"{depth} mm (constant)")
-    r["T5.6_protrusion"] = _entry(CARTRIDGE_LENGTH_MIN_MM - depth - 5.0, "constant")
+    # T5.1-T5.4 and T5.6 are measured on the milled body in check().
     return r
 
 
@@ -763,7 +843,18 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
         probe_body.apply_scale(1e-3)
     else:
         probe_body = trimesh.load(machined_stl, force="mesh") if machined_stl else body
-    frac = t55_wall_fraction(probe_body, rear_face_mm=W + xf + 16.0 + 40.0)
+    # The chamber itself, found and measured on that body (T5.1-T5.4, T5.6); the wall
+    # (T5.5) is then probed round the chamber that is there, not the one designed.
+    pm = probe_body.copy()
+    pm.apply_scale(1e3)
+    ch = chamber_measures(pm)
+    r.update(_chamber_checks(ch))
+    if ch is not None:
+        frac = t55_wall_fraction(probe_body, rear_face_mm=ch["rim_x_mm"], depth_mm=ch["depth_mm"],
+                                 bore_r_mm=ch["diameter_max_mm"] / 2.0, axis_z_mm=ch["axis_z_mm"],
+                                 angle_deg=ch["angle_deg"])
+    else:
+        frac = t55_wall_fraction(probe_body, rear_face_mm=W + xf + 16.0 + 40.0)
     r["T5.5_wall"] = _entry(0.0 if frac >= 0.999 else -(1 - frac) * REGS["T5.5_wall"],
                             f"{100*frac:.1f}% of the 3 mm annulus is solid")
 
