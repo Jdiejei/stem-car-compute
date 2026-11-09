@@ -1049,6 +1049,8 @@ def extract_half_surface(geom: UnifiedGeometry):
     try:
         import exact_zones
         v, _n = exact_zones.project_out(geom, mesh.vertices)
+        v, _m = exact_zones.snap_edges(geom, v * 1e3, GRID_SPACING_M * 1e3)
+        v = v / 1e3
         v[v[:, 1] < 0.0, 1] = 0.0
         mesh.vertices = v
     except AttributeError:          # a bare test geometry without layout

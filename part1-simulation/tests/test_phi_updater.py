@@ -288,7 +288,7 @@ class _RealMassReport:
     total_mass_kg, com_x_m, com_z_m = 0.1494, 0.122, 0.0296
 
 
-def _step_real(sens_scale, w_mass, sign=1.0, seed=3):
+def _step_real(sens_scale, w_mass, sign=1.0, seed=3, substeps=1):
     """One production update on a real car; returns (solid cell count, geom)."""
     import copy
     import warnings as _w
@@ -303,7 +303,7 @@ def _step_real(sens_scale, w_mass, sign=1.0, seed=3):
         apply_adjoint_to_unified(
             g, sens, SimpleNamespace(vertices=verts), 0.5,
             {"w_aero": 1.0, "w_mass": w_mass, "w_com": 0.0, "w_mfg": 0.0},
-            _REAL_GRADS, _RealMassReport())
+            _REAL_GRADS, _RealMassReport(), max_substeps=substeps)
     return int((g.phi.grid < 0).sum()), g
 
 
@@ -322,8 +322,10 @@ def test_aero_gradient_actually_steers_the_shape():
     phi far from the surface is rewritten every step and a phi-difference norm
     would mostly measure that rebuild.
     """
-    pos, _ = _step_real(3.497e3, w_mass=0.0, sign=+1.0)
-    neg, _ = _step_real(3.497e3, w_mass=0.0, sign=-1.0)
+    # Six sub-steps, as cutter.cut takes: with redistancing no longer creeping the surface
+    # (2026-11-09), one 0.3-cell sub-step from the as-built block flips no cell either way.
+    pos, _ = _step_real(3.497e3, w_mass=0.0, sign=+1.0, substeps=6)
+    neg, _ = _step_real(3.497e3, w_mass=0.0, sign=-1.0, substeps=6)
     assert pos != neg, (
         "negating the sensitivity left the same {:,} solid cells -- the aero "
         "gradient is not steering the shape".format(pos))
@@ -550,7 +552,8 @@ def test_stage2_update_leaves_no_void_the_cutter_cannot_reach():
     try:
         bare = UP.build_unified_geometry(130.0, 46.0, 20.0, init_mode="full",
                                          with_cargo=False)
-        step(bare)
+        for _ in range(4):           # the same four steps as above (one sealed cavities only
+            step(bare)               # while redistancing crept the surface, before 2026-11-09)
         assert unreachable_void(bare) > 100, (
             "removing the projection left no unreachable void, so the check "
             "above proves nothing -- this carve no longer seals cavities")

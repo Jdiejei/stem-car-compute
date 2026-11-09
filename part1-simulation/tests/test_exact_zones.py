@@ -130,3 +130,20 @@ def test_halo_zone_fields_match_their_masks(spacing):
                                              y_origin_m=r.origin_m[1], z_origin_m=r.origin_m[2], d_m=d / 1e3))
     f = ez.halo_zones(X, np.abs(Y), Z, g.landmarks["ref_plane_A_m"] * 1e3, g.d_halo_mm, hw.canister_cylinder)
     _agree(f, mask, right, d, grown=d, name="halo")
+
+
+def test_slot_corners_are_sharp_in_the_half_body():
+    """No body inside the block slot: its top edges are inside corners of the body, which
+    marching cubes chamfered 0.2 mm into the slot (5.5 mm3 on Part 4's start car)."""
+    import trimesh
+    import unified_phi as up
+    from geometry_contract import MODEL_BLOCK_SLOT_TOP_Z_MM, MODEL_BLOCK_SLOT_WIDTH_MM
+    g, *_ = _setup(1.0)
+    up.enforce_symmetry(g)
+    half = up.extract_half_surface(g)
+    slot = trimesh.creation.box(extents=[400.0, MODEL_BLOCK_SLOT_WIDTH_MM, 40.0])
+    slot.apply_translation([200.0, 0.0, MODEL_BLOCK_SLOT_TOP_Z_MM - 20.0])
+    h = half.copy()
+    h.apply_scale(1e3)
+    inside = h.intersection(slot, engine="manifold").volume if h.is_volume else 0.0
+    assert inside < 0.5, f"{inside:.2f} mm3 of body inside the block slot"

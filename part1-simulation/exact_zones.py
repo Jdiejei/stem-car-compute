@@ -261,3 +261,59 @@ def halo_zones(X, aY, Z, ref_A_mm, d_halo_mm, canister=None, part="all"):
 
 def _canister(g):
     return getattr(getattr(g, "fixed_hardware", None), "canister_cylinder", None)
+
+
+def _air_boxes(g):
+    """The box-shaped air zones cut into the body, as ((x lo, hi), (|y| lo, hi), (z lo, hi))
+    in mm (None = open): their edges are inside corners of the body that marching cubes
+    chamfers into the zone (the block slot's top edges: 5.5 mm3, Part 4, 2026-11-09)."""
+    import halo_pocket as hp
+    import wheel_visibility_zones as wv
+    from geometry_contract import (FRONT_WHEEL_INNER_Y_M, MODEL_BLOCK_SLOT_TOP_Z_MM,
+                                   MODEL_BLOCK_SLOT_WIDTH_MM, R_WHEEL_M, REAR_WHEEL_INNER_Y_M,
+                                   WHEEL_CLEARANCE_M, WHEEL_WIDTH_M)
+    from unified_phi import WHEEL_KEEPOUT_MARGIN_M as k
+    ref_A = g.landmarks["ref_plane_A_m"] * 1e3
+    W, xf = g.W_mm, g.x_front_mm
+    out = [((None, None), (None, MODEL_BLOCK_SLOT_WIDTH_MM / 2.0), (None, MODEL_BLOCK_SLOT_TOP_Z_MM))]
+    r = (R_WHEEL_M + WHEEL_CLEARANCE_M + k) * 1e3
+    for ax, inner in ((xf, FRONT_WHEEL_INNER_Y_M), (xf + W, REAR_WHEEL_INNER_Y_M)):
+        out.append(((ax - r, ax + r), ((inner - WHEEL_CLEARANCE_M - k) * 1e3,
+                    (inner + WHEEL_WIDTH_M + WHEEL_CLEARANCE_M) * 1e3), (None, None)))
+    R = R_WHEEL_M * 1e3
+    m = MARGIN_MM
+    ff, ra = xf - R, xf + W + R
+    out.append(((ff - wv.T79_RECT_DEPTH_MM - m, ff + m), (wv.FRONT_INNER_GAP_ACTUAL_MM / 2.0 - m, None),
+                (None, wv.T79_ZONE_HEIGHT_MM + m)))
+    out.append(((ra - m, ra + wv.T79_RECT_DEPTH_MM + m), (wv.REAR_INNER_GAP_ACTUAL_MM / 2.0 - m, None),
+                (None, wv.T79_ZONE_HEIGHT_MM + m)))
+    b = {kk: v * 1e3 for kk, v in hp.compute_halo_pocket_box_m(ref_A / 1e3, g.d_halo_mm).items()}
+    out.append(((b["x_min_m"], b["x_max_m"]), (None, b["y_max_m"]), (b["z_min_m"], b["z_max_m"])))
+    return out
+
+
+def snap_edges(g, V_mm, d_mm):
+    """Vertices within 0.6 cell of an air box's edge (both cross coordinates) put on it."""
+    P = np.array(V_mm, dtype=np.float64)
+    s = np.where(P[:, 1] < 0, -1.0, 1.0)
+    P[:, 1] = np.abs(P[:, 1])
+    tol = 0.6 * d_mm
+    n = 0
+    for box in _air_boxes(g):
+        for a in range(3):                         # the edge runs along axis a
+            p, q = [i for i in range(3) if i != a]
+            lo, hi = box[a]
+            along = np.ones(len(P), bool)
+            if lo is not None:
+                along &= P[:, a] >= lo - tol
+            if hi is not None:
+                along &= P[:, a] <= hi + tol
+            for ep in box[p]:
+                for eq in box[q]:
+                    if ep is None or eq is None:
+                        continue
+                    hit = along & (np.abs(P[:, p] - ep) < tol) & (np.abs(P[:, q] - eq) < tol)
+                    P[hit, p], P[hit, q] = ep, eq
+                    n += int(hit.sum())
+    P[:, 1] *= s
+    return P, n

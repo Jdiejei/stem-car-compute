@@ -188,21 +188,28 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
     # (the grid study's 0.3-0.6 %). The cells next to the surface -- those with a neighbour
     # of the other sign -- are now driven to D = phi0 / |grad phi0|, their own distance to
     # the drawn surface, which fixes the crossing where it is; the rest move as before.
+    # D from where the surface crosses the grid lines next to the cell: along each axis
+    # with a sign change the crossing is t_a = phi0 / (phi0 - phi_nbr) cells away, and the
+    # plane through those intercepts is 1 / sqrt(sum 1 / t_a^2) away. Exact for a flat
+    # surface and blind to how stretched phi0 is (a gradient estimate was neither: 0.3 %
+    # volume and flipped cells on a 3x-stretched sphere).
     phi0 = grid_f64.copy()
     s0 = np.sign(phi0)
     pad = np.pad(phi0, 1, mode="edge")
     near = phi0 == 0.0
-    g2 = np.zeros_like(phi0)
+    inv2 = np.zeros_like(phi0)
     for ax in range(3):
-        sl = [slice(1, -1)] * 3
-        lo, hi = list(sl), list(sl)
-        lo[ax], hi[ax] = slice(0, -2), slice(2, None)
-        fm, fp = pad[tuple(lo)], pad[tuple(hi)]
-        near |= (np.sign(fm) != s0) | (np.sign(fp) != s0)
-        g = np.maximum.reduce([np.abs(fp - fm) / 2.0, np.abs(fp - phi0), np.abs(phi0 - fm)])
-        g2 += g * g
-    grad0 = np.sqrt(g2) / GRID_SPACING_M
-    D = np.where(grad0 > 1e-12, phi0 / np.maximum(grad0, 1e-12), phi0)
+        best = np.full(phi0.shape, np.inf)
+        for sh in (slice(0, -2), slice(2, None)):
+            idx = [slice(1, -1)] * 3
+            idx[ax] = sh
+            nb = pad[tuple(idx)]
+            cross = np.sign(nb) != s0
+            t = np.abs(phi0) / np.maximum(np.abs(phi0 - nb), 1e-300)
+            best = np.where(cross, np.minimum(best, t), best)
+            near |= cross
+        inv2 += np.where(np.isfinite(best), 1.0 / np.maximum(best, 1e-9) ** 2, 0.0)
+    D = np.where(inv2 > 0, s0 / np.sqrt(np.maximum(inv2, 1e-300)), 0.0) * GRID_SPACING_M
     for _ in range(n_steps):
         grad_mag = _grad_magnitude(grid_f64)
         sign_phi = grid_f64 / np.sqrt(grid_f64 * grid_f64 + eps * eps)
