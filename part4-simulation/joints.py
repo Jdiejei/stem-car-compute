@@ -544,9 +544,43 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
         if assembly.get("wheel_design", {}).get("design") == "team_stl":
             # the team's wheels with the 6 mm bearing seat, in the STL's own frame (mm)
             import wheel as wh
+            wheels = {}
             for tag, (mesh, *_rest) in zip(("front", "rear"), wh.team_wheel_meshes()):
                 mesh.export(str(out / f"printed_wheel_{tag}_x2.stl"))
+                # Listed for the team, not in report["manufactured"]: they are in their own
+                # frame, not placed on the car, and their mass is counted with the wheels.
+                wheels[f"printed_wheel_{tag}_x2"] = {
+                    "cm3": abs(mesh.volume) / 1e3, "g": abs(mesh.volume) / 1e3 * wh.PA12_G_CM3,
+                    "file": str(out / f"printed_wheel_{tag}_x2.stl"), "closed": bool(mesh.is_volume),
+                    "pieces": len(mesh.split(only_watertight=False)), "copies": 2}
+        else:
+            wheels = {}
+        report["parts_list"] = str(out / "parts_list.csv")
+        write_parts_list({**report["manufactured"], **wheels}, report["parts_list"])
     return report
+
+
+MATERIAL_BY_DENSITY = {FOAM_G_CM3: ("Model Block foam", "CNC mill, 6.25 mm ball end, 4 sides"),
+                       1.01: ("PA12", "SLS print"), 1.24: ("PLA", "FDM print")}
+
+
+def write_parts_list(made: dict, path) -> None:
+    """parts_list.csv: one row per file to make, with how, from what, how many, and its size."""
+    import csv
+    from pathlib import Path
+    import trimesh
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["file", "made by", "material", "copies per car", "volume cm3", "mass g each",
+                    "length x width x height mm", "closed solid", "pieces"])
+        for k, v in sorted(made.items()):
+            if "file" not in v:
+                continue
+            rho = v["g"] / v["cm3"] if v["cm3"] else 0.0
+            mat, how = min(MATERIAL_BY_DENSITY.items(), key=lambda kv: abs(kv[0] - rho))[1]
+            ext = trimesh.load(v["file"], force="mesh").extents
+            w.writerow([Path(v["file"]).name, how, mat, v.get("copies", 1), f"{v['cm3']:.3f}", f"{v['g']:.2f}",
+                        " x ".join(f"{e:.1f}" for e in ext), v.get("closed"), v.get("pieces")])
 
 
 def nose_shell(cone_half, wall_mm: float, x_ref_a_mm: float):

@@ -61,3 +61,4 @@ jobs:
             out/${{ matrix.id }}/*.json
             out/${{ matrix.id }}/*.stl
             out/${{ matrix.id }}/manufacture/*.stl
+            out/${{ matrix.id }}/manufacture/*.csv
