@@ -1,0 +1,69 @@
+name: p2_transient
+run-name: "Part 2: does the wake switch? time-accurate runs (${{ inputs.label }})"
+
+# Each car: the usual steady solve on the search mesh, then a pimpleFoam
+# continuation from that converged field for `duration` s of flow time. The
+# drag history shows whether the wake stays put, settles elsewhere or switches,
+# and gives the time-averaged drag. Default cars: three from each drag level
+# of the 16-car noise run (3.90-3.92 high, 3.97-3.99 low).
+on:
+  workflow_dispatch:
+    inputs:
+      label: { required: true }
+      skins: { default: '["3.90","3.91","3.92","3.97","3.98","3.99"]' }
+      duration: { default: "0.15" }
+      iters: { default: "1000" }
+      opt: { default: '{"layer_overrides": {"nSurfaceLayers": 0}}' }
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+  OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+  OMPI_MCA_rmaps_base_oversubscribe: "1"
+
+jobs:
+  car:
+    name: ${{ inputs.label }} ${{ matrix.skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        skin: ${{ fromJSON(inputs.skins) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - run: pip install $PY_DEPS
+      - name: Steady solve
+        working-directory: part5-simulation
+        run: |
+          set -o pipefail
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm ${{ matrix.skin }} \
+            --cfd --cfd-iters ${{ inputs.iters }} --res medium --np 4 --keep-runs --cfd-json '${{ inputs.opt }}' 2>&1 | tail -3
+      - name: Time-accurate continuation
+        working-directory: part2-simulation
+        run: |
+          set -o pipefail
+          r=$(ls -d cfd_case_template/runs/*/ | head -1)
+          python -W ignore transient.py "$r" ../out/t${{ matrix.skin }} --duration ${{ inputs.duration }} --np 4 2>&1 | tail -40
+      - name: Logs
+        if: always()
+        run: |
+          mkdir -p keep && cp out/s${{ matrix.skin }}/summary.json keep/ 2>/dev/null
+          cp out/t${{ matrix.skin }}/transient.json out/t${{ matrix.skin }}/drag_history.txt keep/ 2>/dev/null
+          tail -60 out/t${{ matrix.skin }}/logs/pimpleFoam.log > keep/pimpleFoam_tail.log 2>/dev/null; true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: transient-${{ inputs.label }}-${{ matrix.skin }}
+          path: keep/
