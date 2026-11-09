@@ -768,7 +768,9 @@ def manufactured_checks(assembly: dict) -> dict:
 
     body = solids["machined_body"]
     ch = chamber_measures(body)
-    rear_face = ch["rim_x_mm"] if ch else xf + W + rc.REF_B_BEHIND_REAR_AXLE_MM + 40.0
+    # The block's rear face is the body's own back (the chamber's rim sits 0.2 mm in from it,
+    # where the remesh rounds the bore's edge: placing the block there put 353 mm3 outside it).
+    rear_face = float(body.bounds[1, 0])
     axis_z = ch["axis_z_mm"] if ch else DEFAULT_AXIS_Z_MM
     outside = abs(float(trimesh.boolean.difference([body, official_block_mm(rear_face, axis_z_mm=axis_z)],
                                                    engine="manifold").volume))
