@@ -26,6 +26,9 @@ jobs:
           ls $R; ls $R/src 2>/dev/null | head
           F=$(find $R -iname "*${{ inputs.pattern }}*" | head -20); echo "$F"
           for f in $F; do case "$f" in *.C|*.H) echo "===== $f"; cat "$f";; esac; done
+          T=$R/tutorials/incompressible/adjointOptimisationFoam; find $T -maxdepth 4 -type d | sort
+          for f in $(find $T -name optimisationDict | sort); do echo "===== $f"; grep -E "sensitivityType|includeMeshMovement|adjointRASModel|type  *(force|ESI|FI|shape)|ATCModel " $f; done
+          for f in $(find $T -name adjointRASProperties | sort); do echo "== $f: $(grep adjointRASModel $f)"; done
           if [ -z "$F" ]; then
             echo "no source installed; fetching the tagged release source"
             curl -sL https://develop.openfoam.com/Development/openfoam/-/archive/OpenFOAM-v2412/openfoam-OpenFOAM-v2412.tar.gz?path=src/optimisation/adjointOptimisation/adjoint/optimisation/adjointSensitivity | tar -xz
