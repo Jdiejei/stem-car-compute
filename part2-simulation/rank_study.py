@@ -16,11 +16,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SEEDS = {"L": 47000, "C": 47001}
+# run_car, pattern and stress_cars live in Part 5 (read only); on the path
+# before anything imports them (the first ranking runs died on `import run_car`).
+sys.path[:0] = [str(ROOT / "part5-simulation"), str(ROOT / "part5-simulation" / "checks")]
 
 
 def car_args(car_id: str, out: Path) -> list:
     """run_car arguments for stress car `car_id`, exactly as stress_cars.build_one."""
-    sys.path[:0] = [str(ROOT / "part5-simulation"), str(ROOT / "part5-simulation" / "checks")]
     import pattern
     import stress_cars as sc
     import param_body as pb
