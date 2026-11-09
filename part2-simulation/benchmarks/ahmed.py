@@ -3,13 +3,13 @@
 Experiment: S.R. Ahmed, G. Ramm, G. Faltin, "Some salient features of the
 time-averaged ground vehicle wake", SAE 840300 (1984). 60 m/s, Re = 4.29e6 on
 length, still ground plate. Geometry as given by ERCOFTAC AC1-05:
-length 1.044 m, width 0.389 m, height 0.288 m; front edges rounded R = 0.100 m
-(centres 100 mm in from the front, top, bottom and sides); slant 0.222 m long
-measured ALONG the slant, at phi; body 50 mm above the ground.
+length 1.044 m, width 0.389 m, height 0.288 m; the rounded fore-body (first
+100 mm) from Ahmed's own surface table (ahmed_front.dat, ERCOFTAC); sharp
+edges behind it; slant 0.222 m long measured ALONG the slant, at phi; body
+50 mm above the ground.
 
-The body is convex, so it is the convex hull of the four front corner spheres
-and the rear corners. Spherical front corners are the usual reading of the
-drawing; the exact fore-body table (Ahmed_Front_Geo.dat) is not used.
+The body is convex, so it is the convex hull of the fore-body table and the
+rear corners.
 ponytail: stilts (4 x 30 mm) left out; add them if the residual error points there.
 
     python benchmarks/ahmed.py --slant 35 --res medium --iters 2000 --np 4 --out out
@@ -24,30 +24,28 @@ from pathlib import Path
 
 import numpy as np
 
-L, W, H, R, LS, GAP = 1.044, 0.389, 0.288, 0.100, 0.222, 0.050
+L, W, H, LS, GAP = 1.044, 0.389, 0.288, 0.222, 0.050
 A_REF = W * H            # 0.112 m^2, full-body reference area used by Ahmed
 RE = 4.29e6              # on length, as in the experiment
 RHO = 1.225
 
 
-def _unit_sphere(n: int) -> np.ndarray:
-    """n near-uniform points on the unit sphere (Fibonacci lattice)."""
-    i = np.arange(n) + 0.5
-    polar = np.arccos(1.0 - 2.0 * i / n)
-    az = math.pi * (1.0 + 5.0 ** 0.5) * i
-    return np.c_[np.cos(az) * np.sin(polar), np.sin(az) * np.sin(polar), np.cos(polar)]
+FRONT = Path(__file__).with_name("ahmed_front.dat")
 
 
-def half_body(slant_deg: float, n: int = 20000):
+def half_body(slant_deg: float):
     """Closed trimesh of the right half (y >= 0), metres, ground at z = 0."""
     import trimesh
 
-    s = _unit_sphere(n)
-    s = s[s[:, 1] >= 0.0] * R               # the outward (+y) hemisphere
+    q = np.loadtxt(FRONT, comments="#") / 1000.0          # quarter fore-body, m
+    # the table overshoots the 389 x 288 box by up to 0.2 mm: clamp onto it
+    q[:, 1] = np.minimum(q[:, 1], W / 2)
+    q[:, 2] = np.minimum(q[:, 2], H / 2)
+    zmid = GAP + H / 2
     pts = []
-    for zc in (GAP + R, GAP + H - R):
-        p = s + (R, W / 2 - R, zc)
-        pts += [p, p * (1.0, 0.0, 1.0)]     # and its shadow on the symmetry plane
+    for sz in (1.0, -1.0):                                 # upper and lower quarter
+        p = np.c_[q[:, 0], q[:, 1], zmid + sz * q[:, 2]]
+        pts += [p, p * (1.0, 0.0, 1.0)]                   # and its shadow on the symmetry plane
     a = math.radians(slant_deg)
     x_slant, z_base = L - LS * math.cos(a), GAP + H - LS * math.sin(a)
     for y in (0.0, W / 2):

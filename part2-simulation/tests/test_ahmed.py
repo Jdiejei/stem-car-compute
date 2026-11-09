@@ -32,9 +32,17 @@ def test_half_body_matches_the_published_drawing(slant):
         stl = Path(d) / "a.stl"
         ahmed.write_ascii_stl(m, stl)
         _assert_watertight_stl(str(stl))            # what the CFD wrapper demands
-        # frontal area: the 0.389 x 0.288 box less four R = 100 mm rounded corners
-        want = (ahmed.W * ahmed.H - (4 - math.pi) * ahmed.R ** 2) / 2
-        assert oc.compute_frontal_area_half(str(stl)) == pytest.approx(want, rel=5e-3)
+        # frontal area: only the nose is rounded; the mid-body section is a
+        # 0.389 x 0.288 rectangle (corners rounded by ~4 mm), Ahmed's 0.112 m^2
+        want = ahmed.W * ahmed.H / 2
+        assert oc.compute_frontal_area_half(str(stl)) == pytest.approx(want, rel=1e-3)
+
+    # the flat nose face is Ahmed's: 160 x 70 mm, centred on the mid-height
+    nose = m.vertices[m.vertices[:, 0] < 1e-9]
+    zmid = ahmed.GAP + ahmed.H / 2
+    assert nose[:, 1].max() == pytest.approx(0.080, abs=1e-9)
+    assert nose[:, 2].max() - zmid == pytest.approx(0.035, abs=1e-9)
+    assert zmid - nose[:, 2].min() == pytest.approx(0.035, abs=1e-9)
 
 
 @pytest.mark.parametrize("moving, want", [(True, "fixedValue; value uniform (60.0 0 0)"),
