@@ -32,9 +32,13 @@ THRUST_CSV = HERE / "co2_thrust_data.csv"
 # 2026-11 measurement on 8 cars (only good to a factor of 3); replace it with
 # the 16-car figure from p2_noise (noise_stats.py) when that lands.
 NOISE_S = 1.0e-3
+# ONE meshing frame for every car (as run_car.make_bindings): the legal envelope
+# for the default scalars (x_front 46, W 120.3 mm), so background cells and boxes
+# never move with the car. A car outside it raises; pass cfd={"domain_reference_bounds": ...}.
+FRAME = ((-0.011, 0.0, 0.0), (0.2233, 0.0435, 0.066))
 # The search mesh (part5 solver.SEARCH_CFD / SEARCH_ITERS).
 SEARCH = {"resolution": "medium", "max_iterations": 1000,
-          "layer_overrides": {"nSurfaceLayers": 0}}
+          "layer_overrides": {"nSurfaceLayers": 0}, "domain_reference_bounds": FRAME}
 DT_NAMES = ("drag_20_n", "car_weight_kg", "lift_20_n", "com_x_m", "com_height_m")
 
 
