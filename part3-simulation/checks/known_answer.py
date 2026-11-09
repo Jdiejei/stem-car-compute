@@ -311,18 +311,20 @@ def stats(pred: np.ndarray, meas: np.ndarray) -> dict:
                 slope=float(np.dot(pred, meas) / np.dot(pred, pred)))
 
 
-def measured_map(src: Path, runs: dict, meas, singles, sign_set, result: dict) -> None:
+def measured_map(src: Path, runs: dict, meas, singles, sign_set, result: dict, ks) -> None:
     """The backup measured map (12.7) built from the 40 modes alone, judged on the test shapes.
     Map density m (per unit area) is the least-squares one in the modes' span that reproduces
     every mode's measured slope: sum_i m_i phi_k(i) A_i = c_k. A shape b then predicts
     sum_i m_i b_i A_i."""
     idx = [N_TEST + m for m in range(len(MODES))]
-    if not all((k, a) in runs for k in idx for a in (1.0, -1.0)):
-        print(f"LAB measured map: modes not all run ({sum((k, 1.0) in runs for k in idx)}/{len(idx)}), skipped")
+    idx = [k for k in idx if (k, 1.0) in runs and (k, -1.0) in runs]
+    print(f"LAB measured map: {len(idx)}/{len(MODES)} modes measured", flush=True)
+    if len(idx) < len(MODES) * 0.9:
+        print("LAB measured map: under 90% of the modes measured, skipped")
         return
     c = np.array([(runs[(k, 1.0)]["J"] - runs[(k, -1.0)]["J"]) / 2 for k in idx])
     z = np.load(next(src.rglob("base_*.npz")))
-    Phi, A, B = z["bumps"][idx], z["area"], z["bumps"][:len(meas)]
+    Phi, A, B = z["bumps"][idx], z["area"], z["bumps"][ks]
     G = (Phi * A) @ Phi.T
     m = Phi.T @ np.linalg.solve(G, c)
     pred = B @ (m * A)
@@ -342,11 +344,15 @@ def judge(src: Path) -> int:
     for f in src.rglob("bump_*.json"):
         d = json.loads(f.read_text())
         runs[(d["k"], d["amp"])] = d
-    K = max(k for k in range(N_TEST) if all((j, a) in runs for j in range(k + 1) for a in (1.0, -1.0, 0.5, -0.5))) + 1
-    singles = np.arange(OFFICIAL)                                    # r mark
-    sign_set = np.r_[singles, np.arange(len(CENTRES), K)]            # sign mark: singles and pairs
-    cd = {a: np.array([(runs[(k, a)]["J"] - runs[(k, -a)]["J"]) / 2 for k in range(K)]) for a in (1.0, 0.5)}
-    noise = np.array([max(runs[(k, s * a)]["spread"] for a in (1.0, 0.5) for s in (1, -1)) for k in range(K)])
+    ks = np.array([k for k in range(N_TEST) if all((k, a) in runs for a in (1.0, -1.0, 0.5, -0.5))])
+    missing = sorted(set(range(N_TEST)) - set(ks.tolist()))
+    K = len(ks)
+    print(f"LAB test shapes measured: {K}/{N_TEST}; missing {missing}")
+    singles = np.flatnonzero(ks < OFFICIAL)                          # r mark (positions in ks)
+    sign_set = np.flatnonzero((ks < OFFICIAL) | (ks >= len(CENTRES)))  # sign mark: singles and pairs
+    all_singles = np.flatnonzero(ks < len(CENTRES))
+    cd = {a: np.array([(runs[(k, a)]["J"] - runs[(k, -a)]["J"]) / 2 for k in ks]) for a in (1.0, 0.5)}
+    noise = np.array([max(runs[(k, s * a)]["spread"] for a in (1.0, 0.5) for s in (1, -1)) for k in ks])
     bad_mesh = [k for (k, a), d in runs.items() if not d["mesh_ok"]]
     meas = cd[1.0]
     lin = cd[1.0] / (2 * cd[0.5])
@@ -360,7 +366,7 @@ def judge(src: Path) -> int:
     for f in sorted(src.rglob("base_*.npz")):
         name = f.stem[5:]
         z = np.load(f)
-        B = z["bumps"][:K]
+        B = z["bumps"][ks]
         raw = VARIANTS.get(name, {}).get("raw", False)
         for key in [k for k in z.files if k.startswith("f_")]:
             v = z[key]
@@ -377,7 +383,7 @@ def judge(src: Path) -> int:
                 if "m_pointMagSf" in z.files:
                     preds["x OpenFOAM pointMagSf"] = B @ (v * z["m_pointMagSf"])
             for how, pred in preds.items():
-                off, all_ = stats(pred[singles], meas[singles]), stats(pred[:len(CENTRES)], meas[:len(CENTRES)])
+                off, all_ = stats(pred[singles], meas[singles]), stats(pred[all_singles], meas[all_singles])
                 sg = float(np.mean(np.sign(pred[sign_set]) == np.sign(meas[sign_set])))
                 result["variants"][f"{name} {key[2:]} {how}"] = dict(official=off, all=all_, sign_set=sg,
                                                                      pred=pred.tolist())
@@ -388,10 +394,10 @@ def judge(src: Path) -> int:
                     print(f"LAB car per shape: measured / predicted: "
                           f"{np.array2string(meas / pred, precision=3, max_line_width=250)}", flush=True)
     for how, v in verdict.items():
-        ok = v and not bad_mesh and bool(clear[sign_set].all())
+        ok = v and not bad_mesh and bool(clear[sign_set].all()) and not [k for k in missing if k < OFFICIAL or k >= len(CENTRES)]
         print(f"LAB VERDICT car settings, {how} (sign >= 90% of singles and pairs, r >= 0.9 on the 10 official "
               f"singles, all clear of 3x noise): {'PASS' if ok else 'FAIL'}")
-    measured_map(src, runs, meas, singles, sign_set, result)
+    measured_map(src, runs, meas, singles, sign_set, result, ks)
     (src / "known_answer_result.json").write_text(json.dumps(result, indent=1))
     return 0
 
