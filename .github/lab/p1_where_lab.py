@@ -136,7 +136,11 @@ if what == "inside":
     import coarse; coarse.use_spacing(1.0)
     g = up.build_unified_geometry(127.0, 49.0, 41.0, init_mode="full")
     up.enforce_symmetry(g)
-    mesh = up.extract_half_surface(g)
+    import warnings
+    with warnings.catch_warnings(record=True) as ws:
+        warnings.simplefilter("always")
+        mesh = up.extract_half_surface(g)
+    print(f"LAB where inside: warnings {[str(w.message)[:80] for w in ws]}", flush=True)
     P = np.asarray(mesh.vertices) * 1e3
     X, aY, Z = P[:, 0], np.abs(P[:, 1]), P[:, 2]
     ra = g.landmarks["ref_plane_A_m"] * 1e3

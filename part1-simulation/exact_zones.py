@@ -266,11 +266,15 @@ def halo_zones(X, aY, Z, ref_A_mm, d_halo_mm, canister=None, part="all"):
             # to the tail; each piece with true end faces. The mask puts each join on the cell
             # holding it, and a one-sided switch there put mask cells 2-6 mm out (2026-11-10).
             # (positive inside: a piece is the min of its faces, the union the max)
-            out.append(np.minimum.reduce([X - x1, xc - X, Z - ceil_]))
+            # Over the halo (|y| <= its half width) both parts run on forward to its front:
+            # there they lie inside the air above it anyway, and a face at its rear left
+            # points above both no depth (stuck on x = rear face, 2026-11-10).
+            xf = np.where(aY <= hw, x0, x1)
+            out.append(np.minimum.reduce([X - xf, xc - X, Z - ceil_]))
             # The flat part from the halo's rear, not the bore front: ahead of the bore it is
             # inside the deck part anyway, and a face at the join gave points above both
             # ceilings no depth there; the projection bounced them across it (2026-11-10).
-            out.append(np.minimum(X - x1, Z - (zc + r)))
+            out.append(np.minimum(X - xf, Z - (zc + r)))
     if part == "shadows":
         return np.maximum.reduce(out)
     return np.maximum.reduce(out + [above])
@@ -352,4 +356,8 @@ def cut_boxes(g, mesh):
     raw = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
                           process=False)
     out = trimesh.load(io.BytesIO(raw.export(file_type="stl")), file_type="stl", force="mesh")
-    return out if out.is_volume else mesh
+    if not out.is_volume:
+        import warnings
+        warnings.warn("cut_boxes: the boolean did not give a volume; mesh left uncut", RuntimeWarning, stacklevel=2)
+        return mesh
+    return out

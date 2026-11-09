@@ -250,7 +250,14 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
             lin = np.abs(phi0) / np.maximum(np.abs(phi0 - nb), 1e-300)
             ok = (b2 * b2 - 4.0 * a2 * phi0 >= 0) & (tq >= 0) & (tq <= 1)
             t = np.where(ok, tq, lin)
-            best = np.where(cross, np.minimum(best, t), best)
+            # The slope at the cell from the same parabola (central where it is smooth,
+            # one-sided across a kink): D = phi0 / |grad|. The plane through the crossings
+            # instead is a chord, inside a convex surface for cells on both sides, and every
+            # pass took another 0.15 % off a sphere (2026-11-10).
+            sl = np.where(ok, np.abs(b2), np.abs(phi0 - nb))
+            take = cross & (t < best)
+            slope = np.where(take, sl, slope) if s == 1 else np.where(take, sl, 0.0)
+            best = np.where(take, t, best)
             near |= cross
         # An axis with no crossing still has a slope: dropping it put oblique cells of a
         # sphere 20 % too far (2026-11-10). Centred, not one-sided: a one-sided slope leans
@@ -258,8 +265,7 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
         lo_, hi_ = [slice(1, -1)] * 3, [slice(1, -1)] * 3
         lo_[ax], hi_[ax] = slice(0, -2), slice(2, None)
         g = 0.5 * np.abs(pad[tuple(hi_)] - pad[tuple(lo_)])
-        inv2 += np.where(np.isfinite(best), 1.0 / np.maximum(best, 1e-9) ** 2,
-                         (g / np.maximum(np.abs(phi0), 1e-300)) ** 2)
+        inv2 += (np.where(np.isfinite(best), slope, g) / np.maximum(np.abs(phi0), 1e-300)) ** 2
     D = np.where(inv2 > 0, s0 / np.sqrt(np.maximum(inv2, 1e-300)), 0.0) * GRID_SPACING_M
     for _ in range(n_steps):
         sign_phi = grid_f64 / np.sqrt(grid_f64 * grid_f64 + eps * eps)
