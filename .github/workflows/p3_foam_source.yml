@@ -1,0 +1,33 @@
+name: p3_foam_source
+run-name: "Part 3: read OpenFOAM's own source for the map's units and direction"
+
+# Prints the v2412 source of the surface-points sensitivity, to settle whether pointSensNormal
+# is per point or per unit area, and which normal it uses.
+on:
+  workflow_dispatch:
+    inputs:
+      pattern: { default: "sensitivitySurfacePoints" }
+
+permissions: { contents: read }
+
+jobs:
+  read:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - shell: bash
+        run: |
+          R=/usr/lib/openfoam/openfoam2412
+          ls $R; ls $R/src 2>/dev/null | head
+          F=$(find $R -iname "*${{ inputs.pattern }}*" | head -20); echo "$F"
+          for f in $F; do case "$f" in *.C|*.H) echo "===== $f"; cat "$f";; esac; done
+          if [ -z "$F" ]; then
+            echo "no source installed; fetching the tagged release source"
+            curl -sL https://develop.openfoam.com/Development/openfoam/-/archive/OpenFOAM-v2412/openfoam-OpenFOAM-v2412.tar.gz?path=src/optimisation/adjointOptimisation/adjoint/optimisation/adjointSensitivity | tar -xz
+            for f in $(find . -iname "*${{ inputs.pattern }}*" -name "*.[CH]"); do echo "===== $f"; cat "$f"; done
+          fi
