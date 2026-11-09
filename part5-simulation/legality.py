@@ -1123,7 +1123,10 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
                if "closed" in v and not (v["closed"] and v["pieces"] == v["pieces_expected"])]
         r["manufacture_files_are_solids"] = _entry(
             0.0 if j["machined_body_watertight"] and not bad else -1.0,
-            "not one closed solid per part: " + ", ".join(bad) if bad else
+            "not solid: " + ", ".join(       # short: car rows keep 80 characters
+                f"{k} closed {j['manufactured'][k]['closed']} pieces {j['manufactured'][k]['pieces']}"
+                f"/{j['manufactured'][k]['pieces_expected']} remeshed {j['manufactured'][k].get('remeshed')}" for k in bad)
+            if bad else
             f"{len(j.get('manufactured', {}))} files")
     for k, m in assembly.get("gates", {}).items():
         r[f"P4.{k}"] = _entry(m)
