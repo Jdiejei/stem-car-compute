@@ -19,6 +19,7 @@ import numpy as np  # noqa: E402
 from p1_carve_common import carve  # noqa: E402
 
 seed, k = int(sys.argv[1]), int(sys.argv[2])
+MILL = not (len(sys.argv) > 3 and sys.argv[3] == "nomill")      # nomill: skip the ball-end milling
 lay, src, verdicts = carve(seed, k, 1.0)
 rows = {}
 for s in (1.0, 0.75, 0.5):
@@ -28,7 +29,7 @@ for s in (1.0, 0.75, 0.5):
     coarse.use_spacing(s)
     dst = up.remap_geometry(src) if s != 1.0 else src
     b = pb.build(lay["W"], lay["x_front"], lay["d_halo"], pb.BodyParams(), skin_offset_mm=0.0,
-                 field_mm=dst.phi.grid * 1e3)
+                 field_mm=dst.phi.grid * 1e3, machinable=MILL)
     m = sum(c.mass_kg for c in up.compute_mass_com(b)) * 1e3
     S = b.phi.grid < 0
     r, d = b.region, up.GRID_SPACING_M
@@ -52,7 +53,7 @@ if p is not None:
     C = (mm[0] - mm[2]) / (h[0] ** p - h[2] ** p)
     m0 = float(mm[2] - C * h[2] ** p)
 spread = float((mm.max() - mm.min()) / mm[2] * 100)
-print("LAB " + json.dumps({"seed": seed, "k": k, "summary": True, "spread_pct": round(spread, 3),
+print("LAB " + json.dumps({"seed": seed, "k": k, "summary": True, "mill": MILL, "spread_pct": round(spread, 3),
                            "order_p": None if p is None else round(p, 2),
                            "richardson_mass_g": None if m0 is None else round(m0, 4),
                            "grid_error_g": None if m0 is None else round(float(mm[2] - m0), 4),
