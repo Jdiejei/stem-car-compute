@@ -292,28 +292,26 @@ def _air_boxes(g):
     return out
 
 
-def snap_edges(g, V_mm, d_mm):
-    """Vertices within 0.6 cell of an air box's edge (both cross coordinates) put on it."""
-    P = np.array(V_mm, dtype=np.float64)
-    s = np.where(P[:, 1] < 0, -1.0, 1.0)
-    P[:, 1] = np.abs(P[:, 1])
-    tol = 0.6 * d_mm
-    n = 0
+def cut_boxes(g, mesh):
+    """The half body (metres) minus the box air zones, by an exact solid boolean: their edges
+    come out sharp, where marching cubes cut across them (the block slot's top corners, 5.5
+    mm3 inside the slot, Part 4, 2026-11-09). Snapping vertices onto the edges instead broke
+    the mesh (not a volume). Returns the mesh unchanged if the boolean does not give a volume."""
+    import manifold3d as m3
+    import trimesh
+    try:
+        body = m3.Manifold(m3.Mesh(vert_properties=np.asarray(mesh.vertices, np.float32),
+                                   tri_verts=np.asarray(mesh.faces, np.uint32)))
+    except Exception:  # noqa: BLE001
+        return mesh
+    if body.is_empty():
+        return mesh
+    cut = None
     for box in _air_boxes(g):
-        for a in range(3):                         # the edge runs along axis a
-            p, q = [i for i in range(3) if i != a]
-            lo, hi = box[a]
-            along = np.ones(len(P), bool)
-            if lo is not None:
-                along &= P[:, a] >= lo - tol
-            if hi is not None:
-                along &= P[:, a] <= hi + tol
-            for ep in box[p]:
-                for eq in box[q]:
-                    if ep is None or eq is None:
-                        continue
-                    hit = along & (np.abs(P[:, p] - ep) < tol) & (np.abs(P[:, q] - eq) < tol)
-                    P[hit, p], P[hit, q] = ep, eq
-                    n += int(hit.sum())
-    P[:, 1] *= s
-    return P, n
+        lo = [b[0] if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
+        hi = [b[1] if b[1] is not None else 500.0 for b in box]
+        c = m3.Manifold.cube([(h - l) / 1e3 for l, h in zip(lo, hi)]).translate([l / 1e3 for l in lo])
+        cut = c if cut is None else cut + c
+    o = (body - cut).to_mesh()
+    out = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3], np.asarray(o.tri_verts), process=True)
+    return out if out.is_volume else mesh

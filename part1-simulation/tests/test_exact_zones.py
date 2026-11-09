@@ -114,7 +114,7 @@ def test_half_body_mesh_stays_out_of_every_zone():
     mesh = up.extract_half_surface(g)
     a = ez.air_at_points(g, np.asarray(mesh.vertices) * 1e3)
     assert a.max() <= 1e-3, f"{int((a > 1e-3).sum())} vertices inside a zone, worst {a.max():.3f} mm"
-    assert mesh.is_watertight
+    assert mesh.is_watertight and mesh.is_volume
 
 
 @pytest.mark.parametrize("spacing", [1.0, 0.75])
@@ -145,5 +145,6 @@ def test_slot_corners_are_sharp_in_the_half_body():
     slot.apply_translation([200.0, 0.0, MODEL_BLOCK_SLOT_TOP_Z_MM - 20.0])
     h = half.copy()
     h.apply_scale(1e3)
-    inside = h.intersection(slot, engine="manifold").volume if h.is_volume else 0.0
+    assert h.is_volume, "the half body is not a closed volume"
+    inside = h.intersection(slot, engine="manifold").volume
     assert inside < 0.5, f"{inside:.2f} mm3 of body inside the block slot"
