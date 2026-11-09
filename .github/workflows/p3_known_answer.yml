@@ -1,44 +1,73 @@
 name: p3_known_answer
-run-name: "Part 3: known-answer wing test (${{ inputs.stage }})"
+run-name: "Part 3: known-answer wing test, 20 bumps, 5 map settings"
 
 # Step 1 of Part 3: prove the adjoint on a 2-D wing where measured slopes are cheap and quiet.
-# stage=inspect prints the shipped wing case and what its sensitivity run writes.
+# 5 adjoint settings side by side; 20 bumps, each measured at +-a and +-a/2 (4 runs on 4 cores).
 on:
   workflow_dispatch:
-    inputs:
-      stage: { default: "inspect" }
 
 permissions: { contents: read }
 
+env:
+  INSTALL: |
+    (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+    curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+    sudo apt-get install -y -q openfoam2412-default
+    pip install numpy==2.4.6 scipy==1.17.1
+
 jobs:
-  inspect:
-    if: inputs.stage == 'inspect'
+  base:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix: { variant: [car, car_cancel, car_mm, sst, sst_mm] }
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
       - timeout-minutes: 25
-        run: |
-          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
-          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
-          sudo apt-get install -y -q openfoam2412-default
-      - shell: bash
-        run: |
-          source /usr/lib/openfoam/openfoam2412/etc/bashrc || true
-          T=$FOAM_TUTORIALS/incompressible/adjointOptimisationFoam/shapeOptimisation/naca0012/kOmegaSST/lift
-          cp -r "$T" case && cd case
-          find . -type f | sort | xargs ls -la
-          for f in $(find . -type f -size -40k | sort); do
-            case "$(file -b --mime-type "$f")" in text/*) echo "===== $f"; cat "$f";; esac
-          done
-      - shell: bash
-        run: |
-          source /usr/lib/openfoam/openfoam2412/etc/bashrc || true
-          cd case
-          sed -i 's/^\( *nIters *\)[0-9]*/\1300/' system/optimisationDict || true
-          timeout 1200 ./Allrun || echo "Allrun stopped (timeout or error)"
-          for l in log.*; do echo "===== $l (tail)"; tail -40 "$l"; done
-          echo "===== files written"; find . -newer system/controlDict -type f | grep -v processor | sort | head -300
-          for d in $(ls -d [0-9]* | sort -g | tail -1); do
-            for f in $(ls $d); do echo "===== $d/$f (head)"; head -40 "$d/$f"; done
-          done
-          find optimisation -type f | head -50 | while read f; do echo "===== $f"; head -30 "$f"; done
+        run: bash -c "$INSTALL"
+      - run: python -u part3-simulation/checks/known_answer.py base ${{ matrix.variant }} out
+      - if: always()
+        run: tail -60 ka_base_*/log.run || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: "base-${{ matrix.variant }}", path: out, if-no-files-found: ignore }
+
+  bump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix: { k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: bash -c "$INSTALL"
+      - run: |
+          for a in 1 -1 0.5 -0.5; do python -u part3-simulation/checks/known_answer.py bump ${{ matrix.k }} $a out > log_$a.txt 2>&1 & done
+          wait
+          cat log_*.txt
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: "bump-${{ matrix.k }}", path: out, if-no-files-found: ignore }
+
+  judge:
+    needs: [base, bump]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6 scipy==1.17.1
+      - uses: actions/download-artifact@v4
+        with: { path: res }
+      - run: python -u part3-simulation/checks/known_answer.py judge res
+      - uses: actions/upload-artifact@v4
+        with: { name: result, path: res/known_answer_result.json }
