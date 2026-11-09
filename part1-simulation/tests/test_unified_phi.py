@@ -397,3 +397,23 @@ def test_open_pockets_are_left_alone():
         f"an open trench at ({i},{j}) lost {before - after} air cells -- the "
         f"projection is filling void the tool can reach")
     _pass("test_open_pockets_are_left_alone")
+
+
+def test_drop_thin_strips_removes_sub_cell_strips_only():
+    """A one-cell strip (air on two axes) goes; a one-cell plate and forced solid stay.
+    Guards the 2026-11-09 remap sliver fix: without it the strip meshes as 0-degree faces."""
+    from types import SimpleNamespace
+    from unified_phi import drop_thin_strips
+    grid = np.full((9, 9, 9), 1e-3, dtype=np.float32)
+    grid[2, 2, 1:8] = -1e-3                       # strip along z: thin in x and y
+    grid[5:8, 6, 1:8] = -1e-3                     # plate in x-z: thin in y only
+    grid[6, 2, 1:8] = -1e-3                       # forced-solid strip
+    H = np.zeros(grid.shape, bool)
+    H[6, 2, 1:8] = True
+    g = SimpleNamespace(phi=SimpleNamespace(grid=grid, hard_mask_solid=H))
+    assert drop_thin_strips(g, 1e-3) == 7
+    S = g.phi.grid < 0
+    assert not S[2, 2].any(), "the strip survived"
+    assert S[5:8, 6, 1:8].all(), "the plate was eaten"
+    assert S[6, 2, 1:8].all(), "forced solid was removed"
+    assert drop_thin_strips(g, 1e-3) == 0

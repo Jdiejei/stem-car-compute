@@ -805,6 +805,33 @@ def close_pinches(geom: "UnifiedGeometry", spacing_m: float, rounds: int = 4) ->
     return total
 
 
+def drop_thin_strips(geom: "UnifiedGeometry", spacing_m: float, rounds: int = 4) -> int:
+    """Turn to air every solid cell with air on both sides along two or more axes: a strip
+    (or speck) thinner than one cell. Carving left one at the T8.5.1 cap's edge; a remap to
+    a finer grid then redistanced it to |phi| ~ 1e-3 cell and marching cubes gave 0-degree
+    slivers (2026-11-09, remap_lab). Too thin to machine or survive a race, so nothing real
+    is lost. One-cell plates (air on one axis only) are kept; forced solid is never touched."""
+    H = getattr(geom.phi, "hard_mask_solid", None)
+    total = 0
+    for _ in range(rounds):
+        S = geom.phi.grid < 0
+        P = np.pad(S, 1, constant_values=False)          # outside the box is air
+
+        def at(a, d):
+            idx = [slice(1, -1)] * 3
+            idx[a] = slice(1 + d, P.shape[a] - 1 + d)
+            return tuple(idx)
+        n = sum((~P[at(a, -1)] & ~P[at(a, 1)]).astype(np.int8) for a in range(3))
+        drop = S & (n >= 2)
+        if H is not None:
+            drop &= ~H
+        if not drop.any():
+            break
+        geom.phi.grid[drop] = 0.25 * spacing_m
+        total += int(drop.sum())
+    return total
+
+
 def remap_geometry(
     prev_geom: "UnifiedGeometry",
     W_mm: float = None,
@@ -880,6 +907,7 @@ def remap_geometry(
     reinitialise_sdf(new.phi)          # restore |grad phi| = 1 after interpolation
     new.phi.apply_hard_constraints()   # reinit can nudge cells across the masks
     enforce_symmetry(new)
+    drop_thin_strips(new, dst_dx)      # reinit shrinks a sub-cell strip to ~0: slivers
     return new
 
 
