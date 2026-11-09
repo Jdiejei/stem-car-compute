@@ -1,0 +1,105 @@
+name: p2_noise_morph
+run-name: "Part 2: timing noise with a reshaped (not rebuilt) mesh (${{ inputs.label }})"
+
+# Noise fix 3 (BUILD_SPEC 12.3): one reference car is meshed normally; the 16
+# ladder cars reuse its mesh, moved onto their own surface (morph_from), so the
+# mesh topology never changes. Then the same residual-SD statistics as p2_noise.
+on:
+  workflow_dispatch:
+    inputs:
+      label: { required: true }
+      ref_skin: { default: "3.975" }
+      res: { default: "medium" }
+      iters: { default: "1000" }
+      opt: { default: '{"layer_overrides": {"nSurfaceLayers": 0}}' }
+      skins: { default: '["3.90","3.91","3.92","3.93","3.94","3.95","3.96","3.97","3.98","3.99","4.00","4.01","4.02","4.03","4.04","4.05"]' }
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+  OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+  OMPI_MCA_rmaps_base_oversubscribe: "1"
+
+jobs:
+  ref:
+    name: ${{ inputs.label }} reference ${{ inputs.ref_skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - run: pip install $PY_DEPS
+      - working-directory: part5-simulation
+        run: |
+          python -W ignore run_car.py --out ../out/ref --body-json '{}' --skin-mm ${{ inputs.ref_skin }} --cfd \
+            --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np 4 --keep-runs --cfd-json '${{ inputs.opt }}' 2>&1 | tail -3
+      - run: |
+          r=$(ls -d part2-simulation/cfd_case_template/runs/*/ | head -1)
+          mkdir -p refmesh/constant && cp -r "$r/constant/polyMesh" refmesh/constant/
+          du -sh refmesh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: morphref-${{ inputs.label }}
+          path: refmesh
+          retention-days: 3
+
+  car:
+    needs: ref
+    name: ${{ inputs.label }} ${{ matrix.skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        skin: ${{ fromJSON(inputs.skins) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - run: pip install $PY_DEPS
+      - uses: actions/download-artifact@v4
+        with: { name: "morphref-${{ inputs.label }}", path: /tmp/refmesh }
+      - working-directory: part5-simulation
+        run: |
+          opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); d['morph_from']='/tmp/refmesh'; print(json.dumps(d))" '${{ inputs.opt }}')
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm ${{ matrix.skin }} \
+            --cfd --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np 4 --keep-runs --cfd-json "$opt" 2>&1 | tail -3
+      - name: Morph log
+        if: always()
+        run: tail -30 part2-simulation/cfd_case_template/runs/*/logs/moveMesh.log 2>/dev/null; grep -h -A3 "Mesh OK\|Failed" part2-simulation/cfd_case_template/runs/*/logs/checkMesh.log 2>/dev/null | head -20
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: noise-${{ inputs.label }}-${{ matrix.skin }}
+          path: out/s${{ matrix.skin }}/summary.json
+
+  noise:
+    needs: car
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6 scipy==1.17.1
+      - uses: actions/download-artifact@v4
+        with: { pattern: "noise-${{ inputs.label }}-*", path: got }
+      - run: |
+          args=$(for d in got/noise-*; do s=${d##*-}; [ -f "$d/summary.json" ] && echo "$s=$d/summary.json"; done)
+          python part2-simulation/noise_stats.py $args | tee -a "$GITHUB_STEP_SUMMARY"
