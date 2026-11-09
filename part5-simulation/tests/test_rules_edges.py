@@ -247,11 +247,12 @@ def test_guides_on_the_wrong_side_or_too_many(xs, rule, tmp_path):
 
 
 def test_a_hairline_in_the_bore_is_not_a_wider_bore_but_a_groove_is(tmp_path):
-    # The real milled file has a no-width crack at y = 0 along the bore (lab 2026-11-09).
-    bad, r = fails(tmp_path, bore_slit=0.02)
+    # The real milled file has a V-notch at y = 0 along the bore (lab 2026-11-09); a gauge
+    # (0.5 mm caliper tips) does not see a 0.4 mm slot, it sees a 1 mm groove.
+    bad, r = fails(tmp_path, bore_slit=0.4)
     assert not bad, {k: r[k] for k in bad}
     (tmp_path / "groove").mkdir()
-    bad, r = fails(tmp_path / "groove", bore_slit=0.4)
+    bad, r = fails(tmp_path / "groove", bore_slit=1.0)
     assert bad == {"T5.1_diameter_max"}, (bad, r["T5.1_diameter_max"])
 
 
