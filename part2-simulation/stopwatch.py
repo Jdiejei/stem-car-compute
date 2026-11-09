@@ -28,10 +28,11 @@ import physics_contract as pc
 
 HERE = Path(__file__).resolve().parent
 THRUST_CSV = HERE / "co2_thrust_data.csv"
-# Race-time noise sigma of ONE car on the search mesh, seconds. 1 ms is the
-# 2026-11 measurement on 8 cars (only good to a factor of 3); replace it with
-# the 16-car figure from p2_noise (noise_stats.py) when that lands.
-NOISE_S = 1.0e-3
+# Race-time noise sigma of ONE car on the search mesh, seconds. Measured
+# 2026-11-09 (p2_noise n1, mxnviir run 42642036465): 16 cars at skins 0.01 mm
+# apart, residual SD 1.95 ms, 95 % interval 1.43 to 3.08 ms. Update it when a
+# noise fix lands.
+NOISE_S = 1.95e-3
 # ONE meshing frame for every car (as run_car.make_bindings): the legal envelope
 # for the default scalars (x_front 46, W 120.3 mm), so background cells and boxes
 # never move with the car. A car outside it raises; pass cfd={"domain_reference_bounds": ...}.
