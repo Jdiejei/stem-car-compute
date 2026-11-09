@@ -1,0 +1,38 @@
+name: p4_lab
+run-name: "Part 4: lab experiment (${{ inputs.script }})"
+
+# Part 4's experiments: one script from .github/lab, run from part5-simulation.
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        default: p4_chamber_lab.py
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+
+jobs:
+  lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: Run
+        working-directory: part5-simulation
+        run: |
+          set -o pipefail
+          mkdir -p ../out
+          python -W ignore ../.github/lab/${{ inputs.script }} 2>&1 | tee ../out/lab.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lab
+          path: out/lab.log
