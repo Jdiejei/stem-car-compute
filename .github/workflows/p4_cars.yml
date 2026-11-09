@@ -1,0 +1,63 @@
+name: p4_cars
+run-name: "Part 4: whole reference cars through the referee"
+
+# Part 4's slice of the main account: the reference cars (no CFD), every rule check listed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+
+jobs:
+  car:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix:
+        include:
+          - { id: start, args: "--body-json '{}'" }
+          - { id: round2, args: "--body-json \"$(cat checks/round2_car.json)\"" }
+          - { id: parts, args: "--body-json \"$(cat checks/round2_car.json)\" --fwing-json '{\"aoa_deg\": 8.0}' --support-json '{\"disc_front\": true}' --nose-json '{\"length_mm\": 25.0, \"wall_mm\": 99.0}'" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: Build the car
+        working-directory: part5-simulation
+        run: |
+          set -o pipefail
+          mkdir -p ../out
+          python run_car.py --out ../out/${{ matrix.id }} ${{ matrix.args }} 2>&1 | tee ../out/${{ matrix.id }}.log
+      - name: Rule checks
+        if: always()
+        run: |
+          python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY" out/${{ matrix.id }}_checks.md
+          import json, pathlib
+          p = pathlib.Path("out/${{ matrix.id }}/summary.json")
+          if not p.exists():
+              print("No summary: the build did not finish.")
+              raise SystemExit
+          L = json.loads(p.read_text())["legality"]
+          print(f"## ${{ matrix.id }}\n\n{L['summary']['n_checks']} checks, {L['summary']['n_failed']} failed.\n")
+          print("| rule | margin | pass | note |\n|---|---|---|---|")
+          for k, v in sorted(L["checks"].items(), key=lambda kv: (kv[1]["pass"], kv[0])):
+              print(f"| {k} | {v['margin']:+.3f} | {'yes' if v['pass'] else '**NO**'} | {v['note']} |")
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: car-${{ matrix.id }}
+          path: |
+            out/*.log
+            out/*_checks.md
+            out/${{ matrix.id }}/*.json
+            out/${{ matrix.id }}/*.stl
+            out/${{ matrix.id }}/manufacture/*.stl

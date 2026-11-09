@@ -42,7 +42,7 @@ def build(tmp, W=130.0, **o):
     ra, rb = xf - 16.0, xf + W + 16.0
     top = o.get("top", 50.0)
     body = trimesh.boolean.union(
-        [_box((ra, 0, 5), (o.get("rear", rb + 40.0 - 0.2), 14.5, top)),
+        [_box((ra, 0, 5), (o.get("rear", rb + 40.0 - 0.2), 13.0, top)),
          _box((o.get("nose_x", ra - 20.0), 0, o.get("nose_lo", 9.0)),
               (ra + 0.5, o.get("nose_y", 10.0), o.get("nose_z", 20.0)))]
         + [_box(*b) for b in o.get("extra", [])], engine="manifold")
@@ -68,12 +68,26 @@ def build(tmp, W=130.0, **o):
     parts = {
         "fwing": trimesh.util.concatenate(fwing),
         "rwing": trimesh.util.concatenate([rw, pylon]),
-        "wheelF": _box((xf - 14.0, FY, 0), (xf + 14.0, o.get("wf_y", 36.5), 28.1)),
-        "wheelR": _box((xf + W - 14.0, RY, 0), (xf + W + 14.0, o.get("wr_y", 33.5), 28.1)),
+        "wheelF": _box((xf - 14.0, o.get("wf_y0", FY), 0), (xf + 14.0, o.get("wf_y", 36.5), 28.1)),
+        "wheelR": _box((xf + W - 14.0, o.get("wr_y0", RY), 0), (xf + W + 14.0, o.get("wr_y", 33.5), 28.1)),
     }
-    asm = {"W_mm": W, "x_front_mm": xf,
+    # The wheels' own files (mm): (diameter, contact width), 0.5 mm chamfers each side.
+    wf = {"front": (30.0, 13.5), "rear": (30.0, 17.5)} | o.get("wheels", {})
+    files = {}
+    for tag, (d, w) in wf.items():
+        p = tmp / f"{tag}_wheel.stl"
+        wheel(d, w).export(str(p))
+        files[tag] = str(p)
+    asm = {"W_mm": W, "x_front_mm": xf, "wheel_files": files,
            "extra_surfaces": [{"name": k, "stl": _save(tmp, k, m)} for k, m in parts.items()]}
     return _save(tmp, "body", body), asm
+
+
+def wheel(d, contact, chamfer=0.5):
+    """A wheel turned from a profile (mm): bore 3, tread `contact` wide at full diameter."""
+    R, w = d / 2.0, contact + 2 * chamfer
+    prof = [(1.5, 0), (R - chamfer, 0), (R, chamfer), (R, w - chamfer), (R - chamfer, w), (1.5, w), (1.5, 0)]
+    return trimesh.creation.revolve(prof, sections=96)
 
 
 def fails(tmp, mass=MASS, **o):
@@ -95,7 +109,9 @@ def test_the_base_car_passes_every_check(tmp_path):
               "T8.5.2_front_wing_ahead_of_ref_A", "T8.5.2_front_wing_height_outboard",
               "T9.5.1_rear_span", "T9.5.2_rear_chord_min", "T9.5.2_rear_chord_max",
               "T9.5.3_rear_thickness_min", "T9.5.3_rear_thickness_max", "T9.5.2_rear_vanes_overlap",
-              "T9.5.4_rear_height_deviation", "T9.4.1_rear_wing_behind_ref_B"):
+              "T9.5.4_rear_height_deviation", "T9.4.1_rear_wing_behind_ref_B", "T7.2_front_gap",
+              "T7.2_rear_gap", "T7.4_front_contact_width", "T7.4_rear_contact_width",
+              "T7.5_front_diameter_min", "T7.5_rear_diameter_max"):
         assert k in r, k
 
 
@@ -128,6 +144,15 @@ EDGES = {
     "T8.5.3_endplate0_width": ({"fw_plate": (30, 9.8, 6, 12)}, {"fw_plate": (30, 10.2, 6, 12)}, set()),
     "T8.5.3_endplate0_outside_span": ({"fw_plate": (25.2, 5, 6, 12)}, {"fw_plate": (24.8, 5, 6, 12)}, set()),
     "T8.5.3_endplate0_height": ({"fw_plate": (30, 9.8, 6, 24.8)}, {"fw_plate": (30, 9.8, 6, 25.2)}, set()),
+    # Wheels: their own files, and where they stand.
+    "T7.5_front_diameter_min": ({"wheels": {"front": (28.2, 13.5)}}, {"wheels": {"front": (27.8, 13.5)}}, set()),
+    "T7.5_front_diameter_max": ({"wheels": {"front": (31.8, 13.5)}}, {"wheels": {"front": (32.2, 13.5)}}, set()),
+    "T7.5_rear_diameter_min": ({"wheels": {"rear": (28.2, 17.5)}}, {"wheels": {"rear": (27.8, 17.5)}}, set()),
+    "T7.5_rear_diameter_max": ({"wheels": {"rear": (31.8, 17.5)}}, {"wheels": {"rear": (32.2, 17.5)}}, set()),
+    "T7.4_front_contact_width": ({"wheels": {"front": (30.0, 13.2)}}, {"wheels": {"front": (30.0, 12.8)}}, set()),
+    "T7.4_rear_contact_width": ({"wheels": {"rear": (30.0, 17.2)}}, {"wheels": {"rear": (30.0, 16.8)}}, set()),
+    "T7.2_front_gap": ({"wf_y0": 19.1}, {"wf_y0": 18.9}, set()),
+    "T7.2_rear_gap": ({"wr_y0": 15.1}, {"wr_y0": 14.9}, set()),
     # Rear wing.
     "T9.5.1_rear_span": ({"rw_half": 25.2}, {"rw_half": 24.8}, set()),
     "T9.5.2_rear_chord_min": ({"rw_chord": 15.2}, {"rw_chord": 14.8}, set()),
@@ -157,6 +182,16 @@ def test_edge(rule, tmp_path):
     assert not bad, (rule, "inside", {k: r[k] for k in bad})
     bad, r = fails(tmp_path / "out", **outside)
     assert bad == {rule} | also, (rule, "outside", bad, r.get(rule))
+
+
+def test_the_team_wheels_meet_the_wheel_rules():
+    """The team's own wheel files, as the referee reads them by default."""
+    from paths import PARTS
+    for tag, need in (("front", 13.0), ("rear", 17.0)):
+        m = legality.wheel_measures(trimesh.load(str(PARTS["part1-simulation"] / "hardware_cad" /
+                                                     legality.TEAM_WHEELS[tag]), force="mesh"))
+        print(tag, m)
+        assert 28.0 <= m["diameter_mm"] <= 32.0 and m["contact_mm"] >= need, (tag, m)
 
 
 def test_one_piece_of_foam(tmp_path):

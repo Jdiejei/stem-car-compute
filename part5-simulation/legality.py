@@ -363,19 +363,19 @@ def _wing_split(mesh_mm):
 
 
 def _span_blocker_y(elements, others) -> float | None:
-    """Furthest y out at which another part crosses the wing's own region (x, z): the
-    span is split there (T8.6.1's figures). None if nothing crosses it."""
+    """Furthest y out at which another part passes through the wing (each element's
+    convex hull, so the gap between its surfaces counts but not the air around a wing
+    that slopes or tilts): the span is split there (T8.6.1's figures). None if nothing does."""
     import trimesh
-    b = np.vstack([e.bounds for e in elements])
-    region = trimesh.creation.box(bounds=[[b[:, 0].min(), -1.0, b[:, 2].min()],
-                                          [b[:, 0].max(), b[1::2, 1].max(), b[1::2, 2].max()]])
     y = None
-    for m in others:
-        if not m.is_volume:
-            continue
-        i = trimesh.boolean.intersection([m, region], engine="manifold")
-        if i is not None and not i.is_empty and abs(i.volume) > 1e-3:
-            y = max(y or 0.0, float(i.bounds[1, 1]))
+    for e in elements:
+        hull = e.convex_hull
+        for m in others:
+            if not m.is_volume:
+                continue
+            i = trimesh.boolean.intersection([m, hull], engine="manifold")
+            if i is not None and not i.is_empty and abs(i.volume) > 1e-3:
+                y = max(y or 0.0, float(i.bounds[1, 1]))
     return y
 
 
@@ -477,6 +477,46 @@ def _wing_checks(assembly: dict, body_mm, parts_mm: dict) -> dict:
              if (c := _clip(m, [-1.0, 0, 0], [ref_a - 0.5, 0, 0])) is not None]
     r["_nose_parts_zy"] = (max((float(c.bounds[1, 2]) for c in ahead), default=None),
                            max((float(c.bounds[1, 1]) for c in ahead), default=None))
+    return r
+
+
+# --------------------------------------------------------------- wheels, measured
+TREAD_TOL_MM = 0.05     # a tread vertex is within this of the largest radius
+
+
+def wheel_measures(mesh_mm) -> dict:
+    """A wheel's own file (mm): diameter on the tread, and the track contact width,
+    the axial length of the tread at full radius, so chamfers and fillets fall out (T7.4).
+    The axle is the shortest bounding-box direction."""
+    ax = int(np.argmin(mesh_mm.extents))
+    v = mesh_mm.vertices - mesh_mm.bounds.mean(axis=0)
+    r = np.hypot(*np.delete(v, ax, axis=1).T)
+    R = float(r.max())
+    tread = v[r >= R - TREAD_TOL_MM, ax]
+    return {"diameter_mm": 2.0 * R, "contact_mm": float(tread.max() - tread.min())}
+
+
+TEAM_WHEELS = {"front": "front_wheel.stl", "rear": "rear_wheel.stl"}
+
+
+def _wheel_checks(assembly: dict, parts_mm: dict) -> dict:
+    """T7.2, T7.3, T7.4, T7.5 measured: the wheel files themselves, and where the car's
+    wheels stand (mm). assembly["wheel_files"] may name other files than the team's."""
+    import trimesh
+    from paths import PARTS
+    files = assembly.get("wheel_files") or {k: str(PARTS["part1-simulation"] / "hardware_cad" / f)
+                                            for k, f in TEAM_WHEELS.items()}
+    r = {}
+    for tag, need in (("front", 13.0), ("rear", 17.0)):
+        m = wheel_measures(trimesh.load(files[tag], force="mesh"))
+        d, w = m["diameter_mm"], m["contact_mm"]
+        r[f"T7.5_{tag}_diameter_min"] = _entry(d - 28.0, f"{d:.2f} mm")
+        r[f"T7.5_{tag}_diameter_max"] = _entry(32.0 - d, f"{d:.2f} mm")
+        r[f"T7.4_{tag}_contact_width"] = _entry(w - need, f"{w:.2f} mm at full diameter")
+    for tag, name, need in (("front", "wheelF", 38.0), ("rear", "wheelR", 30.0)):
+        if name in parts_mm:
+            gap = 2.0 * float(parts_mm[name].bounds[0, 1])
+            r[f"T7.2_{tag}_gap"] = _entry(gap - need, f"{gap:.2f} mm between the wheels")
     return r
 
 
@@ -651,8 +691,13 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     clr = lows[low_part]
     r["T3.7_clearance"] = _entry(clr - REGS["T3.7_clearance"],
                                  f"lowest non-wheel part: {low_part} at {clr:.2f} mm")
-    r["T7.3_W_min"] = _entry(W - REGS["T7.3_W_min"])
-    r["T7.3_W_max"] = _entry(REGS["T7.3_W_max"] - W)
+    # Wheelbase between the wheels as they stand (the layout's W when there are none).
+    if "wheelF" in parts and "wheelR" in parts:
+        wb = float(parts["wheelR"].bounds[:, 0].mean() - parts["wheelF"].bounds[:, 0].mean()) * 1e3
+    else:
+        wb = W
+    r["T7.3_W_min"] = _entry(wb - REGS["T7.3_W_min"], f"{wb:.2f} mm")
+    r["T7.3_W_max"] = _entry(REGS["T7.3_W_max"] - wb, f"{wb:.2f} mm")
     front = nwb[:, 0].min()
     r["T8.2_nose_overhang"] = _entry(REGS["T8.2_nose_overhang"] - (ref_a - front),
                                      f"{ref_a - front:.1f} mm ahead of Ref A")
@@ -668,6 +713,7 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     wr =_wing_checks(assembly, mm(body), {n: mm(m) for n, m in parts.items()})
     pz, py = wr.pop("_nose_parts_zy")
     r.update(wr)
+    r.update(_wheel_checks(assembly, {n: mm(m) for n, m in parts.items() if n.startswith("wheel")}))
 
     # Nose: body material forward of Ref A, and the printed nose and wing supports there.
     v = body.vertices * 1e3
@@ -735,11 +781,16 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     # with a 1.5 x 1.5 mm lip (regulation figure, p.34). The annulus 1.5 mm
     # in from the inner face, over the outer 1.5 mm of radius, must be clear of
     # the body and every other part.
+    # Where the wheels stand, measured on the car's wheels (the design values if there are none).
     from geometry_contract import FRONT_WHEEL_INNER_Y_MM as FY, REAR_WHEEL_INNER_Y_MM as RY
     wd = assembly.get("wheel_design", {})
     for tag, x_ax, y_in, key in (("front", xf, FY, "front"), ("rear", xf + W, RY, "rear")):
         R = wd.get(key, {}).get("R_mm", 14.05)
         zc = R - 0.3                                      # wheels sit 0.3 mm into the track
+        wm = parts.get("wheelF" if tag == "front" else "wheelR")
+        if wm is not None:
+            b = wm.bounds * 1e3
+            x_ax, y_in, R, zc = b[:, 0].mean(), b[0, 1], (b[1, 2] - b[0, 2]) / 2.0, b[:, 2].mean()
         pts = []
         for yy in np.linspace(y_in - 1.45, y_in - 0.05, 4):
             for rr in np.linspace(R - 1.45, R - 0.05, 4):
