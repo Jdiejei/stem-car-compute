@@ -1,12 +1,12 @@
 name: p3_car_sign
-run-name: "Part 3: map direction and coverage check on cars, primal ${{ inputs.primal_iters }} steps"
+run-name: "Part 3: map direction, coverage and cycle check on cars, primal ${{ inputs.iters }} steps"
 
 on:
   workflow_dispatch:
     inputs:
       seeds: { default: "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]" }
       meshes: { default: "[\"nolayers\", \"layers\"]" }
-      primal_iters: { default: "1000" }
+      iters: { default: "[1000]" }
 
 permissions: { contents: read }
 
@@ -14,7 +14,7 @@ env:
   PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
   OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
   OMPI_MCA_rmaps_base_oversubscribe: "1"
-  P3_PRIMAL_ITERS: ${{ inputs.primal_iters }}
+
 
 jobs:
   car:
@@ -26,6 +26,7 @@ jobs:
       matrix:
         seed: ${{ fromJSON(inputs.seeds) }}
         mesh: ${{ fromJSON(inputs.meshes) }}
+        iters: ${{ fromJSON(inputs.iters) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,7 +40,21 @@ jobs:
       - run: pip install $PY_DEPS
       - shell: bash
         working-directory: part5-simulation
+        env: { P3_PRIMAL_ITERS: "${{ matrix.iters }}" }
         run: python -W ignore -u ../part3-simulation/checks/car_sign.py ${{ matrix.seed }} ${{ matrix.mesh }} ../out 2>&1 | grep --line-buffered -E '^LAB|Traceback|Error|^  File|failed'
       - if: always()
         uses: actions/upload-artifact@v4
-        with: { name: "car-${{ matrix.seed }}-${{ matrix.mesh }}", path: "out/*.np*\nout/*.json", if-no-files-found: ignore }
+        with: { name: "car-${{ matrix.seed }}-${{ matrix.mesh }}-${{ matrix.iters }}", path: "out/*.np*\nout/*.json", if-no-files-found: ignore }
+
+  compare:
+    needs: car
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6
+      - uses: actions/download-artifact@v4
+        with: { path: res }
+      - run: python part3-simulation/checks/compare_maps.py res

@@ -90,9 +90,27 @@ for f in ("Ux", "p", "Uax", "pa"):
     if r:
         print(f"{tag} residual {f}: first {float(r[0]):.1e} last {float(r[-1]):.1e}", flush=True)
 miss = dist > 5e-3
+# The half-car STL closes itself with a cap on the centre plane (y = 0). The cap is not
+# wetted surface (the CFD has a symmetry plane there, no car patch). Only vertices that lie
+# on cap triangles alone are left out; the edge where the body meets the plane, and the
+# top and underside centreline, stay in and are also reported on their own (y <= 1 mm).
+import trimesh                                                          # noqa: E402
+tri = trimesh.load(str(gate.stl_half_path), force="mesh", process=False).triangles   # (F, 3, 3)
+on_plane = (np.abs(tri[:, :, 1]) < 1e-9).all(axis=1)
+key = lambda a: [tuple(r) for r in np.round(a, 9)]                      # noqa: E731
+cap_only = set(key(tri[on_plane].reshape(-1, 3))) - set(key(tri[~on_plane].reshape(-1, 3)))
+cap = np.array([k in cap_only for k in key(stl)])
+real = ~cap
+band = real & (stl[:, 1] <= 1e-3)
+for name, sel in (("real surface (cap left out)", real), ("centreline strip y <= 1 mm", band),
+                  ("closing cap only", cap)):
+    if sel.any():
+        print(f"{tag} {name}: {int(sel.sum())} vertices, unmatched at 5 mm {np.mean(miss[sel]):.4f},"
+              f" median {np.median(dist[sel]) * 1e3:.3f} mm, p95 {np.percentile(dist[sel], 95) * 1e3:.3f} mm,"
+              f" within 0.5 mm {np.mean(dist[sel] < 0.5e-3):.3f}", flush=True)
 for name, lo, hi in (("x", 0, 0), ("y", 1, 1), ("z", 2, 2)):
     print(f"{tag} unmatched STL vertices by {name} (mm, p5 p50 p95): "
           f"{np.round(np.percentile(stl[miss, lo] * 1e3, [5, 50, 95]), 1).tolist() if miss.any() else []}", flush=True)
-np.savez(out / f"car_{seed}_{mesh_kind}.npz", P=Pc, s=s, n_out=n, area=A, stl_dist=dist, stl_miss=stl[miss],
+np.savez(out / f"car_{seed}_{mesh_kind}_{cfg.primal_iters}.npz", P=Pc, s=s, n_out=n, area=A, stl_dist=dist, stl_miss=stl[miss],
          **{f"P_{k}": v[0] for k, v in raw.items()}, **{f"s_{k}": v[1] for k, v in raw.items()})
-(out / f"car_{seed}_{mesh_kind}.json").write_text(json.dumps(dict(seed=seed, mesh=mesh_kind, front_ok=front_ok)))
+(out / f"car_{seed}_{mesh_kind}_{cfg.primal_iters}.json").write_text(json.dumps(dict(seed=seed, mesh=mesh_kind, iters=cfg.primal_iters, front_ok=front_ok)))
