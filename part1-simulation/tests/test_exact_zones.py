@@ -39,8 +39,9 @@ def _where(sel, field):
             f"z {Z[sel].min():.2f}..{Z[sel].max():.2f} field {field[sel].min():.3f}..{field[sel].max():.3f}")
 
 
-def _agree(field, mask, right, d_mm, grown=0.0, name=""):
-    bad = (field > EPS) & right & ~mask
+def _agree(field, mask, right, d_mm, grown=0.0, name="", shrunk=0.0):
+    # shrunk: a mask drawn up to a cell inside its zone (the loft ceiling rounds up a cell)
+    bad = (field > shrunk + EPS) & right & ~mask
     assert not bad.any(), f"{name}: {int(bad.sum())} cells inside the zone, not in the mask: {_where(bad, field)}"
     stray = mask & right & (field < -(grown + EPS))
     assert not stray.any(), f"{name}: {int(stray.sum())} mask cells outside the zone by > {grown} mm: {_where(stray, field)}"
@@ -129,7 +130,7 @@ def test_halo_zone_fields_match_their_masks(spacing):
             | fh.halo_canister_loft_air_mask(hw.halo_void_mask, hw.canister_cylinder, x_origin_m=r.origin_m[0],
                                              y_origin_m=r.origin_m[1], z_origin_m=r.origin_m[2], d_m=d / 1e3))
     f = ez.halo_zones(X, np.abs(Y), Z, g.landmarks["ref_plane_A_m"] * 1e3, g.d_halo_mm, hw.canister_cylinder)
-    _agree(f, mask, right, d, grown=d, name="halo")
+    _agree(f, mask, right, d, grown=d, name="halo", shrunk=d)
 
 
 def test_slot_corners_are_sharp_in_the_half_body():
