@@ -5,6 +5,8 @@
 variants: asis | norules (no build rules anywhere) | norules_dst (none on the new grid)
           | pinch (close pinches after the remap)
           | milled (ball-end milling on the source) | milled_dst (on the remapped field)
+          | no_cap | no_stub | no_column | no_bridge (that one build rule off everywhere)
+          | reinit_end (redistance after the remap's last clamp)
 Prints LAB lines: did the remapped body pass the mesh check, and where the slivers are.
 """
 import sys
@@ -31,8 +33,41 @@ def carve(g, n):
         up.enforce_symmetry(g)
 
 
+def rule_parts(g):
+    """The four pieces of build_rule_masks, same formulas, so one can be switched off."""
+    from halo_pocket import compute_halo_pocket_box_m
+    r, d = g.region, up.GRID_SPACING_M
+    X, Y, Z = np.meshgrid(*[(r.origin_m[a] + np.arange(r.shape[a]) * d) * 1e3 for a in range(3)],
+                          indexing="ij")
+    xa = g.landmarks["ref_plane_A_m"] * 1e3
+    pk = compute_halo_pocket_box_m(g.landmarks["ref_plane_A_m"], g.d_halo_mm)
+    in_y = np.abs(Y) <= min(-pk["y_min_m"], pk["y_max_m"]) * 1e3 - 1.5
+    under = (Z >= 13.0) & (Z < pk["z_min_m"] * 1e3 - 1e-6)
+    xe = pk["x_max_m"] * 1e3
+    m = up._mirror_right_onto_left
+    return {
+        "cap": m((X <= xa + 1.0 + d * 1e3) & ((np.abs(Y) > 14.5) | (Z > 24.5))),
+        "stub": m((np.abs(Y) <= 4.0) & (Z >= 9.0) & (Z <= 18.0) & (X >= xa) & (X <= xa + 2.0)),
+        "column": m((X >= pk["x_min_m"] * 1e3 + 1.5) & (X <= pk["x_max_m"] * 1e3 - 1.5) & in_y & under),
+        "bridge": m((X >= xe - 3.0) & (X <= xe + 6.0) & in_y
+                    & (under | ((X > xe + 2.5) & (Z >= 13.0) & (Z <= 28.0)))),
+    }
+
+
 if variant == "norules":
     up.apply_build_rules = lambda g: None
+if variant.startswith("no_"):                     # no_cap | no_stub | no_column | no_bridge
+    _orig = up.build_rule_masks
+
+    def _without(g, part=variant[3:]):
+        air, solid = _orig(g)
+        p = rule_parts(g)
+        keep = [k for k in ("stub", "column", "bridge") if k != part]
+        solid = solid & ~p[part] if part != "cap" else solid
+        for k in keep:                              # pieces may overlap: keep the others whole
+            solid |= p[k]
+        return (air & ~p["cap"] if part == "cap" else air), solid
+    up.build_rule_masks = _without
 src = up.build_unified_geometry(130.0, 46.0, 20.0, init_mode="full", seed=0)
 up.enforce_symmetry(src)
 carve(src, 4)
@@ -48,6 +83,9 @@ dst = up.remap_geometry(src)
 if variant == "milled_dst":
     import machining
     print(f"LAB {variant} milled dst {machining.make_machinable(dst)}")
+if variant == "reinit_end":                       # redistance after the last clamp
+    reinitialise_sdf(dst.phi)
+    up.enforce_symmetry(dst)
 if variant == "pinch":
     print(f"LAB {variant} pinch cells {up.close_pinches(dst, 0.0015)}")
 
