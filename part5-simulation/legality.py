@@ -16,6 +16,11 @@ import math
 import numpy as np
 
 import paths  # noqa: F401
+import rules_constants as rc
+
+# The chamber height of the usual layout: only for callers of t55_wall_fraction that do
+# not pass the measured one. check() always measures it.
+DEFAULT_AXIS_Z_MM = 31.0
 
 REGS = {
     "T3.4_width_min": 65.0, "T3.4_width_max": 85.0, "T3.5_height": 65.0,
@@ -43,11 +48,9 @@ def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = N
                       angle_deg: float = 0.0) -> float:
     """Fraction of probe points inside the body in the 3 mm annulus around the
     chamber, along the whole bore (T5.5). 1.0 = a full 3 mm wall."""
-    from geometry_contract import (CHAMBER_AXIS_Z_MM, MODEL_BLOCK_BORE_DEPTH_MM,
-                                   MODEL_BLOCK_BORE_DIA_MM)
-    depth_mm = MODEL_BLOCK_BORE_DEPTH_MM if depth_mm is None else depth_mm
-    bore_r_mm = MODEL_BLOCK_BORE_DIA_MM / 2.0 if bore_r_mm is None else bore_r_mm
-    axis_z_mm = CHAMBER_AXIS_Z_MM if axis_z_mm is None else axis_z_mm
+    depth_mm = rc.BLOCK_BORE_DEPTH_MM if depth_mm is None else depth_mm
+    bore_r_mm = rc.BLOCK_BORE_DIA_MM / 2.0 if bore_r_mm is None else bore_r_mm
+    axis_z_mm = DEFAULT_AXIS_Z_MM if axis_z_mm is None else axis_z_mm
     if not body_half.is_volume:             # a zero-volume sliver sends a good car to the points
         import trimesh
         shells = [p for p in body_half.split(only_watertight=False) if p.is_volume]
@@ -87,7 +90,7 @@ def t55_wall_fraction(body_half, rear_face_mm: float, depth_mm: float | None = N
 # Volumes below this (mm3, about 0.8 mg of foam) are mesh round-off, not material: a
 # remesh may move a whole surface 0.05 mm.
 _ROUND_OFF_MM3 = 5.0
-CARTRIDGE_LENGTH_MIN_MM = 64.5     # Appendix vi: 65.00 -0.5
+CARTRIDGE_LENGTH_MIN_MM = rc.CARTRIDGE_LENGTH_MIN_MM
 MESH_MAX_EDGE_MM = 8.0             # measured 1.9-7.6 after the remesh, 106 before it
 MESH_MAX_SLIVER_BODY_PCT = 4.0     # measured 0.4-3.2 % after (highest at 0.3 mm), 3.3 % before
 MESH_MAX_SLIVER_PRINTED_PCT = 12.0 # 5.7-11 % after, 25 % before: a wing's sharp trailing edge
@@ -642,24 +645,68 @@ def _tether_checks(parts_mm: dict, x_front: float, x_rear: float) -> dict:
     return r
 
 
-def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06):
+def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06, axis_z_mm: float = DEFAULT_AXIS_Z_MM):
     """The Model Block as it arrives (Appendix ii), placed in the car: rear face
     at the car's rear face, bore on the chamber axis, slot along the underside.
     slack_mm: every face eased by this, as the final remesh may move a surface
     0.05 mm. That is well below what the mill can tell apart."""
     import trimesh
-    import geometry_contract as gc
-    L, y = gc.MODEL_BLOCK_LENGTH_MM, gc.MODEL_BLOCK_WIDTH_MM / 2.0 + slack_mm
-    block = trimesh.creation.box(bounds=[[rear_face_mm - L - slack_mm, -y, gc.MODEL_BLOCK_BOTTOM_Z_MM - slack_mm],
-                                         [rear_face_mm + slack_mm, y, gc.MODEL_BLOCK_TOP_Z_MM + slack_mm]])
-    d = gc.MODEL_BLOCK_BORE_DEPTH_MM - slack_mm
-    bore = trimesh.creation.cylinder(radius=gc.MODEL_BLOCK_BORE_DIA_MM / 2.0 - slack_mm, height=d + 2.0, sections=96)
+    L, y = rc.BLOCK_LENGTH_MM, rc.BLOCK_WIDTH_MM / 2.0 + slack_mm
+    z0 = axis_z_mm - rc.BLOCK_BORE_ABOVE_BOTTOM_MM
+    block = trimesh.creation.box(bounds=[[rear_face_mm - L - slack_mm, -y, z0 - slack_mm],
+                                         [rear_face_mm + slack_mm, y, z0 + rc.BLOCK_HEIGHT_MM + slack_mm]])
+    d = rc.BLOCK_BORE_DEPTH_MM - slack_mm
+    bore = trimesh.creation.cylinder(radius=rc.BLOCK_BORE_DIA_MM / 2.0 - slack_mm, height=d + 2.0, sections=96)
     bore.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [0, 1, 0]))
-    bore.apply_translation([rear_face_mm - d / 2.0 + 1.0, 0.0, gc.CHAMBER_AXIS_Z_MM])
-    s = gc.MODEL_BLOCK_SLOT_WIDTH_MM / 2.0 - slack_mm
-    slot = trimesh.creation.box(bounds=[[rear_face_mm - L - 1.0, -s, gc.MODEL_BLOCK_BOTTOM_Z_MM - 1.0],
-                                        [rear_face_mm + 1.0, s, gc.MODEL_BLOCK_SLOT_TOP_Z_MM - slack_mm]])
+    bore.apply_translation([rear_face_mm - d / 2.0 + 1.0, 0.0, axis_z_mm])
+    s = rc.BLOCK_SLOT_WIDTH_MM / 2.0 - slack_mm
+    slot = trimesh.creation.box(bounds=[[rear_face_mm - L - 1.0, -s, z0 - 1.0],
+                                        [rear_face_mm + 1.0, s, z0 + rc.BLOCK_SLOT_DEPTH_MM - slack_mm]])
     return trimesh.boolean.difference([block, bore, slot], engine="manifold")
+
+
+def zone_polygons_mm(wheels: dict) -> dict:
+    """The four T7.9 zones on the right side, (x, y) outlines in mm, drawn from where the
+    car's wheels stand: wheels = {"front"|"rear": (x_axle, R, y_inner)}."""
+    xf, Rf, fy = wheels["front"]
+    xr, Rr, ry = wheels["rear"]
+    w = rc.T79_WIDTH_Y_MM
+    fa, ra, ff, rr = xf + Rf, xr - Rr, xf - Rf, xr + Rr
+    t2 = w / math.tan(math.radians(rc.T79_2_ANGLE_DEG))
+    t3 = w / math.tan(math.radians(rc.T79_3_ANGLE_DEG))
+    return {
+        "T7.9.1": [(ff - rc.T79_1_DEPTH_MM, fy), (ff, fy), (ff, fy + w), (ff - rc.T79_1_DEPTH_MM, fy + w)],
+        "T7.9.2": [(fa, fy), (fa + rc.T79_2_NEAR_MM, fy), (fa + rc.T79_2_NEAR_MM + t2, fy + w), (fa, fy + w)],
+        "T7.9.3": [(ra, ry), (ra, ry + w), (ra - rc.T79_3_NEAR_MM - t3, ry + w), (ra - rc.T79_3_NEAR_MM, ry)],
+        "T7.9.4": [(rr, ry), (rr + rc.T79_4_DEPTH_MM, ry), (rr + rc.T79_4_DEPTH_MM, ry + w), (rr, ry + w)],
+    }
+
+
+def halo_pocket_mm(assembly: dict) -> dict:
+    """The halo pocket's box (Appendix ix), its front where the halo's own front is when
+    there is a halo file, else at Ref A + d_halo; floor at 24.0 (T4.4.4)."""
+    halo = next((s["stl"] for s in assembly.get("extra_surfaces", []) if s["name"] == "halo"), None)
+    if halo:
+        import trimesh
+        x0 = float(trimesh.load(halo, force="mesh").bounds[0, 0]) * 1e3
+    else:
+        x0 = assembly["x_front_mm"] - rc.REF_A_AHEAD_OF_FRONT_AXLE_MM + assembly["d_halo_mm"]
+    z = rc.HALO_POCKET_FLOOR_Z_MM
+    return {"x0": x0, "x1": x0 + rc.HALO_POCKET_LENGTH_MM, "half_w": rc.HALO_POCKET_WIDTH_MM / 2.0,
+            "z0": z, "z1": z + rc.HALO_POCKET_DEPTH_MM}
+
+
+def ballast_capsule_mm(pocket: dict, above_floor_mm: float = 1.0):
+    """The legal ballast container (Appendix ix) as a solid in mm, open to the pocket."""
+    import trimesh
+    from shapely.geometry import LineString
+    cx = pocket["x0"] + rc.BALLAST_CENTRE_FROM_POCKET_FRONT_MM
+    half = (rc.BALLAST_LENGTH_MM - rc.BALLAST_WIDTH_MM) / 2.0
+    m = trimesh.creation.extrude_polygon(
+        LineString([(cx - half, 0.0), (cx + half, 0.0)]).buffer(rc.BALLAST_WIDTH_MM / 2.0, 32),
+        rc.BALLAST_DEPTH_MM + above_floor_mm)
+    m.apply_translation([0.0, 0.0, pocket["z0"] - rc.BALLAST_DEPTH_MM])
+    return m
 
 
 def manufactured_checks(assembly: dict) -> dict:
@@ -668,8 +715,6 @@ def manufactured_checks(assembly: dict) -> dict:
     printed parts clear of the foam."""
     import trimesh
     from shapely.geometry import Polygon
-    import geometry_contract as gc
-    from wheel_visibility_zones import zone_polygons_mm
     W, xf = assembly["W_mm"], assembly["x_front_mm"]
     files = {k: v["file"] for k, v in assembly["joints"]["manufactured"].items() if "file" in v}
     solids = {k: trimesh.load(f, force="mesh") for k, f in files.items()}
@@ -679,47 +724,59 @@ def manufactured_checks(assembly: dict) -> dict:
         r["manufactured_files_measurable"] = _entry(-1.0, "not a solid: " + ", ".join(open_files))
         return r
 
-    wd = assembly["wheel_design"]
-    R = 0.5 * (wd["front"]["R_mm"] + wd["rear"]["R_mm"])
-    for rule, outline in zone_polygons_mm(W, xf, R).items():
-        zone = trimesh.creation.extrude_polygon(Polygon(outline), 65.0)
-        hits = {k: _volume_in(m, zone) for k, m in solids.items()}
-        hits = {k: v for k, v in hits.items() if v > _ROUND_OFF_MM3}
-        r[f"{rule}_zone_clear"] = _absent(sum(hits.values()), ", ".join(
-            f"{k} {v:.1f} mm3" for k, v in hits.items()) or "nothing in the zone")
+    # T7.9 from where the wheels stand (the CFD wheel files: axle, radius, inner face).
+    stl = {s["name"]: s["stl"] for s in assembly.get("extra_surfaces", [])}
+    wheels = {}
+    for tag, name, x_ax in (("front", "wheelF", xf), ("rear", "wheelR", xf + W)):
+        if name in stl:
+            b = trimesh.load(stl[name], force="mesh").bounds * 1e3
+            wheels[tag] = (float(b[:, 0].mean()), float(b[1, 2] - b[0, 2]) / 2.0, float(b[0, 1]))
+        else:
+            R = assembly["wheel_design"][tag]["R_mm"]
+            wheels[tag] = (x_ax, R, None)
+    if all(w[2] is not None for w in wheels.values()):
+        for rule, outline in zone_polygons_mm(wheels).items():
+            zone = trimesh.creation.extrude_polygon(Polygon(outline), rc.T79_HEIGHT_MM)
+            hits = {k: _volume_in(m, zone) for k, m in solids.items()}
+            hits = {k: v for k, v in hits.items() if v > _ROUND_OFF_MM3}
+            r[f"{rule}_zone_clear"] = _absent(sum(hits.values()), ", ".join(
+                f"{k} {v:.1f} mm3" for k, v in hits.items()) or "nothing in the zone")
+    else:
+        r["T7.9_zones_measurable"] = _entry(-1.0, "no wheel files to place the zones by")
 
-    rear_face = xf + W + 16.0 + 40.0
     body = solids["machined_body"]
-    outside = abs(float(trimesh.boolean.difference([body, official_block_mm(rear_face)],
+    ch = chamber_measures(body)
+    rear_face = ch["rim_x_mm"] if ch else xf + W + rc.REF_B_BEHIND_REAR_AXLE_MM + 40.0
+    axis_z = ch["axis_z_mm"] if ch else DEFAULT_AXIS_Z_MM
+    outside = abs(float(trimesh.boolean.difference([body, official_block_mm(rear_face, axis_z_mm=axis_z)],
                                                    engine="manifold").volume))
     r["block_body_inside_official_block"] = _absent(outside, f"{outside:.1f} mm3 outside the block")
 
+    pk = halo_pocket_mm(assembly)
     place = assembly.get("cargo_placement")
     if place:
-        from virtual_cargo import (CARGO_HEIGHT_MM, CARGO_LENGTH_MM, CARGO_NARROW_WIDTH_MM,
-                                   CARGO_WIDE_WIDTH_MM)
         x0, z0 = place["x_start_m"] * 1e3, place["z_base_m"] * 1e3
-        L_, a, b = CARGO_LENGTH_MM, CARGO_WIDE_WIDTH_MM / 2.0, CARGO_NARROW_WIDTH_MM / 2.0
+        L_, a, b = rc.CARGO_LENGTH_MM, rc.CARGO_WIDE_MM / 2.0, rc.CARGO_NARROW_MM / 2.0
         if place.get("flip"):
             a, b = b, a
         wedge = trimesh.creation.extrude_polygon(
             # Its top is on the pocket floor; 0.1 mm off it for the remesh's own move.
             Polygon([(x0, -a), (x0 + L_, -b), (x0 + L_, b), (x0, a)]),
-            CARGO_HEIGHT_MM - 0.1)
+            rc.CARGO_HEIGHT_MM - 0.1)
         wedge.apply_translation([0.0, 0.0, z0])
         # The rule lets the cargo share space with the ballast container, nothing else.
         # Only the part of the container inside the wedge is excused: crediting all of it
         # hid 180 mm3 of cargo that was outside the body.
-        from halo_pocket import ballast_capsule_mesh_m
-        capsule = ballast_capsule_mesh_m((xf - gc.D_HALO_REF_A_OFFSET_MM) / 1e3, assembly["d_halo_mm"])
-        capsule.apply_scale(1e3)
-        wanted = trimesh.boolean.difference([wedge, capsule], engine="manifold")
+        wanted = trimesh.boolean.difference([wedge, ballast_capsule_mm(pk)], engine="manifold")
         missing = abs(wanted.volume) - _volume_in(body, wanted)
         r["T4.2_cargo_inside_body"] = _absent(max(missing, 0.0), f"{max(missing, 0.0):.1f} mm3 missing")
+        # "Wholly positioned between the front and rear wheel centre lines" (T4.2).
+        lo, hi = x0 - wheels["front"][0], wheels["rear"][0] - (x0 + L_)
+        r["T4.2_cargo_between_axles"] = _entry(min(lo, hi), f"{lo:.1f} mm behind the front axle, "
+                                                            f"{hi:.1f} mm ahead of the rear")
 
     # T4.4.4: the floor itself, ahead of and behind the ballast slot, and the halo fits.
-    from halo_pocket import compute_halo_pocket_box_m
-    pk = compute_halo_pocket_box_m((xf - gc.D_HALO_REF_A_OFFSET_MM) / 1e3, assembly["d_halo_mm"])
+    pk = {"x_min_m": pk["x0"] / 1e3, "x_max_m": pk["x1"] / 1e3, "z_min_m": pk["z0"] / 1e3}
     px0 = pk["x_min_m"] * 1e3
     o = np.array([(px0 + dx, y, 70.0) for dx in (8.0, 48.0) for y in (-8.0, -1.0, 1.0, 8.0)])
     loc, ray, _ = body.ray.intersects_location(o, np.tile([0.0, 0.0, -1.0], (len(o), 1)))
@@ -911,19 +968,18 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     # with a 1.5 x 1.5 mm lip (regulation figure, p.34). The annulus 1.5 mm
     # in from the inner face, over the outer 1.5 mm of radius, must be clear of
     # the body and every other part.
-    # Where the wheels stand, measured on the car's wheels (the design values if there are none).
-    from geometry_contract import FRONT_WHEEL_INNER_Y_MM as FY, REAR_WHEEL_INNER_Y_MM as RY
-    wd = assembly.get("wheel_design", {})
-    for tag, x_ax, y_in, key in (("front", xf, FY, "front"), ("rear", xf + W, RY, "rear")):
-        R = wd.get(key, {}).get("R_mm", 14.05)
-        zc = R - 0.3                                      # wheels sit 0.3 mm into the track
+    # Where the wheels stand, measured on the car's wheels.
+    lip = rc.CLAW_LIP_MM
+    for tag in ("front", "rear"):
         wm = parts.get("wheelF" if tag == "front" else "wheelR")
-        if wm is not None:
-            b = wm.bounds * 1e3
-            x_ax, y_in, R, zc = b[:, 0].mean(), b[0, 1], (b[1, 2] - b[0, 2]) / 2.0, b[:, 2].mean()
+        if wm is None:
+            r[f"T7.13_{tag}_claw_clearance"] = _entry(-1.0, "no wheel to test")
+            continue
+        b = wm.bounds * 1e3
+        x_ax, y_in, R, zc = b[:, 0].mean(), b[0, 1], (b[1, 2] - b[0, 2]) / 2.0, b[:, 2].mean()
         pts = []
-        for yy in np.linspace(y_in - 1.45, y_in - 0.05, 4):
-            for rr in np.linspace(R - 1.45, R - 0.05, 4):
+        for yy in np.linspace(y_in - lip + 0.05, y_in - 0.05, 4):
+            for rr in np.linspace(R - lip + 0.05, R - 0.05, 4):
                 for t in np.linspace(0, 2 * math.pi, 36, endpoint=False):
                     pts.append((x_ax + rr * math.cos(t), yy, zc + rr * math.sin(t)))
         pts = np.array(pts) / 1e3
