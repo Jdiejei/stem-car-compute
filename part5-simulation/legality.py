@@ -580,11 +580,19 @@ def chamber_measures(body_mm) -> dict | None:
     h = max(holes, key=lambda q: q.area)
     yc, zc = h.centroid.x, h.centroid.y
     r0 = math.sqrt(h.area / math.pi)
-    # The end of the bore: a ray down the axis from behind the car.
-    hit, _, _ = body_mm.ray.intersects_location([[x_back + 5.0, max(yc, 0.01), zc]], [[-1.0, 0, 0]])
-    if not len(hit):
+    # The end of the bore: rays from behind the car, all round at 60 % of the radius (as a
+    # depth gauge's rod would sit; one ray down the axis met the milled file's seam).
+    ends = []
+    for a in np.linspace(0.3, 2 * math.pi - 0.3, 8):
+        o = [x_back + 5.0, yc + 0.6 * r0 * math.sin(a), zc + 0.6 * r0 * math.cos(a)]
+        if body_mm.bounds[0, 1] > -0.01:                         # a right half: its own side
+            o[1] = abs(o[1]) + 0.01
+        loc, _, _ = body_mm.ray.intersects_location([o], [[-1.0, 0, 0]])
+        if len(loc):
+            ends.append(float(loc[:, 0].max()))
+    if not ends:
         return None
-    x_end = float(hit[:, 0].max())
+    x_end = float(np.median(ends))
     # The rim: rays in the wall, 1.5 mm out from the bore, all round; the rim is where
     # the wall starts (the depth is measured from the opening, T5.3).
     rims = []
@@ -618,7 +626,8 @@ def chamber_measures(body_mm) -> dict | None:
            if len(cz) >= 2 else 0.0)
     return {"rim_x_mm": x_rim, "depth_mm": depth, "axis_z_mm": zc, "axis_y_mm": yc,
             "diameter_min_mm": min(plug), "diameter_max_mm": max(plug),
-            "diameter_area_mm": max(area_d) if area_d else 0.0,
+            # the bore's own size: the median section (the mouth's rounded edge is wider)
+            "diameter_area_mm": float(np.median(area_d)) if area_d else 0.0,
             "chamber_widest_across_mm": max(across) if across else 0.0, "angle_deg": ang}
 
 

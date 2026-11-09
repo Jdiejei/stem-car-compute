@@ -36,3 +36,10 @@ for x in np.arange(x_back - 54.0, x_back + 0.01, 1.0):
     big = max(hs, key=lambda q: q.area) if hs else None
     print(f"x back{x - x_back:+6.1f}: " + (f"hole area {big.area:7.2f} plug {legality._thickness(big):6.3f}"
                                          if big else "no hole"))
+
+# Where the milled body leaves the official block.
+blk = legality.official_block_mm(float(body.bounds[1, 0]), axis_z_mm=ch["axis_z_mm"])
+out = trimesh.boolean.difference([body, blk], engine="manifold")
+print("\noutside the block:", abs(out.volume), "mm3; block bounds", np.round(blk.bounds, 2).tolist())
+for p in sorted(out.split(only_watertight=False), key=lambda p: -abs(p.volume))[:10]:
+    print(f"  volume {abs(p.volume):8.2f} mm3  bounds {np.round(p.bounds, 2).tolist()}")
