@@ -801,9 +801,12 @@ def manufactured_checks(assembly: dict) -> dict:
 
     body = solids["machined_body"]
     ch = chamber_measures(body)
-    # The block's rear face is the body's own back (the chamber's rim sits 0.2 mm in from it,
-    # where the remesh rounds the bore's edge: placing the block there put 353 mm3 outside it).
-    rear_face = float(body.bounds[1, 0])
+    # Where the block was: its bore is drilled 52 mm from its rear face (Appendix ii), and the
+    # mill can take the rear face back but not move the bore's end. So the block's rear face is
+    # the measured bore end + 52 mm. (The body's own back put the block 0.77 mm forward on a car
+    # whose back was milled back that much, 181 mm3 "outside" it; lab 2026-11-09.)
+    rear_face = (ch["rim_x_mm"] - ch["depth_mm"] + rc.BLOCK_BORE_DEPTH_MM if ch
+                 else float(body.bounds[1, 0]))
     axis_z = ch["axis_z_mm"] if ch else DEFAULT_AXIS_Z_MM
     outside = abs(float(trimesh.boolean.difference([body, official_block_mm(rear_face, axis_z_mm=axis_z)],
                                                    engine="manifold").volume))
