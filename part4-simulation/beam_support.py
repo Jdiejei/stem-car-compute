@@ -74,7 +74,7 @@ RIM_INNER_R_MM = 13.72        # the team wheel's rim, inside (measured on the ST
 # Loads and limits (see the module docstring)
 LOAD_RADIAL_N = 3.0
 LOAD_AXIAL_N = 1.2
-PRINT_MIN_MM = 0.7            # thinnest wall SLS PA12 prints reliably
+PRINT_MIN_MM = cc.MIN_WALL_MM   # thinnest wall the printer makes reliably (component_contract)
 PA12_STRENGTH_MPA = 44.0
 PA12_E_MPA = 1650.0
 SAFETY = 2.0

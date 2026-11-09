@@ -40,3 +40,19 @@ To come.
 
 - The milled body file has a notch about 0.85 mm deep along the top and bottom of the cartridge bore, where its mirrored halves meet (y = 0). In the file only; the block's bore is drilled. Worth fixing where the half body or `joints._full` is made.
 - The team's wheels measure 28.26 mm across (T7.5 minimum 28.0) and 13.25 / 17.25 mm wide at full diameter (T7.4 minimums 13.0 / 17.0): legal with 0.25 mm to spare.
+
+## Steps 2 and 3 passed (2026-11-09)
+
+- blackwingstem-wq/stem-racing-car 42672121059 (public 8eabb02): part5 105 passed (all edge tests, independence, chamber-clear, halo, T5.6), part4 17 passed. Earlier attempts died at start-up in GitHub's Actions outage ("Internal server error"), not in the tests.
+- Reference cars on Part 1 cb08cb5 (blackwingstem-wq 42675470957): parts car 162/162; start and round2 fail only block_body_inside_official_block by 5.2-5.5 mm3, a strip at the block slot's top corners (y ±2.7-2.9, z 7.7-7.9, x 53-159); being traced with Part 1.
+
+## Step 6: wall thickness of every made file (lab anasssssssss1 42672288239)
+
+Ray from each of 4,000 surface points straight into the part (start and round2 cars; mm):
+- machined_body (foam, CNC): 1st percentile 3.8-3.9, median 21. The thinnest 0.00 readings are rays grazing edges (0.1-0.2 % of points under 1 mm).
+- printed_hubcaps: 0.70 almost everywhere (the disc as designed).
+- printed_support_front/rear: median 0.70-0.88; 5th percentile 0.55-0.65; 50-59 % under 0.8.
+- printed_front_assembly: median 2.0; 27 % under 0.8 (wing and flap trailing edges, nose shell edge).
+- printed_rwing: median 1.96; 13 % under 0.8 (the NACA trailing edge, sharp by design).
+- team wheels: 0.40 (the team's own design, which they already print).
+Pass mark: the team confirms these can be made. Needs the printer's minimum wall (question to the team). If it is above 0.7 mm, the supports and hubcaps need a thicker minimum, and the wing trailing edges a blunt minimum.

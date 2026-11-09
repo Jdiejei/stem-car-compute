@@ -593,6 +593,8 @@ def nose_shell(cone_half, wall_mm: float, x_ref_a_mm: float):
     CFD cone is a closed solid; printing THAT would weigh three times the
     shell the mass rollup assumes."""
     import trimesh
+    import component_contract as cc
+    wall_mm = max(wall_mm, cc.MIN_WALL_MM)             # never under the print minimum
     outer = _full(cone_half)
     v = cone_half.vertices
     x_tip, x_root = v[:, 0].min(), v[:, 0].max()

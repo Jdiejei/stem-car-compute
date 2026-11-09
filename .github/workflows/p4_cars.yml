@@ -1,15 +1,20 @@
 name: p4_cars
-run-name: "Part 4: whole reference cars through the referee"
+run-name: "Part 4: whole reference cars through the referee, print minimum ${{ inputs.min_wall }} mm"
 
 # Part 4's slice of the main account: the reference cars (no CFD), every rule check listed.
 on:
   workflow_dispatch:
+    inputs:
+      min_wall:
+        description: the printer's thinnest wall, mm
+        default: "0.7"
 
 permissions:
   contents: read
 
 env:
   PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+  P4_MIN_WALL_MM: ${{ inputs.min_wall }}
 
 jobs:
   car:
