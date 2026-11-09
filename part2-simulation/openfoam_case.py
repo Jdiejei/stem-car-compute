@@ -439,11 +439,22 @@ def wake_boxes(bounds, surface_min_level: int) -> tuple:
           off the wheels, halo and tail is carried at the size it is shed at.
     far:  three more car lengths, 50 % wider, twice as tall, one level coarser.
     Both start at the track (z = 0): the wheel wakes run along it.
+
+    A body raised well off the ground (z0 > 10 % of its height: the benchmark
+    shapes, never a car) gets the same boxes around ITSELF instead of from the
+    track up, or a cube two sides up would refine metres of empty air.
     """
-    (x0, _y0, _z0), (x1, y1, z1) = bounds
+    (x0, _y0, z0), (x1, y1, z1) = bounds
     lx = max(x1 - x0, 1e-6)
-    near = ((x0 - 0.05 * lx, 0.0, -0.01 * lx), (x1 + 1.0 * lx, 1.25 * y1, 1.25 * z1))
-    far = ((x1, 0.0, -0.01 * lx), (x1 + 4.0 * lx, 1.5 * y1, 2.0 * z1))
+    lz = max(z1 - z0, 1e-6)
+    if z0 > 0.1 * lz:
+        near_z = (z0 - 0.25 * lz, z1 + 0.25 * lz)
+        far_z = (z0 - 0.5 * lz, z1 + 1.0 * lz)
+    else:
+        near_z = (-0.01 * lx, 1.25 * z1)
+        far_z = (-0.01 * lx, 2.0 * z1)
+    near = ((x0 - 0.05 * lx, 0.0, near_z[0]), (x1 + 1.0 * lx, 1.25 * y1, near_z[1]))
+    far = ((x1, 0.0, far_z[0]), (x1 + 4.0 * lx, 1.5 * y1, far_z[1]))
     return (("wakeNear", near, surface_min_level), ("wakeFar", far, surface_min_level - 1))
 
 

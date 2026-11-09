@@ -45,6 +45,19 @@ def test_half_body_matches_the_published_drawing(slant):
     assert zmid - nose[:, 2].min() == pytest.approx(0.035, abs=1e-9)
 
 
+def test_cube_is_closed_half_and_off_the_ground():
+    m = ahmed.half_cube()
+    assert m.is_watertight and m.is_volume
+    s = ahmed.CUBE
+    assert np.allclose(m.bounds, [(0, 0, 2 * s), (s, s / 2, 3 * s)])
+    assert m.volume == pytest.approx(s ** 3 / 2)
+    with tempfile.TemporaryDirectory() as d:
+        stl = Path(d) / "c.stl"
+        ahmed.write_ascii_stl(m, stl)
+        _assert_watertight_stl(str(stl))
+        assert oc.compute_frontal_area_half(str(stl)) == pytest.approx(s * s / 2)
+
+
 @pytest.mark.parametrize("moving, want", [(True, "fixedValue; value uniform (60.0 0 0)"),
                                           (False, "noSlip")])
 def test_ground_is_rolling_road_or_still_floor(moving, want):
@@ -53,6 +66,20 @@ def test_ground_is_rolling_road_or_still_floor(moving, want):
         oc._write_initial_fields(Path(d), cfg, 1.0)
         u = (Path(d) / "U").read_text()
     assert f"lowerWall   {{ type {want}; }}" in u
+
+
+def test_wake_boxes_unchanged_for_cars_and_hug_raised_bodies():
+    car = ((0.0, 0.0, 0.0015), (0.223, 0.04, 0.065))
+    (_, near, _), (_, far, _) = oc.wake_boxes(car, 3)
+    assert np.allclose(near, ((-0.05 * 0.223, 0.0, -0.01 * 0.223), (2 * 0.223, 1.25 * 0.04, 1.25 * 0.065)),
+                       rtol=0, atol=1e-15)
+    assert np.allclose(far, ((0.223, 0.0, -0.01 * 0.223), (5 * 0.223, 1.5 * 0.04, 2.0 * 0.065)),
+                       rtol=0, atol=1e-15)
+    cube = ahmed.half_cube().bounds
+    (_, near, _), (_, far, _) = oc.wake_boxes(cube, 3)
+    s = ahmed.CUBE
+    assert near[0][2] == pytest.approx(1.75 * s) and near[1][2] == pytest.approx(3.25 * s)
+    assert far[0][2] == pytest.approx(1.5 * s) and far[1][2] == pytest.approx(4.0 * s)
 
 
 def test_cars_keep_the_rolling_road_by_default():

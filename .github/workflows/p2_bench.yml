@@ -1,5 +1,5 @@
 name: p2_bench
-run-name: "Part 2: wind-tunnel benchmark (${{ inputs.label }})"
+run-name: "Part 2: wind-tunnel benchmark, ${{ inputs.shape }} (${{ inputs.label }})"
 
 # Part 2: the Ahmed body (published wind-tunnel drag) through the cars' CFD,
 # one job per slant x mesh. Still floor, Re 4.29e6 as in the experiment.
@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       label: { required: true }
+      shape: { default: "ahmed", description: "ahmed or cube (cube ignores slants)" }
       slants: { default: '["25", "35"]' }
       res: { default: '["coarse", "medium", "fine"]' }
       iters: { default: "2000" }
@@ -46,7 +47,7 @@ jobs:
       - name: Ahmed body
         run: |
           set -o pipefail
-          python -W ignore part2-simulation/benchmarks/ahmed.py --slant ${{ matrix.slant }} --res ${{ matrix.res }} \
+          python -W ignore part2-simulation/benchmarks/ahmed.py --shape ${{ inputs.shape }} --slant ${{ matrix.slant }} --res ${{ matrix.res }} \
             --iters ${{ inputs.iters }} --np 4 --out out --cfd-json '${{ inputs.cfd }}' 2>&1 | tail -40
       - name: Logs and mesh size
         if: always()
@@ -61,7 +62,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bench-${{ inputs.label }}-${{ matrix.slant }}-${{ matrix.res }}
+          name: bench-${{ inputs.label }}-${{ inputs.shape }}-${{ matrix.slant }}-${{ matrix.res }}
           path: |
             out/*.json
             out/logs/
