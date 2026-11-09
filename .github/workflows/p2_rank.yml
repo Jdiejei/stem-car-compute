@@ -45,11 +45,13 @@ jobs:
       - run: pip install $PY_DEPS
       - working-directory: part5-simulation
         run: |
+          set -o pipefail
           python -W ignore ../part2-simulation/rank_study.py car ${{ matrix.car }} --res ${{ inputs.res }} \
-            --iters ${{ inputs.iters }} --cfd-json '${{ inputs.opt }}' --out ../out/${{ matrix.car }} 2>&1 | tail -3
+            --iters ${{ inputs.iters }} --cfd-json '${{ inputs.opt }}' --out ../out/${{ matrix.car }} 2>&1 | tail -15
       - name: The numbers
         if: always()
         run: |
+          set -o pipefail
           python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
           import json
           c = json.load(open("out/${{ matrix.car }}/summary.json"))["cfd_initial"]

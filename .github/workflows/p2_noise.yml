@@ -45,6 +45,7 @@ jobs:
       - run: pip install $PY_DEPS
       - working-directory: part5-simulation
         run: |
+          set -o pipefail
           python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm ${{ matrix.skin }} \
             --cfd --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np 4 --keep-runs --cfd-json '${{ inputs.opt }}' 2>&1 | tail -3
       - uses: actions/upload-artifact@v4
