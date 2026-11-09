@@ -36,7 +36,8 @@ BASHRC = "/usr/lib/openfoam/openfoam2412/etc/bashrc"
 TUT = "incompressible/adjointOptimisationFoam"
 WALLS = ("suction", "pressure")
 RE = 3.0e5
-U = np.array([59.96344962, 2.0939698, 0.0])     # the tutorial's freestream (2 deg)
+USCALE = float(os.environ.get("P3_USCALE", "1"))   # freestream speed factor (units check)
+U = np.array([59.96344962, 2.0939698, 0.0]) * USCALE   # the tutorial's freestream (2 deg)
 PRIMAL_ITERS = 4000      # fixed counts (residual targets unreachable) so every run ends
 ADJOINT_ITERS = 4000     # at a known iteration and writes its fields there
 BUMP_R = 0.04            # Gaussian radius, chords
@@ -119,6 +120,17 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
             "set c0; coordinateSystem global; globalCoeffs { tan1 (1 0 0); tan2 (0 1 0); }\n"
             "directions (tan1 tan2); useHexTopology yes; geometricCut no; writeMesh no;\n")
         foam(case, "refineMesh -overwrite -all -dict system/refineMeshDict", "log.refine")
+    if USCALE != 1.0:
+        # Same flow at another speed (Re held by nu below): velocities x s, k x s^2,
+        # omega, nut and nuTilda x s. A units fault in the map would change its size with s.
+        power = {"U": 1, "k": 2, "omega": 1, "nut": 1, "nuTilda": 1}
+        for name, pw in power.items():
+            f = case / "0" / name
+            if f.exists():
+                t = re.sub(r"(uniform\s*\(?)([^;)]*)", lambda m: m.group(1) + " ".join(
+                    f"{float(x) * USCALE ** pw:.10g}" if re.fullmatch(r"[0-9.eE+-]+", x) else x
+                    for x in m.group(2).split()), f.read_text())
+                f.write_text(t)
     mesh = read_mesh(case)
     chord = np.ptp(mesh["P"][mesh["wall"], 0])
     nu = np.linalg.norm(U) * chord / RE
