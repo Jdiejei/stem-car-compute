@@ -7,8 +7,8 @@ The adjoint dictionaries are Part 2's car dictionaries (openfoam_adjoint), with 
 patch names, the drag direction, the speed and the iteration counts changed, so this tests
 OUR settings, not the tutorial's.
 
-Sign convention under test: the car code reads `pointSensNormal` as "drag change per
-OUTWARD (solid grows) move". That is used as is here; nothing is fitted.
+Sign convention under test: Part 2's reader, openfoam_adjoint.OUTWARD_SIGN, which turns
+OpenFOAM's into-the-solid wall normal into "+ = grow the solid". Nothing is fitted.
 
     python known_answer.py base <variant> <out_dir>     primal + adjoint, saves the map
     python known_answer.py bump <k> <amp> <out_dir>     primal on the bumped mesh, saves J
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -38,10 +39,9 @@ RE = 3.0e5
 U = np.array([59.96344962, 2.0939698, 0.0])     # the tutorial's freestream (2 deg)
 PRIMAL_ITERS = 4000      # fixed counts (residual targets unreachable) so every run ends
 ADJOINT_ITERS = 4000     # at a known iteration and writes its fields there
-FV_RESIDUAL_STOP = False  # True = keep the car's early stop (as the car runs today)
 BUMP_R = 0.04            # Gaussian radius, chords
 BUMP_A = 1.0e-3          # amplitude, chords (amp=1); amp=0.5 checks linearity
-MORPH_L = 0.10           # how far the move fades into the mesh, chords
+MORPH_L = float(os.environ.get("P3_MORPH", "0.10"))   # how far the move fades into the mesh, chords
 # 20 bump centres: (wall, x/c). The first 10 are the pre-chosen official set (pass mark
 # 9/10 signs, r >= 0.9); all 20 are reported too for a firmer r.
 CENTRES = [("suction", .1), ("suction", .3), ("suction", .5), ("suction", .7), ("suction", .9),
@@ -95,13 +95,7 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
     (case / "constant/transportProperties").write_text(re.sub(r"\]\s*[0-9.eE+-]+;", f"] {nu:.8e};", tp))
     # Part 2's car dictionaries, retargeted.
     (case / "system/fvSchemes").write_text(oa._FV_SCHEMES_ADJOINT)
-    # The car's fvSolution carries SIMPLE residualControl 1e-4, and adjointOptimisationFoam's
-    # primal obeys it: the first run stopped the primal after 173 of 4000 iterations with the
-    # drag still moving ~1e-3 a step. Removed here so every run ends at a fixed count.
-    fvs = oa._FV_SOLUTION_ADJOINT
-    if not FV_RESIDUAL_STOP:
-        fvs = re.sub(r"residualControl\s*\{[^}]*\}", "", fvs)
-    (case / "system/fvSolution").write_text(fvs)
+    (case / "system/fvSolution").write_text(oa._FV_SOLUTION_ADJOINT)   # no early primal stop (fixed there)
     ras = oa.build_adjoint_ras_properties().replace("adjointLaminar", variant["ras"])
     (case / "constant/adjointRASProperties").write_text(ras)
     speed = float(np.linalg.norm(U))
@@ -193,7 +187,7 @@ def run_base(name: str, out: Path) -> None:
             print(f"LAB skip {f.name}: {e}")
             continue
         if len(v) == len(mesh["P"]):
-            fields[f.name] = v[mesh["wall"]]
+            fields[f.name] = v[mesh["wall"]] * (oa.OUTWARD_SIGN if v.ndim == 1 else 1.0)
     print(f"LAB base {name}: J {J:.8e} spread {spread:.2e} chord {mesh['chord']:.4f} nu {mesh['nu']:.3e}"
           f" wall points {len(mesh['wall'])} fields {list(fields)}", flush=True)
     log = (case / "log.run").read_text()
@@ -262,13 +256,9 @@ def judge(src: Path) -> int:
                 vn = (v * z["n_out"]).sum(axis=1)
                 preds = {"vector, per area": z["bumps"] @ (vn * z["area"]), "vector, per point": z["bumps"] @ vn}
             else:
-                # "as coded": the car code reads + as growing the solid. "OpenFOAM normal":
-                # OpenFOAM's wall normal points out of the FLUID (into the solid), so growing
-                # the solid is MINUS the value. Neither is fitted to the data.
+                # read through Part 2's OUTWARD_SIGN (base saves it that way): + = grow
                 preds = {"as coded, per area": z["bumps"] @ (v * z["area"]),
-                         "as coded, per point": z["bumps"] @ v,
-                         "OpenFOAM normal, per area": -(z["bumps"] @ (v * z["area"])),
-                         "OpenFOAM normal, per point": -(z["bumps"] @ v)}
+                         "as coded, per point": z["bumps"] @ v}
             for how, pred in preds.items():
                 off, all_ = stats(pred[:OFFICIAL], meas[:OFFICIAL]), stats(pred, meas)
                 result["variants"][f"{name} {key[2:]} {how}"] = dict(official=off, all=all_, pred=pred.tolist())

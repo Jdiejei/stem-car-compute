@@ -19,15 +19,22 @@ from pathlib import Path
 import numpy as np
 
 QUALITY_KEYS = ("primal_converged", "adjoint_converged", "unmatched_frac", "median_match_m", "method")
+# Centre-of-mass height is OFF until Part 2's race time itself depends on it (user decision
+# 2026-11-09): today stopwatch.race's dT_d["com_height_m"] is a slope of a penalised time
+# the reported race time does not contain (checks/race_slopes_check.py). When Part 2 posts
+# the new time, set this True; the slope is read from dT_d, never typed in.
+USE_COM_HEIGHT = False
 
 
-def mass_slope(points_m, area_m2, rho_kgm3: float, mass_kg: float, com_height_m: float, dT_d: dict) -> np.ndarray:
+def mass_slope(points_m, area_m2, rho_kgm3: float, mass_kg: float, com_height_m: float, dT_d: dict,
+               use_com_height: bool = True) -> np.ndarray:
     """Constant-mass race-time slope of the mass and centre-of-mass terms, s per m per m^2.
     ponytail: no centre-of-mass x term, because Part 2's race model holds com_x at 0
     (stopwatch.race). Add it when the model starts using com_x."""
     z = np.asarray(points_m)[:, 2]
     A = np.asarray(area_m2)
-    g = 2.0 * rho_kgm3 * (dT_d["car_weight_kg"] + dT_d["com_height_m"] * (z - com_height_m) / mass_kg)
+    dh = dT_d["com_height_m"] if use_com_height else 0.0
+    g = 2.0 * rho_kgm3 * (dT_d["car_weight_kg"] + dh * (z - com_height_m) / mass_kg)
     return g - np.sum(g * A) / np.sum(A)
 
 
@@ -38,7 +45,8 @@ def race_slope(dD_dn, dL_dn, dT_d: dict, points_m, area_m2, rho_kgm3: float, mas
     mean-subtracted like the mass part (12.3 states it for the mass part only)."""
     A = np.asarray(area_m2)
     aero = dT_d["drag_20_n"] * np.asarray(dD_dn) + dT_d["lift_20_n"] * np.asarray(dL_dn)
-    return aero - np.sum(aero * A) / np.sum(A) + mass_slope(points_m, A, rho_kgm3, mass_kg, com_height_m, dT_d)
+    return aero - np.sum(aero * A) / np.sum(A) + mass_slope(points_m, A, rho_kgm3, mass_kg, com_height_m, dT_d,
+                                                             USE_COM_HEIGHT)
 
 
 def save(path, points, normals, area, dD_dn, dL_dn, dT_dn, quality: dict) -> None:

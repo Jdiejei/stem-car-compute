@@ -928,6 +928,23 @@ def parse_sensitivity_points(sensitivity_text: str, points: np.ndarray) -> tuple
     return points, values
 
 
+# OpenFOAM's boundary-face normals point OUT of the fluid domain, so on the car they point
+# INTO the solid, and `pointSensNormal` is dJ per unit move along THAT normal. The project
+# convention (BUILD_SPEC 12.3, phi_updater) is + = outward from the solid = grow the car.
+# So the value read from the file is negated once, here, for every caller.
+# Proven 2026-11-09 on Part 3's known-answer wing test (checks/known_answer.py): read as is,
+# the map had the opposite sign to central differences on 20 of 20 bumps.
+OUTWARD_SIGN = -1.0
+
+
+def outward_sensitivity(run_dir: str) -> tuple[np.ndarray, np.ndarray]:
+    """(mesh points[N, 3], dJ per unit OUTWARD (grow the solid) move[N]) from a finished run."""
+    points, values = parse_sensitivity_points(
+        find_sensitivity_file(run_dir).read_text(encoding="utf-8", errors="replace"),
+        read_polymesh_points(run_dir))
+    return points, OUTWARD_SIGN * values
+
+
 def map_sensitivity_to_stl_vertices(
     stl_path: str,
     sens_points: np.ndarray,
@@ -1125,11 +1142,7 @@ def invoke_adjoint(
     try:
         run_adjoint_stages(run_dir, cfg, resolved_bashrc)
         check_adjoint_magnitude(run_dir, cfg)
-        sens_file = find_sensitivity_file(run_dir)
-        mesh_points = read_polymesh_points(run_dir)
-        sens_points, sens_values = parse_sensitivity_points(
-            sens_file.read_text(encoding="utf-8", errors="replace"), mesh_points
-        )
+        sens_points, sens_values = outward_sensitivity(run_dir)
         if by_patch:
             names = ["car"] + [s["name"] for s in cfg.extra_surfaces]
             out = {}
@@ -1287,12 +1300,10 @@ solvers
 SIMPLE
 {
     nNonOrthogonalCorrectors 1;
-    residualControl
-    {
-        p               1e-4;
-        U               1e-4;
-        "(k|omega)"     1e-4;
-    }
+    // NO residualControl here. adjointOptimisationFoam's primal obeys it and stopped at
+    // 1e-4 long before converging: on Part 3's wing test it quit at 173 of 4000 iterations
+    // with the drag still moving 1e-3 a step (2026-11-09). The primal's length is set by
+    // optimisationDict (nIters / its own residualControl) instead.
 }
 
 relaxationFactors

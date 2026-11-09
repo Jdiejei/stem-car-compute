@@ -526,6 +526,29 @@ def test_parse_sensitivity_points_pairs_by_index():
     assert np.allclose(sens_values, [0.0, 1.5e10, 2.3e10, 0.0, 0.0])
 
 
+def test_outward_sensitivity_turns_openfoams_inward_normal_outward(tmp_path):
+    """OpenFOAM's wall normal points into the car; + must mean grow the car (BUILD_SPEC 12.3)."""
+    (tmp_path / "constant" / "polyMesh").mkdir(parents=True)
+    (tmp_path / "constant" / "polyMesh" / "points").write_text(_REAL_POINTS_FIXTURE)
+    (tmp_path / "120").mkdir()
+    (tmp_path / "120" / "pointSensNormaladjS1SI").write_text(_REAL_SENSITIVITY_FIXTURE)
+    _, values = oa.outward_sensitivity(str(tmp_path))
+    assert oa.OUTWARD_SIGN == -1.0
+    assert np.allclose(values, [0.0, -1.5e10, -2.3e10, 0.0, 0.0])
+
+
+def test_invoke_adjoint_reads_the_outward_sensitivity():
+    import inspect
+    src = inspect.getsource(oa.invoke_adjoint)
+    assert "outward_sensitivity(run_dir)" in src and "parse_sensitivity_points" not in src
+
+
+def test_adjoint_primal_is_not_stopped_by_fvsolution_residuals():
+    import re
+    simple = re.search(r"^SIMPLE\s*\{([^}]*)\}", oa._FV_SOLUTION_ADJOINT, re.M).group(1)
+    assert not re.search(r"^\s*residualControl", simple, re.M)
+
+
 def test_parse_sensitivity_points_length_mismatch_raises():
     pts = oa._parse_foam_vector_list(_REAL_POINTS_FIXTURE)[:3]  # wrong length
     try:
