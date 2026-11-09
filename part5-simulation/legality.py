@@ -676,6 +676,30 @@ def _tether_checks(parts_mm: dict, x_front: float, x_rear: float) -> dict:
     return r
 
 
+# --------------------------------------------------------------- halo and helmet, unchanged
+HALO_FILE = "halo_helmet.stl"     # the official download (T4.4.1, T4.5), kept with the team's CAD
+
+
+def _halo_checks(parts_mm: dict) -> dict:
+    """T1.21 / T4.4.1 / T4.5: the halo and helmet are on the car and unchanged: the car's
+    file has the official file's size in every direction (within 0.1 mm) and its volume
+    (within 1 %). The car's file is the right half."""
+    import trimesh
+    from paths import PARTS
+    if "halo" not in parts_mm:
+        return {"T4.4.1_halo_unchanged": _entry(-1.0, "no halo on the car (T1.21: it must be)")}
+    off = trimesh.load(str(PARTS["part1-simulation"] / "hardware_cad" / HALO_FILE), force="mesh")
+    h = parts_mm["halo"]
+    car = np.array([h.extents[0], 2.0 * float(h.bounds[1, 1]), h.extents[2]])
+    ref = np.array([off.extents[0], off.extents[1], off.extents[2]])
+    dims = float(np.abs(car - ref).max())
+    dv = 2.0 * abs(float(h.volume)) / abs(float(off.volume)) - 1.0
+    ok = dims <= 0.1 and abs(dv) <= 0.01
+    return {"T4.4.1_halo_unchanged": _entry(
+        0.0 if ok else -1.0, f"size differs by up to {dims:.3f} mm, volume by {100 * dv:+.2f} % "
+                             f"from the official halo and helmet")}
+
+
 def official_block_mm(rear_face_mm: float, slack_mm: float = 0.06, axis_z_mm: float = DEFAULT_AXIS_Z_MM):
     """The Model Block as it arrives (Appendix ii), placed in the car: rear face
     at the car's rear face, bore on the chamber axis, slot along the underside.
@@ -938,6 +962,7 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     xF = float(parts["wheelF"].bounds[:, 0].mean()) * 1e3 if "wheelF" in parts else xf
     xR = float(parts["wheelR"].bounds[:, 0].mean()) * 1e3 if "wheelR" in parts else xf + W
     r.update(_tether_checks({n: mm(m) for n, m in parts.items() if n == "tethers"}, xF, xR))
+    r.update(_halo_checks({n: mm(m) for n, m in parts.items() if n == "halo"}))
 
     # Nose: body material forward of Ref A, and the printed nose and wing supports there.
     v = body.vertices * 1e3
@@ -994,6 +1019,25 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     ch = chamber_measures(pm)
     r.update(_chamber_checks(ch))
     if ch is not None:
+        # T5.6: the protruding cartridge "visible in its entirety when viewed radially": no
+        # part of the car round it, behind the body, over the length that sticks out.
+        x0 = max(ch["rim_x_mm"], float(pm.bounds[1, 0])) + 0.1
+        x1 = ch["rim_x_mm"] + CARTRIDGE_LENGTH_MIN_MM - ch["depth_mm"]
+        if x1 > x0:
+            slab = trimesh.creation.box(bounds=[[x0, -150.0, -10.0], [x1, 150.0, 150.0]])
+            cart = _x_cylinder(ch["diameter_area_mm"] / 2.0, x0 - 1.0, x1 + 1.0, ch["axis_z_mm"])
+            ring = trimesh.boolean.difference([slab, cart], engine="manifold")
+            seen = {"body": body, **{n: m for n, m in parts.items()}}
+            hits = {}
+            for n, m in seen.items():
+                mm_ = m.copy()
+                mm_.apply_scale(1e3)
+                if mm_.is_volume:
+                    v = _volume_in(mm_, ring)
+                    if v > _ROUND_OFF_MM3:
+                        hits[n] = v
+            r["T5.6_cartridge_seen_all_round"] = _absent(sum(hits.values()), ", ".join(
+                f"{k} {v:.1f} mm3" for k, v in hits.items()) or "nothing round the cartridge")
         frac = t55_wall_fraction(probe_body, rear_face_mm=ch["rim_x_mm"], depth_mm=ch["depth_mm"],
                                  bore_r_mm=ch["diameter_area_mm"] / 2.0, axis_z_mm=ch["axis_z_mm"],
                                  angle_deg=ch["angle_deg"])

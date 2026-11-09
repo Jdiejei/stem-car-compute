@@ -90,6 +90,8 @@ def build(tmp, W=130.0, **o):
             [guide(x, o.get("tg_id", 4.5)) for x in o.get("tg_x", (xf - 5.0, xf + W + 5.0))]),
     }
     parts.update({k: _box(*b) for k, b in o.get("extra_parts", {}).items()})
+    if o.get("halo", True):                 # the official halo and helmet, set into the body
+        parts["halo"] = halo(o.get("halo_scale", 1.0))
     if "support" in o:                      # wheel supports: boxes
         parts["supports"] = trimesh.util.concatenate([_box(*b) for b in o["support"]])
     # The wheels' own files (mm): (diameter, contact width), 0.5 mm chamfers each side.
@@ -102,6 +104,18 @@ def build(tmp, W=130.0, **o):
     asm = {"W_mm": W, "x_front_mm": xf, "wheel_files": files,
            "extra_surfaces": [{"name": k, "stl": _save(tmp, k, m)} for k, m in parts.items()]}
     return _save(tmp, "body", body), asm
+
+
+HALO_STL = Path(__file__).resolve().parents[2] / "part1-simulation" / "hardware_cad" / "halo_helmet.stl"
+
+
+def halo(scale=1.0, x0=100.0):
+    """The official halo and helmet (mm), front at x0, base on the 24 mm floor, right half."""
+    m = trimesh.load(str(HALO_STL), force="mesh")
+    m.apply_scale(scale)
+    b = m.bounds
+    m.apply_translation([x0 - b[0, 0], -0.5 * (b[0, 1] + b[1, 1]), 24.0 - b[0, 2]])
+    return trimesh.intersections.slice_mesh_plane(m, [0, 1.0, 0], [0, 0, 0], cap=True)
 
 
 def guide(x, hole, od=8.0, bottom=2.0):
@@ -158,7 +172,8 @@ EDGES = {
     "T8.2_nose_overhang": ({"nose_x": RA - 39.8}, {"nose_x": RA - 40.2}, set()),
     "T8.5.1_nose_z": ({"nose_z": 24.8}, {"nose_z": 25.2}, set()),
     "T8.5.1_nose_half_width": ({"nose_y": 14.8}, {"nose_y": 15.2}, set()),
-    "T9.4.2_rear_overhang": ({"rw_x0": 196.0 + 39.8 - 16}, {"rw_x0": 196.0 + 40.2 - 16}, set()),
+    # Past the body's back the wing also stands round the cartridge (T5.6).
+    "T9.4.2_rear_overhang": ({"rw_x0": 196.0 + 39.8 - 16}, {"rw_x0": 196.0 + 40.2 - 16}, {"T5.6_cartridge_seen_all_round"}),
     "T9.4.1_rear_wing_behind_ref_B": ({"rw_x0": 196.2}, {"rw_x0": 195.8}, set()),
     # Front wing (Ref A at 34; the centre mount splits the span into two segments).
     "T8.6.1_front_span": ({"fw_half": 1.5 + 25.2}, {"fw_half": 1.5 + 24.8}, set()),
@@ -179,6 +194,10 @@ EDGES = {
     "T6.2_front_hole_min": ({"tg_id": 3.6}, {"tg_id": 3.4}, {"T6.2_rear_hole_min"}),
     "T6.2_front_hole_max": ({"tg_id": 5.8}, {"tg_id": 6.2}, {"T6.2_rear_hole_max"}),
     # The cartridge chamber, found and measured on the body.
+    # A rear wing past the body's back hides the cartridge from the side (and overhangs).
+    "T5.6_cartridge_seen_all_round": ({"rw_x0": 235.8 - 16.0}, {"rw_x0": 238.8 - 16.0}, {"T9.4.2_rear_overhang"}),
+    # The official halo, and one 0.1 % or 0.4 % bigger (50 mm long: 0.05 or 0.2 mm).
+    "T4.4.1_halo_unchanged": ({"halo_scale": 1.001}, {"halo_scale": 1.004}, set()),
     "T5.1_diameter_min": ({"bore_d": 18.2}, {"bore_d": 17.8}, set()),
     "T5.1_diameter_max": ({"bore_d": 18.3}, {"bore_d": 18.7}, set()),
     "T5.2_height_min": ({"bore_z": 30.2}, {"bore_z": 29.8}, set()),
@@ -380,3 +399,8 @@ def test_sight_and_air_edges(rule, tmp_path):
     assert not bad, (rule, "inside", {k: r[k] for k in bad})
     bad, r = _vis(tmp_path / "out", _thing(rule, outside))
     assert bad == {rule}, (rule, "outside", bad, r.get(rule))
+
+
+def test_a_car_without_its_halo_fails(tmp_path):
+    bad, _ = fails(tmp_path, halo=False)
+    assert bad == {"T4.4.1_halo_unchanged"}, bad

@@ -73,12 +73,12 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | T4.1 | 22 | One piece of block behind Ref A, holding cargo and chamber | 1 piece | `T4.1_single_body` | checked |
 | T4.2 | 22 | Virtual cargo wholly inside the body, between the axle lines | figure sizes | `T4.2_cargo_inside_body`, `T4.2_cargo_between_axles` | checked |
 | T4.3 | 22 | Cargo shown on drawings | - | - | not checkable: documentation |
-| T4.4.1 | 23 | Halo used unchanged | - | - | GAP (small): halo file not compared with the official file |
+| T4.4.1 | 23 | Halo used unchanged | - | `T4.4.1_halo_unchanged` (size within 0.1 mm and volume within 1 % of the official file) | checked |
 | T4.4.2 | 23 | Halo seen from front and side | no obstruction | `T4.4.2_halo_seen_from_front`, `T4.4.2_halo_seen_from_side` | checked |
 | T4.4.3 | 23 | Halo seen from top (helmet excepted) | no obstruction | `T4.4.3_halo_seen_from_top` | checked |
 | T4.4.4 | 24 | Notch centre 34.0 +-1.0 above track; pocket floor at 24.0, flat | 34.0 +-1.0 mm | `T4.4.4_pocket_floor` (uses +-0.5), `T4.4.4_halo_fits_pocket` | checked (stricter than the rule) |
 | T4.4.5 | 24 | Halo load test, 2 kg | - | - | not checkable: physical test |
-| T4.5 | 24 | Helmet used unchanged | - | part of the halo file | GAP (small): as T4.4.1 |
+| T4.5 | 24 | Helmet used unchanged | - | `T4.4.1_halo_unchanged` (the helmet is in the same official file) | checked |
 | T4.6 | 25 | Logo decal wholly on each side, 100% seen from the side | 30 x 15 mm | `T4.6_logo_decal_room` | checked |
 | T4.7 | 25 | Team number on the body between halo and Ref A, seen from above; also "A"/"B" | text >= 8.0 mm | `T4.7_team_number_room` (9 x 15 window) | checked (number); the A/B letter shares the window, not checked apart |
 | T4.8 | 25 | Decal thickness | <= 0.5 mm | - | not checkable: decals not modelled (user) |
@@ -92,7 +92,7 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | T5.3 | 26 | Chamber depth, rim to end | 45.0-58.0 mm | `T5.3_depth_min/max` | checked |
 | T5.4 | 26 | Chamber angle to track | -3 to +3 deg | `T5.4_angle` | checked |
 | T5.5 | 26 | 3.0 mm block wall round the chamber; chamber not cut by anything | >= 3.0 mm | `T5.5_wall` (milled file, round the measured chamber), `T5.5_chamber_clear` (nothing made inside the bore) | checked |
-| T5.6 | 27 | Cartridge sticks out >= 5.0 mm, visible all round | >= 5.0 mm, PP | `T5.6_protrusion` (64.5 mm shortest cartridge minus measured depth) | checked (protrusion); GAP: "visible all round" not checked |
+| T5.6 | 27 | Cartridge sticks out >= 5.0 mm, visible all round | >= 5.0 mm, PP | `T5.6_protrusion` (64.5 mm shortest cartridge minus measured depth), `T5.6_cartridge_seen_all_round` (no part round the protruding length) | checked |
 | - | - | A chamber exists, open at the back | - | `T5_chamber_found` | checked |
 
 ## Article T6: tether guides (p28-29)
@@ -199,14 +199,11 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 
 Fixed since the first map (2026-11-09), each with a just-inside and a just-outside test in `tests/test_rules_edges.py`: every wing size and position rule, the printed nose and wing mount, the wheels (diameter, contact width, gaps, wheelbase, on the track, four of them), the wheel supports, the tether guides, the whole chamber (T5.1-T5.4, T5.6, nothing inside it), T4.2 between the axles, and T3.3. The `P4.*` gates are still reported, as a second opinion from the builder.
 
-Still not checked:
-1. **T5.6 "visible in its entirety"** round the cartridge behind the car (only the 5 mm protrusion is measured).
-2. **T4.4.1 / T4.5**: the halo and helmet file used unchanged (compare with the official file).
-
+Still not checked: none. T5.6 "visible all round" and T4.4.1 / T4.5 "unchanged halo and helmet" were added last (2026-11-09).
 Independence (Step 3): the referee imports nothing from Part 1. Its rule geometry is in `rules_constants.py`, typed from the regulations with pages; `tests/test_independence.py` checks both the imports and that Part 1 reads the same numbers. Wheel positions, the chamber and the halo pocket are measured on the car itself.
 
 ## Count
 
 113 rows (every rule in T1-T10 and appendices i-ix; some rows group sub-rules). Each has a check or a stated reason; none is blank.
-- checked 68, constant 2 (the shortest legal cartridge, from Appendix vi), by construction 6, not checkable 31 (definitions, documents, process, physical load tests, judges' calls, paint and decals), pointers to another row 4, GAP 2 (above).
+- checked 70, constant 2 (the shortest legal cartridge, from Appendix vi), by construction 6, not checkable 31 (definitions, documents, process, physical load tests, judges' calls, paint and decals), pointers to another row 4, GAP 0.
 - No numeric rule is left to a Part 4 gate alone.
