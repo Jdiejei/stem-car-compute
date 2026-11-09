@@ -22,10 +22,10 @@ from pathlib import Path
 import numpy as np
 
 sys.path[:0] = [".", "checks", str(Path(__file__).resolve().parent)]
+import pattern, solver                 # noqa: E402,F401  (these put the other parts on the path)
+import run_car as rc                   # noqa: E402
 import assembly as p4                  # noqa: E402
 import openfoam_adjoint as oa          # noqa: E402
-import run_car as rc                   # noqa: E402
-import solver                          # noqa: E402
 from known_answer import read_mesh     # noqa: E402
 from scipy.spatial import cKDTree      # noqa: E402
 

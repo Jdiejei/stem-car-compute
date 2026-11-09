@@ -34,7 +34,8 @@ jobs:
           curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
           sudo apt-get install -y -q openfoam2412-default
       - run: pip install $PY_DEPS
-      - working-directory: part5-simulation
+      - shell: bash
+        working-directory: part5-simulation
         run: python -W ignore -u ../part3-simulation/checks/car_sign.py ${{ matrix.seed }} ${{ matrix.mesh }} ../out 2>&1 | grep --line-buffered -E '^LAB|Traceback|Error|^  File|failed'
       - if: always()
         uses: actions/upload-artifact@v4
