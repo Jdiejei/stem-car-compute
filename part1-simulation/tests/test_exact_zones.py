@@ -115,3 +115,18 @@ def test_half_body_mesh_stays_out_of_every_zone():
     a = ez.air_at_points(g, np.asarray(mesh.vertices) * 1e3)
     assert a.max() <= 1e-3, f"{int((a > 1e-3).sum())} vertices inside a zone, worst {a.max():.3f} mm"
     assert mesh.is_watertight
+
+
+@pytest.mark.parametrize("spacing", [1.0, 0.75])
+def test_halo_zone_fields_match_their_masks(spacing):
+    """The halo void, its visibility shadows (T4.4.2/T4.4.3) and the loft ceiling."""
+    import exact_zones as ez
+    import fixed_hardware as fh
+    g, X, Y, Z, right, d = _setup(spacing)
+    r, hw = g.region, g.fixed_hardware
+    mask = (hw.halo_void_mask
+            | fh.halo_visibility_air_mask(hw.halo_void_mask, z_origin_m=r.origin_m[2], dz_m=d / 1e3)
+            | fh.halo_canister_loft_air_mask(hw.halo_void_mask, hw.canister_cylinder, x_origin_m=r.origin_m[0],
+                                             y_origin_m=r.origin_m[1], z_origin_m=r.origin_m[2], d_m=d / 1e3))
+    f = ez.halo_zones(X, np.abs(Y), Z, g.landmarks["ref_plane_A_m"] * 1e3, g.d_halo_mm, hw.canister_cylinder)
+    _agree(f, mask, right, d, grown=d, name="halo")

@@ -163,6 +163,8 @@ def air_field_mm(g, X, Y, Z) -> np.ndarray:
         t851_cap(X, aY, Z, ref_A) + MARGIN_MM,
         halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm, d) + exact,
         block_slot(X, aY, Z) + exact,
+        halo_zones(X, aY, Z, ref_A, g.d_halo_mm, part="above") + exact,
+        halo_zones(X, aY, Z, ref_A, g.d_halo_mm, _canister(g), part="shadows") + MARGIN_MM,
     ], d)
 
 
@@ -194,6 +196,8 @@ def air_at_points(g, P):
         t851_cap(X, aY, Z, ref_A) + MARGIN_MM,
         halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm, None) - 1e-6,
         block_slot(X, aY, Z) - 1e-6,
+        halo_zones(X, aY, Z, ref_A, g.d_halo_mm, part="above") - 1e-6,
+        halo_zones(X, aY, Z, ref_A, g.d_halo_mm, _canister(g), part="shadows") + MARGIN_MM,
     ])
 
 
@@ -216,3 +220,44 @@ def project_out(g, V_m, iters: int = 4):
                          for e in np.eye(3) * h], axis=1)
         P[m] = Q - (a[m] / np.maximum((grad ** 2).sum(1), 1e-12))[:, None] * grad
     return P / 1e3, int(moved.sum())
+
+
+def halo_zones(X, aY, Z, ref_A_mm, d_halo_mm, canister=None, part="all"):
+    """fixed_hardware's halo void, halo_visibility_air_mask and halo_canister_loft_air_mask,
+    exact: the halo is the box over the pocket, |y| <= HALO_CROSS_SECTION_HALF_WIDTH_MM, z
+    from HALO_MIN_Z up to its top. Air: above it (top view, T4.4.3), ahead of it and outboard
+    of it above the 4 mm fillet (front and side views, T4.4.2), and above the smoothstep deck
+    from the halo's rear face to the bore's front (the loft ceiling)."""
+    import fixed_hardware as fh
+    import halo_pocket as hp
+    from geometry_contract import HALO_MIN_Z_MM
+    box = hp.compute_halo_pocket_box_m(ref_A_mm / 1e3, d_halo_mm)
+    x0, x1 = box["x_min_m"] * 1e3, box["x_max_m"] * 1e3
+    hw, z0, zt = fh.HALO_CROSS_SECTION_HALF_WIDTH_MM, HALO_MIN_Z_MM, fh.HALO_CROSS_SECTION_TOP_MM
+    zf = z0 + fh.HALO_VISIBILITY_FILLET_MM
+    above = _box(X, aY, Z, x=(x0, x1), y=(None, hw), z=(z0, None))           # halo and above
+    if part == "above":              # its floor is the pocket floor, exactly 24 mm: no margin
+        return above
+    out = [_box(X, aY, Z, x=(None, x0), y=(None, hw), z=(zf, zt)),          # its front shadow
+           _box(X, aY, Z, x=(x0, x1), y=(hw, None), z=(zf, zt))]            # its side shadows
+    if canister is not None:
+        r = fh.CANISTER_CLEARANCE_RADIUS_MM
+        zc = canister.z_center_m * 1e3
+        xc = (canister.x_center_m - canister.x_half_width_m) * 1e3
+        if xc > x1:
+            t = np.clip((X - x1) / (xc - x1), 0.0, 1.0)
+            s = t * t * (3.0 - 2.0 * t)
+            yv = min(hw, r)                       # where both the halo and bore profiles exist
+            z_h = fh.HALO_REAR_FACE_TOP_MM
+            z_can = zc + np.sqrt(np.maximum(r * r - np.minimum(aY, yv) ** 2, 0.0))
+            crown = z_h + s * (zc + r - z_h)      # the highest valid profile point, at y = 0
+            ceil_ = np.where(aY <= yv, z_h + s * (z_can - z_h), crown)
+            ceil_ = np.where(X > xc, zc + r, ceil_)      # flat at the bore's top to the tail
+            out.append(np.where(X >= x1, Z - ceil_, -np.inf))
+    if part == "shadows":
+        return np.maximum.reduce(out)
+    return np.maximum.reduce(out + [above])
+
+
+def _canister(g):
+    return getattr(getattr(g, "fixed_hardware", None), "canister_cylinder", None)
