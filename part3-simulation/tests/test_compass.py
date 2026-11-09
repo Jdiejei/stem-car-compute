@@ -22,11 +22,13 @@ def _mass(z_mm=30.0):
     return {"car_weight_kg": 0.055, "com_mm": [100.0, 0.0, z_mm]}
 
 
-def _time(eps, P, A, dD, dL, move, z_mm=30.0):
-    """Race time after moving the vertices by eps*move, then the uniform skin re-sizing."""
+def _time(eps, P, A, dD, dL, move, z_mm=30.0, w=None):
+    """Race time after moving the vertices by eps*move, then the skin re-sizing, which moves
+    vertex i by w_i * u (w = 0 where a rule zone or block face holds the surface)."""
+    w = np.ones(len(P)) if w is None else w
     m = _mass(z_mm)
     d = eps * move
-    d_skin = -np.sum(d * A) / np.sum(A)           # puts the mass back exactly
+    d_skin = w * (-np.sum(d * A) / np.sum(w * A))  # puts the mass back exactly
     dm = 2 * RHO * (d + d_skin) * A              # sums to zero
     M = m["car_weight_kg"]
     m["com_mm"] = [m["com_mm"][0] + 1e3 * np.sum(dm * P[:, 0]) / M, 0.0,
@@ -90,3 +92,23 @@ def test_save_and_load_roundtrip(tmp_path):
     assert np.allclose(c["points"], P) and c["quality"]["method"] == "adjoint"
     with pytest.raises(AssertionError):
         compass.save(tmp_path / "x.npz", P, N * 2, A, dD, dL, dD, q)
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+def test_chain_rule_with_held_surface(seed):
+    """Part 1: rule zones and block faces hold about a third of a carved car's surface still
+    when the skin is re-sized. The projection must use that skin weight."""
+    P, A, dD, dL, move = _car(seed)
+    w = (np.random.default_rng(10 + seed).random(len(P)) > 0.35).astype(float)
+    _, dT_d, _ = stopwatch.race(D0, L0, _mass())
+    slope = compass.race_slope(dD, dL, dT_d, P, A, RHO, _mass()["car_weight_kg"], skin_weight=w)
+    eps = 5e-4
+    fd = (_time(eps, P, A, dD, dL, move, w=w) - _time(-eps, P, A, dD, dL, move, w=w)) / 2
+    pred = eps * np.sum(slope * move * A)
+    assert pred == pytest.approx(fd, rel=0.01)
+    wrong = eps * np.sum(compass.race_slope(dD, dL, dT_d, P, A, RHO, _mass()["car_weight_kg"]) * move * A)
+    assert abs(wrong - fd) > 0.02 * abs(fd)       # ignoring the held surface would be visibly wrong
+
+
+def test_body_density_comes_from_part1():
+    assert 50.0 < compass.body_density_kgm3() < 2000.0
