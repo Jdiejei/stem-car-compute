@@ -30,13 +30,15 @@ for s in (1.0, 0.75, 0.5):
     dst = up.remap_geometry(src) if s != 1.0 else src
     b = pb.build(lay["W"], lay["x_front"], lay["d_halo"], pb.BodyParams(), skin_offset_mm=0.0,
                  field_mm=dst.phi.grid * 1e3, machinable=MILL)
-    m = sum(c.mass_kg for c in up.compute_mass_com(b)) * 1e3
+    comps = up.compute_mass_com(b)
+    m = sum(c.mass_kg for c in comps) * 1e3
+    com = [sum(c.mass_kg * getattr(c, a) for c in comps) / (m / 1e3) * 1e3 for a in ("com_x_m", "com_z_m")]
     S = b.phi.grid < 0
     r, d = b.region, up.GRID_SPACING_M
     idx = [np.where(S.any(axis=tuple(a for a in range(3) if a != ax)))[0] for ax in range(3)]
     ext = [float((ix.max() - ix.min() + 1) * d * 1e3) for ix in idx]
-    rows[s] = {"mass_g": m, "extent_mm": ext}
-    print(f"LAB {json.dumps({'seed': seed, 'k': k, 'spacing_mm': s, 'mass_g': round(m, 4), 'extent_mm': ext})}", flush=True)
+    rows[s] = {"mass_g": m, "extent_mm": ext, "com_mm": com}
+    print(f"LAB {json.dumps({'seed': seed, 'k': k, 'spacing_mm': s, 'mass_g': round(m, 4), 'com_x_z_mm': [round(v, 3) for v in com], 'extent_mm': ext})}", flush=True)
 # Richardson: m(h) = m0 + C h^p through the three points, p by bisection
 h = np.array([1.0, 0.75, 0.5])
 mm = np.array([rows[x]["mass_g"] for x in h])
@@ -57,4 +59,5 @@ print("LAB " + json.dumps({"seed": seed, "k": k, "summary": True, "mill": MILL, 
                            "order_p": None if p is None else round(p, 2),
                            "richardson_mass_g": None if m0 is None else round(m0, 4),
                            "grid_error_g": None if m0 is None else round(float(mm[2] - m0), 4),
+                           "com_shift_mm": round(max(float(np.hypot(*(np.array(rows[a]["com_mm"]) - np.array(rows[0.5]["com_mm"])))) for a in rows), 3),
                            "cuts": verdicts}), flush=True)
