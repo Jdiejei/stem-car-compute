@@ -276,12 +276,12 @@ def _air_boxes(g):
     ref_A = g.landmarks["ref_plane_A_m"] * 1e3
     W, xf = g.W_mm, g.x_front_mm
     out = [((None, None), (None, MODEL_BLOCK_SLOT_WIDTH_MM / 2.0), (None, MODEL_BLOCK_SLOT_TOP_Z_MM))]
-    r = (R_WHEEL_M + WHEEL_CLEARANCE_M + k) * 1e3
+    m = MARGIN_MM                    # zones the stamp keeps MARGIN_MM clear: edges moved out too
+    r = (R_WHEEL_M + WHEEL_CLEARANCE_M + k) * 1e3 + m
     for ax, inner in ((xf, FRONT_WHEEL_INNER_Y_M), (xf + W, REAR_WHEEL_INNER_Y_M)):
-        out.append(((ax - r, ax + r), ((inner - WHEEL_CLEARANCE_M - k) * 1e3,
-                    (inner + WHEEL_WIDTH_M + WHEEL_CLEARANCE_M) * 1e3), (None, None)))
+        out.append(((ax - r, ax + r), ((inner - WHEEL_CLEARANCE_M - k) * 1e3 - m,
+                    (inner + WHEEL_WIDTH_M + WHEEL_CLEARANCE_M) * 1e3 + m), (None, None)))
     R = R_WHEEL_M * 1e3
-    m = MARGIN_MM
     ff, ra = xf - R, xf + W + R
     out.append(((ff - wv.T79_RECT_DEPTH_MM - m, ff + m), (wv.FRONT_INNER_GAP_ACTUAL_MM / 2.0 - m, None),
                 (None, wv.T79_ZONE_HEIGHT_MM + m)))
