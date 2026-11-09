@@ -1,0 +1,59 @@
+"""p1_grid_lab: does the grid change the car? (BUILD_SPEC Step 4)
+
+    python ../.github/lab/p1_grid_lab.py <seed> <k>    (from part5-simulation, on GitHub)
+
+Carve one body at 1 mm with the cutter, carry the field to 0.75 mm and 0.5 mm (remap), and
+finish each at the SAME fixed skin (no mass sizing, so the grid is the only change). Prints
+mass, the body's extents, and the Richardson-extrapolated mass with its gap from 0.5 mm.
+"""
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path.cwd().parent
+for p in ("part1-simulation", "part2-simulation", "part3-simulation", "part4-simulation"):
+    sys.path.insert(0, str(ROOT / p))
+sys.path.insert(0, str(ROOT / ".github" / "lab"))
+import numpy as np  # noqa: E402
+
+from p1_carve_common import carve  # noqa: E402
+
+seed, k = int(sys.argv[1]), int(sys.argv[2])
+lay, src, verdicts = carve(seed, k, 1.0)
+rows = {}
+for s in (1.0, 0.75, 0.5):
+    import coarse
+    import param_body as pb
+    import unified_phi as up
+    coarse.use_spacing(s)
+    dst = up.remap_geometry(src) if s != 1.0 else src
+    b = pb.build(lay["W"], lay["x_front"], lay["d_halo"], pb.BodyParams(), skin_offset_mm=0.0,
+                 field_mm=dst.phi.grid * 1e3)
+    m = sum(c.mass_kg for c in up.compute_mass_com(b)) * 1e3
+    S = b.phi.grid < 0
+    r, d = b.region, up.GRID_SPACING_M
+    idx = [np.where(S.any(axis=tuple(a for a in range(3) if a != ax)))[0] for ax in range(3)]
+    ext = [float((ix.max() - ix.min() + 1) * d * 1e3) for ix in idx]
+    rows[s] = {"mass_g": m, "extent_mm": ext}
+    print(f"LAB {json.dumps({'seed': seed, 'k': k, 'spacing_mm': s, 'mass_g': round(m, 4), 'extent_mm': ext})}", flush=True)
+# Richardson: m(h) = m0 + C h^p through the three points, p by bisection
+h = np.array([1.0, 0.75, 0.5])
+mm = np.array([rows[x]["mass_g"] for x in h])
+def resid(p):
+    C = (mm[0] - mm[2]) / (h[0] ** p - h[2] ** p)
+    return mm[1] - (mm[2] + C * (h[1] ** p - h[2] ** p))
+p_lo, p_hi, p = 0.2, 6.0, None
+if resid(p_lo) * resid(p_hi) < 0:
+    for _ in range(60):
+        p = 0.5 * (p_lo + p_hi)
+        p_lo, p_hi = (p, p_hi) if resid(p_lo) * resid(p) > 0 else (p_lo, p)
+m0 = None
+if p is not None:
+    C = (mm[0] - mm[2]) / (h[0] ** p - h[2] ** p)
+    m0 = float(mm[2] - C * h[2] ** p)
+spread = float((mm.max() - mm.min()) / mm[2] * 100)
+print("LAB " + json.dumps({"seed": seed, "k": k, "summary": True, "spread_pct": round(spread, 3),
+                           "order_p": None if p is None else round(p, 2),
+                           "richardson_mass_g": None if m0 is None else round(m0, 4),
+                           "grid_error_g": None if m0 is None else round(float(mm[2] - m0), 4),
+                           "cuts": verdicts}), flush=True)
