@@ -31,10 +31,12 @@ HERE = Path(__file__).resolve().parent
 # thrust_convert.py. The invented co2_thrust_data.csv is kept only for comparison.
 THRUST_CSV = HERE / "thrust_measured_beta.csv"
 # Race-time noise sigma of ONE car on the search mesh, seconds. Measured
-# 2026-11-09 (p2_noise n1, mxnviir run 42642036465): 16 cars at skins 0.01 mm
-# apart, residual SD 1.95 ms, 95 % interval 1.43 to 3.08 ms. Update it when a
-# noise fix lands.
-NOISE_S = 1.95e-3
+# 2026-11-09 without the SIMPLE early stop (p2_noise n1b, blackwingftc-lang run
+# 42654416947): 15 converged cars at skins 0.01 mm apart, residual SD 8.6 ms,
+# 95 % interval 6.3 to 13.9 ms -- the cars settle on one of three drag levels.
+# (The earlier 1.95 ms, run 42642036465, was taken with the early stop on and
+# is not valid.) Update it when a noise fix lands.
+NOISE_S = 8.645e-3
 # ONE meshing frame for every car (as run_car.make_bindings): the legal envelope
 # for the default scalars (x_front 46, W 120.3 mm), so background cells and boxes
 # never move with the car. A car outside it raises; pass cfd={"domain_reference_bounds": ...}.
