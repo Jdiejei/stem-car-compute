@@ -29,7 +29,7 @@ from phi_grid import PhiGrid
 # ── Exceptions ─────────────────────────────────────────────────────────────
 
 class SurfaceExtractionError(Exception):
-    """Base. Caught by quality_gates."""
+    """Base. Caught by the quality gate in Part 3's pipeline_interface."""
 
 
 class RadiusViolation(SurfaceExtractionError):

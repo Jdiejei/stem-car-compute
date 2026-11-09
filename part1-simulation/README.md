@@ -35,7 +35,7 @@ lofted parametric body still builds and can be used as a start shape.
 | `param_body.py` | the lofted body (8-station superellipse loft, sidepods, tunnel, 56 sculpt modes) AND `build(..., field_mm=...)`, which finishes any carved field: cut at Ref A, joins, islands dropped, machinable, sized by a uniform skin offset to the mass target |
 | `machining.py` | the team's process on the grid (team spec 2026-09-27): 6.25 mm ball end from top, bottom, left and right; every concave corner gets the cutter radius, rule-required air is grown until the ball can reach it |
 | `fixed_hardware.py`, `hardware_geometry.py`, `halo_pocket.py`, `virtual_cargo.py`, `wheel_visibility_zones.py`, `bounding_volumes.py` | the fixed parts (cartridge, halo, wheels, cargo) and the masks they impose; `hardware_cad/` holds the team's STLs |
-| `surface_extraction.py`, `stl_assembler.py`, `quality_gates.py`, `mass_com_calculator.py` | marching-cubes surfaces (retried with a larger nudge if the half body comes out open), the CFD-ready half STL, quality gates, mass and centre of mass |
+| `surface_extraction.py`, `mass_com_calculator.py` | marching-cubes surfaces (retried with a larger nudge if the half body comes out open) and their quality checks, mass and centre of mass |
 | `ballast.py` | the T3.6 target (48.2 g today) and the ballast rules; the team adds no ballast, the body volume carries the mass |
 | `coarse.py` | run the pipeline at another grid spacing |
 

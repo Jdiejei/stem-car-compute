@@ -31,7 +31,7 @@ All source meshes model ONE lateral half only -- every one of them has
 y <= 0 in its own native frame, and each already references the track
 surface as z=0 (wheels) or the halo pocket floor as z=24mm (halo) directly,
 needing no z adjustment. Each gets negated onto y >= 0 (this project's
-"right half" convention -- see stl_assembler._mirror_right_to_left) to build
+"right half" convention, mirrored for the full car) to build
 the right-side part; the untouched native mesh is the left-side part.
 
 NOT built here: rear wing. (Project owner: "do not make any wings" --

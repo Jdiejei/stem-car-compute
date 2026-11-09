@@ -5,7 +5,7 @@ WHY THIS EXISTS
 ---------------
 The original representation gave each of the four components its own phi grid
 on its own axis-aligned box, extracted each with its own marching-cubes pass,
-and concatenated the four meshes (`stl_assembler.assemble_stl` is literally
+and concatenated the four meshes (the old `stl_assembler.assemble_stl` was just
 `trimesh.util.concatenate`). Three consequences, all structural:
 
   1. NO SURFACE COULD CROSS A COMPONENT BOUNDARY. The halo-canister loft --

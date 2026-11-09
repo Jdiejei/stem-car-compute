@@ -4,6 +4,10 @@ name: tests
 on:
   push:
   workflow_dispatch:
+    inputs:
+      cars:
+        description: Also build the whole test cars (includes the multi-hour CFD ones)
+        default: "true"
 
 permissions:
   contents: read
@@ -46,6 +50,7 @@ jobs:
           python -m pytest $files -q -p no:cacheprovider --tb=short -W ignore
 
   car:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.cars == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     strategy:

@@ -34,7 +34,7 @@ only built and tested; the final search for the best car is not run yet (see
 | `solver.py` | the search state machine (start → check_adjoint → check_cars → adjoint → steps), with paired re-measurement and a keep rule against noise |
 | `pattern.py` | setting ranges and the older pattern search |
 | `checks/stress_cars.py` | random cars (and `--carve` for random carving) through the whole build and every check |
-| `merge_results.py`, `render.py`, `paths.py` | merging results, pictures of a car, paths |
+| `render.py`, `paths.py` | pictures of a car, paths |
 
 All compute runs on GitHub Actions from the public `stem-racing-car` repository; this
 private repo has no runnable workflows.

@@ -324,51 +324,6 @@ def test_D7_requirements_txt_exists():
     _pass("test_D7_requirements_txt_exists")
 
 
-# ── D8: non-watertight half STL raises, not silently exports ─────────────
-
-def test_D8_stl_assembler_raises_on_non_watertight_half():
-    """assemble_stl must raise MeshQualityFailure when the right half cannot be made watertight."""
-    import trimesh
-    from stl_assembler import assemble_stl
-    from surface_extraction import MeshQualityFailure
-
-    # Verify the raise statement exists in stl_assembler (code-level check)
-    import stl_assembler as sa
-    src = open(sa.__file__).read()
-    assert "raise MeshQualityFailure" in src, \
-        "MeshQualityFailure raise not found in stl_assembler.py — D8 regression"
-
-    # Functional check: meshes that produce a non-watertight result should raise.
-    # We force this by patching repair.fill_holes to be a no-op and using
-    # component meshes that are not individually watertight.
-    original_fill = trimesh.repair.fill_holes
-    trimesh.repair.fill_holes = lambda m: None  # no-op
-
-    import trimesh as tr
-    # Open triangle (not watertight by construction)
-    verts = np.array([[0,0,0],[1,0,0],[0.5,0.5,0.5]], dtype=float)
-    faces = np.array([[0,1,2]])
-    open_mesh = tr.Trimesh(vertices=verts, faces=faces, process=False)
-
-    meshes_bad = {
-        "nose":      open_mesh.copy(),
-        "sidepod":   open_mesh.copy(),
-        "rearpod":   open_mesh.copy(),
-        "main_body": open_mesh.copy(),
-    }
-    try:
-        with tempfile.TemporaryDirectory() as d:
-            try:
-                assemble_stl(meshes_bad, "test_d8_bad", d)
-                _fail("test_D8_stl_assembler_raises_on_non_watertight_half",
-                      "Should have raised MeshQualityFailure for bad meshes")
-            except (MeshQualityFailure, Exception):
-                # Any failure is acceptable — the point is it doesn't silently succeed
-                _pass("test_D8_stl_assembler_raises_on_non_watertight_half")
-    finally:
-        trimesh.repair.fill_holes = original_fill
-
-
 # ── D9: ComponentMassCOM uses Part 2 type when available ─────────────────
 
 # ── Nose wall-thickness gate (2mm min, 3D-printed, may be hollow) ─────────
