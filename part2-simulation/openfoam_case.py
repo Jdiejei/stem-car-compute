@@ -1421,7 +1421,9 @@ def _run(cmd: str, cwd: Path, bashrc: str, log_name: str, timeout: int) -> str:
     Writes combined stdout/stderr to logs/<log_name> and returns the text.
     Raises subprocess.CalledProcessError on non-zero exit."""
     (cwd / "logs").mkdir(exist_ok=True)
-    full = f"source '{bashrc}' && {cmd}"
+    # cd explicitly: a login shell may move (a Codespace's profile cds to the
+    # workspace, and the stage then ran outside its case, 2026-11-09)
+    full = f"cd '{cwd}' && source '{bashrc}' && cd '{cwd}' && {cmd}"
     proc = subprocess.run(
         ["bash", "-lc", full],
         cwd=str(cwd),
