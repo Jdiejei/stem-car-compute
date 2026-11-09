@@ -1,10 +1,12 @@
 name: p3_car_sign
-run-name: "Part 3: map direction and coverage check on 10 cars, with and without wall layers"
+run-name: "Part 3: map direction and coverage check on cars, primal ${{ inputs.primal_iters }} steps"
 
 on:
   workflow_dispatch:
     inputs:
       seeds: { default: "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]" }
+      meshes: { default: "[\"nolayers\", \"layers\"]" }
+      primal_iters: { default: "1000" }
 
 permissions: { contents: read }
 
@@ -12,6 +14,7 @@ env:
   PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
   OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
   OMPI_MCA_rmaps_base_oversubscribe: "1"
+  P3_PRIMAL_ITERS: ${{ inputs.primal_iters }}
 
 jobs:
   car:
@@ -22,7 +25,7 @@ jobs:
       max-parallel: 20
       matrix:
         seed: ${{ fromJSON(inputs.seeds) }}
-        mesh: [nolayers, layers]
+        mesh: ${{ fromJSON(inputs.meshes) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

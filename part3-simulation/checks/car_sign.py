@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -46,7 +47,9 @@ frame = (((ref_a - 41.0) / 1e3, 0.0, 0.0), ((ref_b + 41.0) / 1e3, 0.0435, 0.066)
 layers = None if mesh_kind == "layers" else solver.SEARCH_CFD["layer_overrides"]
 cfg = oa.AdjointRunConfig(resolution="medium", n_subdomains=4, domain_reference_bounds=frame,
                           extra_surfaces=p4.extra_surfaces_from(str(Path(asm["_dir"]) / "assembly.json")),
-                          sensitivity_on_all_parts=True, layer_overrides=layers, keep_run_dir=True)
+                          sensitivity_on_all_parts=True, layer_overrides=layers, keep_run_dir=True,
+                          primal_iters=int(os.environ.get("P3_PRIMAL_ITERS", "1000")),
+                          adjoint_iters=int(os.environ.get("P3_ADJOINT_ITERS", "1000")))
 case_dir = Path(oa.__file__).resolve().parent / "cfd_case_template"
 raw = oa.invoke_adjoint(str(gate.stl_half_path), str(case_dir), cfg, by_patch=True)
 run = max((case_dir / "adjoint_runs").iterdir(), key=lambda p: p.stat().st_mtime)
@@ -86,6 +89,10 @@ for f in ("Ux", "p", "Uax", "pa"):
     r = re.findall(rf"Solving for {f}, Initial residual = ([0-9.eE+-]+)", log)
     if r:
         print(f"{tag} residual {f}: first {float(r[0]):.1e} last {float(r[-1]):.1e}", flush=True)
-np.savez(out / f"car_{seed}_{mesh_kind}.npz", P=Pc, s=s, n_out=n, area=A, stl_dist=dist,
+miss = dist > 5e-3
+for name, lo, hi in (("x", 0, 0), ("y", 1, 1), ("z", 2, 2)):
+    print(f"{tag} unmatched STL vertices by {name} (mm, p5 p50 p95): "
+          f"{np.round(np.percentile(stl[miss, lo] * 1e3, [5, 50, 95]), 1).tolist() if miss.any() else []}", flush=True)
+np.savez(out / f"car_{seed}_{mesh_kind}.npz", P=Pc, s=s, n_out=n, area=A, stl_dist=dist, stl_miss=stl[miss],
          **{f"P_{k}": v[0] for k, v in raw.items()}, **{f"s_{k}": v[1] for k, v in raw.items()})
 (out / f"car_{seed}_{mesh_kind}.json").write_text(json.dumps(dict(seed=seed, mesh=mesh_kind, front_ok=front_ok)))
