@@ -383,6 +383,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
             evals += 1
     g.build_report["mass_error_g"] = (mass(g) - target_body_kg) * 1e3
     g.build_report["sizing_builds"] = evals
+    g.build_report["sizing_tried"] = [(round(o, 4), round(e * 1e3, 4)) for o, e in tried]   # (skin mm, error g)
     g.build_report["mass_bracketed"] = any(t[1] < 0 for t in tried) and any(t[1] > 0 for t in tried)
     return g
 
