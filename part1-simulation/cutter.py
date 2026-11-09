@@ -110,6 +110,8 @@ def finish(geom, layout: dict, target_body_g: float, out_dir) -> dict:
     import json
     from pathlib import Path
 
+    from scipy.ndimage import label
+
     import param_body as pb
     import unified_phi as up
 
@@ -126,6 +128,7 @@ def finish(geom, layout: dict, target_body_g: float, out_dir) -> dict:
            "com_m": [sum(c.mass_kg * c.com_x_m for c in comps) / m, 0.0,
                      sum(c.mass_kg * c.com_z_m for c in comps) / m],
            "skin_offset_mm": br.get("skin_offset_mm"),
+           "field_bodies": int(label(body.phi.grid < 0)[1]),
            "report": {k: v for k, v in br.items() if k != "sizing_tried"}}
     err = br.get("mass_error_g")
     if err is None or abs(err) > 0.05:                  # the sizing tolerance (BUILD_SPEC 12.4)
@@ -141,6 +144,7 @@ def finish(geom, layout: dict, target_body_g: float, out_dir) -> dict:
             res.update(status="refused", reason="open_surface")
         else:
             half.export(str(out / "body_half.stl"))
+            res["mesh_bodies"] = len(half.split(only_watertight=False))
             try:
                 up.extract_unified_surface(body, allow_inaccessible=True)[0].export(str(out / "body.stl"))
             except Exception as exc:  # noqa: BLE001 -- a quality gate refusing is the answer

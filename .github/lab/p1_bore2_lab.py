@@ -26,7 +26,7 @@ LAY = {"W": 120.3, "x_front": 46.0, "d_halo": 43.72}
 def holes_report(tag, mesh_mm):
     import legality as lg
     x_back = float(mesh_mm.bounds[1, 0])
-    for x in np.linspace(x_back - 46.0, x_back - 2.0, 9):
+    for x in np.linspace(x_back - 47.0, x_back - 0.5, 32):
         hs = lg._x_section_holes(mesh_mm, x)
         for q in sorted(hs, key=lambda q: -q.area)[:2]:
             c = q.centroid

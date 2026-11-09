@@ -128,3 +128,6 @@ def test_finish_writes_a_sized_body_and_its_files(tmp_path):
     half = trimesh.load(tmp_path / "body_half.stl")
     assert half.is_watertight and half.vertices[:, 1].min() >= -1e-9
     assert (tmp_path / "body.stl").exists()
+    # the field and the mesh agree on the piece count (Part 4 saw 4 field bodies under a
+    # 1-piece mesh on 2026-11-09): one piece each
+    assert res["field_bodies"] == 1 and res["mesh_bodies"] == 1, (res["field_bodies"], res["mesh_bodies"])
