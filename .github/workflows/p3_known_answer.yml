@@ -1,5 +1,5 @@
 name: p3_known_answer
-run-name: "Part 3: known-answer wing test (${{ inputs.setup }} primal), 20 bumps + 10 two-way shapes, mesh fade ${{ inputs.morph }}, refined ${{ inputs.refine }}x, speed x${{ inputs.uscale }}"
+run-name: "Part 3: known-answer wing test (${{ inputs.setup }} primal), 20 bumps + 10 two-way shapes, mesh fade ${{ inputs.morph }}, refined ${{ inputs.refine }}x, speed x${{ inputs.uscale }}, Re ${{ inputs.re }}"
 
 # Step 1 of Part 3: prove the adjoint on a 2-D wing where measured slopes are cheap and quiet.
 # 5 adjoint settings side by side; 20 bumps, each measured at +-a and +-a/2 (4 runs on 4 cores).
@@ -13,6 +13,7 @@ on:
         default: '[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]'
       bump_parallel: { default: "10" }
       uscale: { default: "1" }
+      re: { default: "3e5" }
       variants:
         default: '["car", "car_raw", "car_cancel", "car_mm", "sst"]'
 
@@ -23,6 +24,7 @@ env:
   P3_REFINE: ${{ inputs.refine }}
   P3_SETUP: ${{ inputs.setup }}
   P3_USCALE: ${{ inputs.uscale }}
+  P3_RE: ${{ inputs.re }}
   INSTALL: |
     (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
     curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash

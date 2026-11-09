@@ -35,7 +35,7 @@ import openfoam_adjoint as oa  # noqa: E402
 BASHRC = "/usr/lib/openfoam/openfoam2412/etc/bashrc"
 TUT = "incompressible/adjointOptimisationFoam"
 WALLS = ("suction", "pressure")
-RE = 3.0e5
+RE = float(os.environ.get("P3_RE", "3e5"))      # 3e5 is our car's; the shipped wing cases are built for 6e6
 USCALE = float(os.environ.get("P3_USCALE", "1"))   # freestream speed factor (units check)
 U = np.array([59.96344962, 2.0939698, 0.0]) * USCALE   # the tutorial's freestream (2 deg)
 PRIMAL_ITERS = 4000      # fixed counts (residual targets unreachable) so every run ends
