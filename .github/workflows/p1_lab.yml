@@ -7,6 +7,7 @@ on:
     inputs:
       script: { default: "remap_lab.py" }
       cars: { default: '["asis"]' }
+      par: { default: "5" }          # jobs at once: 5 on main, up to 20 on Part 1's own account
 
 permissions:
   contents: read
@@ -17,7 +18,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: ${{ fromJSON(inputs.par) }}
       matrix:
         car: ${{ fromJSON(inputs.cars) }}
     steps:
