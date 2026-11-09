@@ -1,0 +1,69 @@
+name: p2_noise
+run-name: "Part 2: timing noise, 16 near-identical cars (${{ inputs.label }})"
+
+# Part 2 noise test (BUILD_SPEC 12.3): 16 cars at skins 0.01 mm apart on the
+# given mesh settings, then the residual SD about a fitted line with its 95 %
+# interval. Default settings are the search mesh (medium, no layers, 1000 its).
+on:
+  workflow_dispatch:
+    inputs:
+      label: { required: true }
+      res: { default: "medium" }
+      iters: { default: "1000" }
+      opt: { default: '{"layer_overrides": {"nSurfaceLayers": 0}}' }
+      skins: { default: '["3.90","3.91","3.92","3.93","3.94","3.95","3.96","3.97","3.98","3.99","4.00","4.01","4.02","4.03","4.04","4.05"]' }
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+
+jobs:
+  car:
+    name: ${{ inputs.label }} ${{ matrix.skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        skin: ${{ fromJSON(inputs.skins) }}
+    env:
+      OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - run: pip install $PY_DEPS
+      - working-directory: part5-simulation
+        run: |
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm ${{ matrix.skin }} \
+            --cfd --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np 4 --keep-runs --cfd-json '${{ inputs.opt }}' 2>&1 | tail -3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: noise-${{ inputs.label }}-${{ matrix.skin }}
+          path: out/s${{ matrix.skin }}/summary.json
+
+  noise:
+    needs: car
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6 scipy==1.17.1
+      - uses: actions/download-artifact@v4
+        with: { pattern: "noise-${{ inputs.label }}-*", path: got }
+      - run: |
+          args=$(for d in got/noise-*; do s=${d##*-}; [ -f "$d/summary.json" ] && echo "$s=$d/summary.json"; done)
+          python part2-simulation/noise_stats.py $args | tee -a "$GITHUB_STEP_SUMMARY"
