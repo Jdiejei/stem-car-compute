@@ -243,7 +243,7 @@ def run_base(name: str, out: Path) -> None:
     for f in sorted(f for f in sens if f.parent == last):
         txt = f.read_text()
         try:
-            v = oa._parse_foam_vector_list(txt) if "Vector" in txt[:600] else oa._parse_foam_scalar_list(txt)
+            v = oa._parse_foam_vector_list(txt) if "VectorField" in txt[:3000] else oa._parse_foam_scalar_list(txt)
         except ValueError as e:
             print(f"LAB skip {f.name}: {e}")
             continue
