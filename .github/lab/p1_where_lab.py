@@ -159,6 +159,8 @@ if what == "inside":
         who = {k: round(float(v[i]), 3) for k, v in parts.items() if v[i] > -0.5}
         print(f"LAB where inside   ({P[i, 0]:.3f},{P[i, 1]:.3f},{P[i, 2]:.3f}) {a[i]:.3f} mm: {who}", flush=True)
 
+        q, _k = ez.project_out(g, P[i:i + 1] / 1e3)
+        print(f"LAB where inside     projected to {np.round(q[0] * 1e3, 4).tolist()}, then {float(ez.air_at_points(g, q * 1e3)[0]):+.4f} mm", flush=True)
 if what == "sphere3":
     import phi_updater as pu
     from bounding_volumes import BoundingRegion

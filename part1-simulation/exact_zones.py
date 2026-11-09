@@ -266,15 +266,15 @@ def halo_zones(X, aY, Z, ref_A_mm, d_halo_mm, canister=None, part="all"):
             # to the tail; each piece with true end faces. The mask puts each join on the cell
             # holding it, and a one-sided switch there put mask cells 2-6 mm out (2026-11-10).
             # (positive inside: a piece is the min of its faces, the union the max)
-            # Over the halo (|y| <= its half width) both parts run on forward to its front:
-            # there they lie inside the air above it anyway, and a face at its rear left
-            # points above both no depth (stuck on x = rear face, 2026-11-10).
-            xf = np.where(aY <= hw, x0, x1)
-            out.append(np.minimum.reduce([X - xf, xc - X, Z - ceil_]))
+            out.append(np.minimum.reduce([X - x1, xc - X, Z - ceil_]))
             # The flat part from the halo's rear, not the bore front: ahead of the bore it is
             # inside the deck part anyway, and a face at the join gave points above both
             # ceilings no depth there; the projection bounced them across it (2026-11-10).
-            out.append(np.minimum(X - xf, Z - (zc + r)))
+            out.append(np.minimum(X - x1, Z - (zc + r)))
+            # The deck run on forward over the halo, MARGIN_MM inside the air above it, so
+            # the halo's rear face is no seam for points above the deck (they sat on it,
+            # 2026-11-10) and the margin added later does not reach past that exact zone.
+            out.append(np.minimum.reduce([X - x0 - MARGIN_MM, hw - MARGIN_MM - aY, xc - X, Z - ceil_]))
     if part == "shadows":
         return np.maximum.reduce(out)
     return np.maximum.reduce(out + [above])
