@@ -33,6 +33,7 @@ seed, mesh_kind, out = int(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 out.mkdir(parents=True, exist_ok=True)
 car = solver.random_start(seed)
 work = out / f"car{seed}"
+work.mkdir(parents=True, exist_ok=True)
 argv = ["--out", str(work), "--body-json", json.dumps(car["params"])]
 a = rc.parse_args(argv)
 geom, info, asm = rc.build_car(a, work, **rc.part4_kwargs(a))

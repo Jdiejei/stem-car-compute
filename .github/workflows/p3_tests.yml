@@ -19,8 +19,11 @@ jobs:
         with: { python-version: "3.11" }
       - run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
       - run: pip install $PY_DEPS
-      - working-directory: part3-simulation
+      - run: python part3-simulation/checks/race_slopes_check.py
+      - if: always()
+        working-directory: part3-simulation
         env: { PART2_PATH: "${{ github.workspace }}/part2-simulation" }
         run: python -m pytest tests -q -p no:cacheprovider --tb=short -W ignore
-      - working-directory: part2-simulation
+      - if: always()
+        working-directory: part2-simulation
         run: python -m pytest tests/test_openfoam_adjoint.py tests/test_adjoint_contract.py -q -p no:cacheprovider --tb=short -W ignore
