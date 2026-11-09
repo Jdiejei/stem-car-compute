@@ -218,6 +218,7 @@ def run_half_car_cfd(
     wake_level: Optional[int] = None,
     moving_ground: bool = True,
     morph_from: Optional[str] = None,
+    ground_plate_start_m: Optional[float] = None,
 ) -> tuple[HalfCarQuantities, CFDHealthReport]:
     """
     Validate a half-car STL and package OpenFOAM half-domain outputs.
@@ -281,6 +282,7 @@ def run_half_car_cfd(
         wake_level=wake_level,
         moving_ground=moving_ground,
         morph_from=morph_from,
+        ground_plate_start_m=ground_plate_start_m,
     )
 
     case_dir = Path(__file__).resolve().parent / "cfd_case_template"

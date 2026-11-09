@@ -163,6 +163,12 @@ class OpenFOAMRunConfig:
     # benchmarks such as the Ahmed body (Ahmed, Ramm & Faltin 1984), so the
     # benchmark is compared like with like. Cars always use True.
     moving_ground: bool = True
+    # GROUND PLATE (2026-11-09, benchmarks only). With a still floor, the floor
+    # upstream of this x (m) is a frictionless slip patch `groundUpstream`, so
+    # the floor's boundary layer starts at a plate's leading edge as in a wind
+    # tunnel (Ahmed's model sat ~1.33 m behind its ground plate's edge, ~22 mm
+    # of boundary layer at 60 m/s), not at the inlet 3 lengths upstream.
+    ground_plate_start_m: Optional[float] = None
     # MESH MORPHING (2026-11-09, noise fix 3 of BUILD_SPEC 12.3). A finished
     # case directory whose constant/polyMesh is reused instead of re-snapping:
     # its `car` patch points are projected onto THIS car's STL and the interior
@@ -1499,12 +1505,61 @@ def _morph(run: Path, cfg: OpenFOAMRunConfig, bashrc: str, timeout_s: int) -> No
         _write(run / "system" / "fvSolution", solution)
 
 
+def ground_plate_dicts(x_start_m: float) -> tuple[str, str]:
+    """(topoSetDict, createPatchDict) moving the lowerWall faces upstream of
+    x_start_m into their own patch `groundUpstream`."""
+    topo = _header("dictionary", "topoSetDict") + f"""
+actions
+(
+    {{ name upstreamFloor; type faceSet; action new; source patchToFace; patch lowerWall; }}
+    {{ name upstreamFloor; type faceSet; action subset; source boxToFace;
+       box (-1e6 -1e6 -1e6) ({x_start_m} 1e6 1e6); }}
+);
+"""
+    create = _header("dictionary", "createPatchDict") + """
+pointSync false;
+patches
+(
+    { name groundUpstream; patchInfo { type patch; } constructFrom set; set upstreamFloor; }
+);
+"""
+    return topo, create
+
+
+def add_upstream_ground_entries(zero_dir: Path) -> None:
+    """Give every field an entry for `groundUpstream`: slip for U, zero
+    gradient for the rest (no wall there, so no boundary layer)."""
+    for f in sorted(p for p in zero_dir.iterdir() if p.is_file()):
+        text = f.read_text(encoding="utf-8")
+        if "lowerWall" not in text or "groundUpstream" in text:
+            continue
+        entry = "slip" if f.name == "U" else "zeroGradient"
+        text = re.sub(r"(\n(\s*)lowerWall[^\n]*\n)",
+                      lambda m: m.group(1) + f"{m.group(2)}groundUpstream {{ type {entry}; }}\n",
+                      text, count=1)
+        f.write_text(text, encoding="utf-8")
+
+
 def _mesh(run: Path, cfg: OpenFOAMRunConfig, bashrc: str, timeout_s: int) -> str:
     """Snap (or morph) the mesh serially and return the checkMesh log."""
     if cfg.morph_from:
         _morph(run, cfg, bashrc, timeout_s)
     else:
         _run("snappyHexMesh -overwrite", run, bashrc, "snappyHexMesh.log", timeout_s)
+    if cfg.ground_plate_start_m is not None and not cfg.moving_ground:
+        topo, create = ground_plate_dicts(cfg.ground_plate_start_m)
+        _write(run / "system" / "topoSetDict", topo)
+        _write(run / "system" / "createPatchDict", create)
+        # 0/ is moved aside so createPatch cannot rewrite the fields' entries
+        held = run / "0.held"
+        (run / "0").rename(held)
+        try:
+            _run("topoSet", run, bashrc, "topoSet.log", timeout_s)
+            _run("createPatch -overwrite", run, bashrc, "createPatch.log", timeout_s)
+        finally:
+            shutil.rmtree(run / "0", ignore_errors=True)
+            held.rename(run / "0")
+        add_upstream_ground_entries(run / "0")
     return _run("checkMesh", run, bashrc, "checkMesh.log", timeout_s)
 
 
