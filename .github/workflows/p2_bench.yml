@@ -1,4 +1,5 @@
 name: p2_bench
+run-name: "Part 2: wind-tunnel benchmark (${{ inputs.label }})"
 
 # Part 2: the Ahmed body (published wind-tunnel drag) through the cars' CFD,
 # one job per slant x mesh. Still floor, Re 4.29e6 as in the experiment.
