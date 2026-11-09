@@ -53,6 +53,19 @@ jobs:
         with:
           name: noise-${{ inputs.label }}-${{ matrix.skin }}
           path: out/s${{ matrix.skin }}/summary.json
+      - name: Force histories and mesh size (does the flow switch state?)
+        if: always()
+        run: |
+          mkdir -p hist
+          r=$(ls -d part2-simulation/cfd_case_template/runs/*/ 2>/dev/null | head -1)
+          [ -n "$r" ] && cp -r "$r/postProcessing" hist/ 2>/dev/null; grep -h "^ *cells:" "$r/checkMesh.log" "$r"/logs/checkMesh.log 2>/dev/null | head -1 | tee hist/cells.txt
+          find hist -name "*.dat" ! -name "force*.dat" -delete 2>/dev/null; true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forces-${{ inputs.label }}-${{ matrix.skin }}
+          path: hist/
+          retention-days: 14
 
   noise:
     needs: car
