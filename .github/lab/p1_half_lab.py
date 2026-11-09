@@ -54,6 +54,15 @@ for tag in ("raw", "projected", "projected+cut"):
     bad = {k: round(v, 3) for k, v in worst.items() if v > 1e-3}
     print(f"LAB half skin {skin} {tag}: mesh {2 * abs(half.volume) * 1e6:.3f} cm3 field {field_cm3:.3f} cm3 "
           f"is_volume {half.is_volume} slot {inside:.2f} mm3 zones-with-vertices-inside {bad}", flush=True)
-ez.project_out, ez.cut_boxes = proj, cut
-h2 = cut(g, up.extract_half_surface(g))
-print(f"LAB half skin {skin} cut changed faces: {len(h2.faces)}", flush=True)
+ez.project_out, ez.cut_boxes = proj, (lambda gg, m: m)
+hm = up.extract_half_surface(g)
+import manifold3d as m3  # noqa: E402
+try:
+    body = m3.Manifold(m3.Mesh(vert_properties=np.asarray(hm.vertices, np.float32), tri_verts=np.asarray(hm.faces, np.uint32)))
+    print(f"LAB half skin {skin} manifold status {body.status()} empty {body.is_empty()} volume {body.volume() if hasattr(body, 'volume') else '?'}", flush=True)
+    c = m3.Manifold.cube([0.4, 0.003, 0.04]).translate([0.0, -0.001, -0.032])
+    o = (body - c).to_mesh()
+    t = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3], np.asarray(o.tri_verts), process=True)
+    print(f"LAB half skin {skin} cut result faces {len(t.faces)} watertight {t.is_watertight} winding {t.is_winding_consistent} is_volume {t.is_volume}", flush=True)
+except Exception as exc:  # noqa: BLE001
+    print(f"LAB half skin {skin} manifold error {type(exc).__name__}: {exc}", flush=True)

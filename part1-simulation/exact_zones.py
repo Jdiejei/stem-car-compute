@@ -179,11 +179,21 @@ def stamp(g, X, Y, Z) -> int:
     new = np.maximum(g.phi.grid[near], (a[near] / 1e3).astype(np.float32))
     changed = int((new != g.phi.grid[near]).sum())
     g.phi.grid[near] = new
+    # The halo's view zones and the loft ceiling also overrule forced solid: the loft skin
+    # and halo deck are forced cell by cell and poked up to 2.5 mm above the exact ceiling
+    # (2026-11-10). Elsewhere forced solid stands (the cargo may share the ballast slot).
+    b = halo_zones(X, np.abs(Y), Z, g.landmarks["ref_plane_A_m"] * 1e3, g.d_halo_mm, _canister(g),
+                   part="shadows") + MARGIN_MM
+    over = (b > -2.0 * d_mm) & g.phi.hard_mask_solid
+    new = np.maximum(g.phi.grid[over], (b[over] / 1e3).astype(np.float32))
+    changed += int((new != g.phi.grid[over]).sum())
+    g.phi.grid[over] = new
     return changed
 
 
 def air_at_points(g, P):
     """The zones' air field (as air_field_mm, with its margins) at points P (n, 3) in mm.
+    Not the ballast slot: the cargo may share it (T4.2) and Part 4 cuts it exactly.
     Exact where it is positive (inside a zone), which is all project_out needs."""
     from bounding_volumes import default_rule_envelope
     X, Y, Z = P[:, 0], P[:, 1], P[:, 2]
@@ -194,7 +204,6 @@ def air_at_points(g, P):
         wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm) + MARGIN_MM,
         t79_zones(X, aY, Z, g.W_mm, g.x_front_mm) + MARGIN_MM,
         t851_cap(X, aY, Z, ref_A) + MARGIN_MM,
-        halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm, None) - 1e-6,
         block_slot(X, aY, Z) - 1e-6,
         halo_zones(X, aY, Z, ref_A, g.d_halo_mm, part="above") - 1e-6,
         halo_zones(X, aY, Z, ref_A, g.d_halo_mm, _canister(g), part="shadows") + MARGIN_MM,
