@@ -127,3 +127,30 @@ if what == "cut":
         print(f"LAB where cut [{name}]: volume {back.is_volume} after an STL reload, faces {len(back.faces)}, "
               f"{2 * abs(back.volume) * 1e6:.3f} cm3; vertices in zones {int((a > 1e-4).sum())} worst {a.max():.4f} mm",
               flush=True)
+
+if what == "inside":
+    sys.path.insert(0, str(ROOT / "part1-simulation" / "tests"))
+    import exact_zones as ez
+    import unified_phi as up
+    from bounding_volumes import default_rule_envelope
+    from test_exact_zones import _setup
+    g, *_ = _setup(1.0)
+    up.enforce_symmetry(g)
+    mesh = up.extract_half_surface(g)
+    P = np.asarray(mesh.vertices) * 1e3
+    X, aY, Z = P[:, 0], np.abs(P[:, 1]), P[:, 2]
+    ra = g.landmarks["ref_plane_A_m"] * 1e3
+    parts = {"envelope": ez.envelope_air(X, aY, Z, g.bv, default_rule_envelope(), None) + ez.MARGIN_MM,
+             "wheels": ez.wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm) + ez.MARGIN_MM,
+             "t79": ez.t79_zones(X, aY, Z, g.W_mm, g.x_front_mm) + ez.MARGIN_MM,
+             "t851": ez.t851_cap(X, aY, Z, ra) + ez.MARGIN_MM,
+             "slot": ez.block_slot(X, aY, Z) - 1e-6,
+             "above": ez.halo_zones(X, aY, Z, ra, g.d_halo_mm, part="above") - 1e-6,
+             "shadows": ez.halo_zones(X, aY, Z, ra, g.d_halo_mm, ez._canister(g), part="shadows") + ez.MARGIN_MM}
+    a = np.maximum.reduce(list(parts.values()))
+    print(f"LAB where inside: {int((a > 1e-3).sum())} vertices, volume {mesh.is_volume}", flush=True)
+    for i in np.argsort(-a)[:8]:
+        if a[i] <= 1e-3:
+            break
+        who = {k: round(float(v[i]), 3) for k, v in parts.items() if v[i] > -0.5}
+        print(f"LAB where inside   ({P[i, 0]:.3f},{P[i, 1]:.3f},{P[i, 2]:.3f}) {a[i]:.3f} mm: {who}", flush=True)

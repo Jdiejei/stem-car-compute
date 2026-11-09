@@ -1048,11 +1048,31 @@ def extract_half_surface(geom: UnifiedGeometry):
     # Smoothing rounds zone edges into the zones (the block slot's corners): put them back.
     try:
         import exact_zones
+        target = abs(mesh.volume)
         v, _n = exact_zones.project_out(geom, mesh.vertices)
         v[v[:, 1] < 0.0, 1] = 0.0
         mesh.vertices = v
         mesh = exact_zones.cut_boxes(geom, mesh)
         v, _n = exact_zones.project_out(geom, mesh.vertices)   # the cut's new vertices too
+        v[v[:, 1] < 0.0, 1] = 0.0
+        mesh.vertices = v
+        # The repair gave back the smoothing's lost volume by an even outward move, on the
+        # zone faces too, and the steps above took that back off them: the mesh came out
+        # 0.47 cm3 under the field (2026-11-10). Give it back again through the faces that
+        # are clear of every zone; the symmetry cap stays on y = 0.
+        for _ in range(3):
+            dv = target - abs(mesh.volume)
+            if dv <= 1e-12:
+                break
+            V = np.asarray(mesh.vertices)
+            free = (V[:, 1] > 1e-9) & (exact_zones.air_at_points(geom, V * 1e3) < -0.2)
+            area = float(mesh.area_faces[free[mesh.faces].all(axis=1)].sum())
+            if area <= 0:
+                break
+            v = V.copy()
+            v[free] += (dv / area) * mesh.vertex_normals[free]
+            mesh.vertices = v
+        v, _n = exact_zones.project_out(geom, mesh.vertices)
         v[v[:, 1] < 0.0, 1] = 0.0
         mesh.vertices = v
     except AttributeError:          # a bare test geometry without layout

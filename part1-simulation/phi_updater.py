@@ -196,16 +196,33 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
     phi0 = grid_f64.copy()
     s0 = np.sign(phi0)
     pad = np.pad(phi0, 1, mode="edge")
+    pad2 = np.pad(phi0, 2, mode="edge")
     near = phi0 == 0.0
     inv2 = np.zeros_like(phi0)
+
+    def at(ax, k):                         # phi0 shifted k cells along ax
+        idx = [slice(2, -2)] * 3
+        idx[ax] = slice(2 + k, pad2.shape[ax] - 2 + k)
+        return pad2[tuple(idx)]
+
     for ax in range(3):
         best = np.full(phi0.shape, np.inf)
-        for sh in (slice(0, -2), slice(2, None)):
-            idx = [slice(1, -1)] * 3
-            idx[ax] = sh
-            nb = pad[tuple(idx)]
+        for s in (-1, 1):
+            nb = at(ax, s)
             cross = np.sign(nb) != s0
-            t = np.abs(phi0) / np.maximum(np.abs(phi0 - nb), 1e-300)
+            # The crossing from a parabola through the cells either side, its curvature
+            # limited by minmod (Min & Gibou 2007): a straight line across a curved
+            # surface leans the same way on every cell and took 0.26 % off a sphere.
+            d2a = at(ax, -s) - 2.0 * phi0 + nb
+            d2b = phi0 - 2.0 * nb + at(ax, 2 * s)
+            c2 = np.where(d2a * d2b > 0, np.where(np.abs(d2a) < np.abs(d2b), d2a, d2b), 0.0)
+            a2 = 0.5 * c2
+            b2 = nb - phi0 - a2
+            q = -0.5 * (b2 + np.where(b2 >= 0, 1.0, -1.0) * np.sqrt(np.maximum(b2 * b2 - 4.0 * a2 * phi0, 0.0)))
+            tq = np.abs(phi0) / np.maximum(np.abs(q), 1e-300) * np.where(phi0 * q >= 0, 1.0, -1.0)
+            lin = np.abs(phi0) / np.maximum(np.abs(phi0 - nb), 1e-300)
+            ok = (b2 * b2 - 4.0 * a2 * phi0 >= 0) & (tq >= 0) & (tq <= 1)
+            t = np.where(ok, tq, lin)
             best = np.where(cross, np.minimum(best, t), best)
             near |= cross
         # An axis with no crossing still has a slope: dropping it put oblique cells of a
