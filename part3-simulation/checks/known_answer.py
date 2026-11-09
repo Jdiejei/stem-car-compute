@@ -62,6 +62,21 @@ PAIRS = [(0, 1), (2, 1), (2, 3), (4, 3), (5, 6), (7, 6), (7, 8), (9, 8), (0, 5),
 MODE_X = np.round(np.linspace(0.02, 0.95, 20), 4)
 MODES = [("suction", x) for x in MODE_X] + [("pressure", x) for x in MODE_X]
 N_TEST = 20 + 10                                     # singles + pairs; modes follow
+# HARD test shapes for the measured map (lead chat, 2026-11-09): the 30 shapes above are the
+# modes' own family (same radius), so a good score there is partly a fit. These are outside
+# it: narrower than a mode (r 0.015, 0.025), wider (0.08), and mixes of three narrow bumps
+# with mixed signs at positions between the mode centres. (wall, x/c, r, sign) per bump.
+HARD0 = N_TEST + len(MODES)                          # 70
+HARD = ([[("suction", x, 0.015, 1)] for x in (0.25, 0.55, 0.85)]
+        + [[("pressure", x, 0.015, 1)] for x in (0.15, 0.45, 0.75)]
+        + [[("suction", x, 0.025, 1)] for x in (0.35, 0.65)] + [[("pressure", x, 0.025, 1)] for x in (0.25, 0.55)]
+        + [[("suction", x, 0.08, 1)] for x in (0.3, 0.6)] + [[("pressure", x, 0.08, 1)] for x in (0.3, 0.6)]
+        + [[("suction", .13, .015, 1), ("suction", .41, .015, -1), ("pressure", .27, .015, 1)],
+           [("suction", .22, .02, -1), ("suction", .47, .015, 1), ("pressure", .62, .02, 1)],
+           [("pressure", .08, .015, 1), ("pressure", .33, .02, -1), ("suction", .73, .015, -1)],
+           [("suction", .57, .015, 1), ("suction", .69, .015, -1), ("suction", .81, .015, 1)],
+           [("pressure", .44, .02, -1), ("pressure", .58, .015, 1), ("suction", .36, .02, 1)],
+           [("suction", .06, .015, 1), ("pressure", .06, .015, -1), ("suction", .9, .02, 1)]])
 # Adjoint variants run side by side. "car" is exactly the car's setting.
 VARIANTS = {
     "car":        dict(ras="adjointLaminar", atc="standard", mesh_move=False),
@@ -219,19 +234,27 @@ def read_mesh(case: Path, walls=WALLS, flat: bool = True) -> dict:
                 side=np.array([side[i] for i in wall]))
 
 
-def bump(mesh: dict, k: int) -> np.ndarray:
-    """Outward move of every wall point (chords) for shape k at amplitude 1: a*b_i.
-    k < 20: one test bump; 20..29 the PAIRS (grow at i minus grow at j); 30.. the MODES."""
-    if len(CENTRES) <= k < N_TEST:
-        i, j = PAIRS[k - len(CENTRES)]
-        return bump(mesh, i) - bump(mesh, j)
-    w, xc = CENTRES[k] if k < len(CENTRES) else MODES[k - N_TEST]
+def gauss(mesh: dict, w: str, xc: float, r: float = BUMP_R) -> np.ndarray:
+    """Gaussian outward move of amplitude BUMP_A, radius r (chords), centred on wall `w` at x/c."""
     Pw = mesh["P"][mesh["wall"]]
     chord, x0 = mesh["chord"], Pw[:, 0].min()
     on = np.flatnonzero(mesh["side"] == w)
     centre = Pw[on[np.argmin(np.abs((Pw[on, 0] - x0) / chord - xc))]]
     d2 = ((Pw[:, :2] - centre[:2]) ** 2).sum(axis=1)
-    return BUMP_A * chord * np.exp(-d2 / (2 * (BUMP_R * chord) ** 2))
+    return BUMP_A * chord * np.exp(-d2 / (2 * (r * chord) ** 2))
+
+
+def bump(mesh: dict, k: int) -> np.ndarray:
+    """Outward move of every wall point (chords) for shape k at amplitude 1: a*b_i.
+    k < 20: one test bump; 20..29 the PAIRS (grow at i minus grow at j); 30..69 the MODES;
+    70.. the HARD shapes (sizes and mixes the modes were not built from)."""
+    if len(CENTRES) <= k < N_TEST:
+        i, j = PAIRS[k - len(CENTRES)]
+        return bump(mesh, i) - bump(mesh, j)
+    if k >= HARD0:
+        return sum(s * gauss(mesh, w, x, r) for w, x, r, s in HARD[k - HARD0])
+    w, xc = CENTRES[k] if k < len(CENTRES) else MODES[k - N_TEST]
+    return gauss(mesh, w, xc)
 
 
 def objective(case: Path) -> tuple[float, float]:
@@ -278,7 +301,7 @@ def run_base(name: str, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     np.savez(out / f"base_{name}.npz", P=mesh["P"][mesh["wall"]], n_out=mesh["n_out"], area=mesh["area"],
              side=mesh["side"], chord=mesh["chord"], J=J, spread=spread,
-             bumps=np.array([bump(mesh, k) for k in range(N_TEST + len(MODES))]),
+             bumps=np.array([bump(mesh, k) for k in range(HARD0 + len(HARD))]),
              **{"f_" + k: v for k, v in fields.items()}, **geom)
 
 
@@ -337,6 +360,29 @@ def measured_map(src: Path, runs: dict, meas, singles, sign_set, result: dict, k
           f"p50 {np.median(resid):.2f} max {resid.max():.2f}", flush=True)
     print(f"LAB measured map VERDICT (sign >= 90% of singles and pairs, r >= 0.9 on the 10 official singles): "
           f"{'PASS' if sg >= 0.9 and off['r'] >= 0.9 else 'FAIL'}", flush=True)
+    # HARD shapes, outside the modes' family: the real test of the measured map
+    hk = [k for k in range(HARD0, HARD0 + len(HARD)) if all((k, a) in runs for a in (1.0, -1.0, 0.5, -0.5))]
+    if len(hk) < 2:
+        print(f"LAB measured map on HARD shapes: {len(hk)}/{len(HARD)} measured, skipped", flush=True)
+        return
+    Bh = z["bumps"][hk]
+    mh = np.array([(runs[(k, 1.0)]["J"] - runs[(k, -1.0)]["J"]) / 2 for k in hk])
+    lin = np.array([mh[i] / (runs[(k, 0.5)]["J"] - runs[(k, -0.5)]["J"]) for i, k in enumerate(hk)])
+    noise = np.array([max(runs[(k, s)]["spread"] for s in (1.0, -1.0, 0.5, -0.5)) for k in hk])
+    ph = Bh @ (m * A)
+    # share of each shape (A-weighted) the modes can represent
+    proj = (Bh @ (Phi.T * A[:, None])) @ np.linalg.solve(G, Phi)
+    capt = 1 - np.sqrt(((Bh - proj) ** 2 * A).sum(axis=1) / ((Bh ** 2) * A).sum(axis=1))
+    st = stats(ph, mh)
+    sgn = np.sign(ph) == np.sign(mh)
+    result["measured_map_hard"] = dict(r=st["r"], sign=st["sign"], slope=st["slope"], measured=mh.tolist(),
+                                       pred=ph.tolist(), captured=capt.tolist(), linearity=(lin / 2).tolist())
+    print(f"LAB measured map on HARD shapes ({len(hk)}/{len(HARD)}): r {st['r']:+.3f} slope {st['slope']:+.3g}"
+          f" signs {st['sign']:.2f}; clear of 3x noise {int(np.sum(np.abs(mh) >= 3 * noise))}", flush=True)
+    for i, k in enumerate(hk):
+        print(f"LAB   hard {k - HARD0:2d} {HARD[k - HARD0][0][0][:4]} x {HARD[k - HARD0][0][1]:.2f} r {HARD[k - HARD0][0][2]:.3f}"
+              f"{' mix' if len(HARD[k - HARD0]) > 1 else '    '}: measured {mh[i]:+.4f} predicted {ph[i]:+.4f}"
+              f" captured {capt[i]:.2f} sign {'ok' if sgn[i] else 'WRONG'}", flush=True)
 
 
 def judge(src: Path) -> int:
