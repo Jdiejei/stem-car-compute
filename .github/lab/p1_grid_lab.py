@@ -19,8 +19,12 @@ import numpy as np  # noqa: E402
 from p1_carve_common import carve  # noqa: E402
 
 seed, k = int(sys.argv[1]), int(sys.argv[2])
-MILL = not (len(sys.argv) > 3 and sys.argv[3] == "nomill")      # nomill: skip the ball-end milling
+MODE = sys.argv[3] if len(sys.argv) > 3 else ""             # nomill | block | block_nomill
+MILL = "nomill" not in MODE
 lay, src, verdicts = carve(seed, k, 1.0)
+if MODE.startswith("block"):                 # the uncut block: no carved shape to carry across grids
+    import cutter
+    src, verdicts = cutter.start_block(lay, 1.0), []
 rows = {}
 for s in (1.0, 0.75, 0.5):
     import coarse
