@@ -32,21 +32,51 @@ def _box(X, Y, Z, x=(None, None), y=(None, None), z=(None, None)):
     return -(out + np.minimum(m, 0.0))
 
 
+def _extend_abutting(specs):
+    """Box specs ((x lo, hi), (|y| lo, hi), (z lo, hi)), None = open, with every box that
+    abuts a neighbour whose cross-section holds its own run on through that neighbour: the
+    union is unchanged, but the shared face is gone. On such a face max() reads 0 for points
+    inside the union, and with the margin they counted as inside the zone (the nose and main
+    body boxes at Ref A, 2026-11-10)."""
+    def lo_(v):
+        return -np.inf if v is None else v
+
+    def hi_(v):
+        return np.inf if v is None else v
+
+    specs = [list(map(list, s)) for s in specs]
+    for _ in range(2):
+        for i, bi in enumerate(specs):
+            for j, bj in enumerate(specs):
+                if i == j:
+                    continue
+                for a in range(3):
+                    if not all(lo_(bj[k][0]) <= lo_(bi[k][0]) and hi_(bi[k][1]) <= hi_(bj[k][1])
+                               for k in range(3) if k != a):
+                        continue
+                    if bi[a][1] is not None and bj[a][0] is not None and abs(bi[a][1] - bj[a][0]) < 1e-9:
+                        bi[a][1] = bj[a][1]
+                    if bi[a][0] is not None and bj[a][1] is not None and abs(bi[a][0] - bj[a][1]) < 1e-9:
+                        bi[a][0] = bj[a][0]
+    return [tuple(map(tuple, s)) for s in specs]
+
+
 def envelope_air(X, aY, Z, bv, re, d_mm=1.0):  # d_mm None: points, max() (exact outside)
     """Outside the legal envelope (unified_phi._zone_masks): the union of the nose, sidepod,
     rearpod and main-body boxes; positive outside all of them."""
     mm = 1e3
-    boxes = [
-        _box(X, aY, Z, x=(None, bv.ref_plane_A_m * mm), y=(None, re.y_nose_half_m * mm),
-             z=(re.z_floor_m * mm, re.z_nose_top_m * mm)),
-        _box(X, aY, Z, x=(bv.sidepod_x_min_m * mm, bv.sidepod_x_max_m * mm),
-             y=(re.y_sidepod_inner_m * mm, re.y_sidepod_outer_m * mm),
-             z=(re.z_floor_m * mm, re.z_sidepod_top_m * mm)),
-        _box(X, aY, Z, x=(bv.rearpod.origin_m[0] * mm, bv.rearpod.x_max_m() * mm),
-             y=(None, re.y_body_half_m * mm), z=(re.z_floor_m * mm, re.z_rearpod_top_m * mm)),
-        _box(X, aY, Z, x=(bv.ref_plane_A_m * mm, bv.rearpod.origin_m[0] * mm),
-             y=(None, re.y_body_half_m * mm), z=(re.z_floor_m * mm, re.z_body_top_m * mm)),
+    specs = [
+        ((None, bv.ref_plane_A_m * mm), (None, re.y_nose_half_m * mm), (re.z_floor_m * mm, re.z_nose_top_m * mm)),
+        ((bv.sidepod_x_min_m * mm, bv.sidepod_x_max_m * mm), (re.y_sidepod_inner_m * mm, re.y_sidepod_outer_m * mm),
+         (re.z_floor_m * mm, re.z_sidepod_top_m * mm)),
+        ((bv.rearpod.origin_m[0] * mm, bv.rearpod.x_max_m() * mm), (None, re.y_body_half_m * mm),
+         (re.z_floor_m * mm, re.z_rearpod_top_m * mm)),
+        ((bv.ref_plane_A_m * mm, bv.rearpod.origin_m[0] * mm), (None, re.y_body_half_m * mm),
+         (re.z_floor_m * mm, re.z_body_top_m * mm)),
     ]
+    if not d_mm:
+        specs = _extend_abutting(specs)
+    boxes = [_box(X, aY, Z, x=s[0], y=s[1], z=s[2]) for s in specs]
     return -(union(boxes, d_mm) if d_mm else np.maximum.reduce(boxes))
 
 
