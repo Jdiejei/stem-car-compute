@@ -114,7 +114,9 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
     return mesh
 
 
-def read_mesh(case: Path) -> dict:
+def read_mesh(case: Path, walls=WALLS, flat: bool = True) -> dict:
+    """Wall points (sorted ids), outward-from-solid unit normals and point areas.
+    flat: a 2-D case, so the normals lie in the x-y plane."""
     poly = case / "constant/polyMesh"
     P = oa._parse_foam_vector_list(read(poly / "points"))
     bnd = oa._read_boundary(read(poly / "boundary"))
@@ -122,7 +124,7 @@ def read_mesh(case: Path) -> dict:
     area_vec = np.zeros_like(P)
     area = np.zeros(len(P))
     side = {}
-    for w in WALLS:
+    for w in walls:
         for f in oa._read_faces(ftxt, *bnd[w]):
             q = P[f]
             av = 0.5 * np.cross(q, np.roll(q, -1, axis=0)).sum(axis=0)   # OpenFOAM: out of the fluid
@@ -133,10 +135,11 @@ def read_mesh(case: Path) -> dict:
     wall = np.array(sorted(side))
     n_mesh = area_vec[wall] / np.linalg.norm(area_vec[wall], axis=1)[:, None]
     n_out = -n_mesh                                # out of the SOLID (grow), our + direction
-    n_out[:, 2] = 0.0
-    n_out /= np.linalg.norm(n_out, axis=1)[:, None]
+    if flat:
+        n_out[:, 2] = 0.0
+        n_out /= np.linalg.norm(n_out, axis=1)[:, None]
     c = P[wall].mean(axis=0)
-    assert np.sum(((P[wall] - c) * n_out).sum(axis=1) * area[wall]) > 0, "normals do not point out of the wing"
+    assert np.sum(((P[wall] - c) * n_out).sum(axis=1) * area[wall]) > 0, "normals do not point out of the body"
     return dict(P=P, wall=wall, n_out=n_out, area=area[wall], side=np.array([side[i] for i in wall]))
 
 
