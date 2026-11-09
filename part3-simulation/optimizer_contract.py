@@ -293,6 +293,15 @@ class GradientWeights:
             raise ValueError("at least one gradient weight must be positive")
 
 
+# Production values for the two unmeasured objective inputs, one source for
+# every driver (2026-09-25). They previously disagreed 40x (mu 0.4 vs 0.010)
+# and 7x (wheel MOI 1e-6 vs 1.39e-7). Same numbers as Part 2 physics_contract.
+DEFAULT_ROLLING_MU: float = 0.010          # PLACEHOLDER until a coast-down fit
+DEFAULT_WHEEL_MOI_KG_M2: float = 1.39e-7   # v2 CAD wheels, measured
+T36_FLOOR_KG: float = 0.048                # competition mass, cartridge excluded
+CARTRIDGE_KG: float = 0.02115
+
+
 @dataclass(frozen=True)
 class CandidateOutcome:
     """One candidate's outcome for ranking/selection. A thin, JSON-friendly
