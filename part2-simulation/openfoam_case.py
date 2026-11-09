@@ -158,6 +158,11 @@ class OpenFOAMRunConfig:
     first_layer_m: float = 1.5e-5
     layer_overrides: Optional[dict] = None
     wake_level: Optional[int] = None      # near-wake box level; None = min(surface min level, 4)
+    # GROUND (2026-11-09). True = rolling road (the race: the track moves
+    # under the car at U). False = a still no-slip floor, as in wind-tunnel
+    # benchmarks such as the Ahmed body (Ahmed, Ramm & Faltin 1984), so the
+    # benchmark is compared like with like. Cars always use True.
+    moving_ground: bool = True
 
     @property
     def resolved(self) -> bool:
@@ -1275,6 +1280,7 @@ def build_case(run_dir: str, stl_path: str, cfg: OpenFOAMRunConfig) -> dict:
 
 def _write_initial_fields(zero_dir: Path, cfg: OpenFOAMRunConfig, ref_len: float) -> None:
     u = cfg.reference_speed_mps
+    ground = f"fixedValue; value uniform ({u} 0 0)" if cfg.moving_ground else "noSlip"
     _write(zero_dir / "U", _header("volVectorField", "U") + f"""
 dimensions      [0 1 -1 0 0 0 0];
 internalField   uniform ({u} 0 0);
@@ -1285,7 +1291,7 @@ boundaryField
     symmetry    {{ type symmetryPlane; }}
     outer       {{ type slip; }}
     upperWall   {{ type slip; }}
-    lowerWall   {{ type fixedValue; value uniform ({u} 0 0); }}
+    lowerWall   {{ type {ground}; }}
     car         {{ type noSlip; }}
 }}
 """)

@@ -216,6 +216,7 @@ def run_half_car_cfd(
     first_layer_m: float = 1.5e-5,
     layer_overrides: Optional[dict] = None,
     wake_level: Optional[int] = None,
+    moving_ground: bool = True,
 ) -> tuple[HalfCarQuantities, CFDHealthReport]:
     """
     Validate a half-car STL and package OpenFOAM half-domain outputs.
@@ -277,6 +278,7 @@ def run_half_car_cfd(
         first_layer_m=first_layer_m,
         layer_overrides=layer_overrides,
         wake_level=wake_level,
+        moving_ground=moving_ground,
     )
 
     case_dir = Path(__file__).resolve().parent / "cfd_case_template"

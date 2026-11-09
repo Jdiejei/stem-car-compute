@@ -1,0 +1,66 @@
+name: p2_bench
+
+# Part 2: the Ahmed body (published wind-tunnel drag) through the cars' CFD,
+# one job per slant x mesh. Still floor, Re 4.29e6 as in the experiment.
+on:
+  workflow_dispatch:
+    inputs:
+      label: { required: true }
+      slants: { default: '["25", "35"]' }
+      res: { default: '["coarse", "medium", "fine"]' }
+      iters: { default: "2000" }
+      cfd: { default: "{}", description: "extra CFD keywords as JSON" }
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+
+jobs:
+  bench:
+    name: ${{ inputs.label }} ${{ matrix.slant }} ${{ matrix.res }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        slant: ${{ fromJSON(inputs.slants) }}
+        res: ${{ fromJSON(inputs.res) }}
+    env:
+      OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - run: pip install $PY_DEPS
+      - name: Ahmed body
+        run: |
+          set -o pipefail
+          python -W ignore part2-simulation/benchmarks/ahmed.py --slant ${{ matrix.slant }} --res ${{ matrix.res }} \
+            --iters ${{ inputs.iters }} --np 4 --out out --cfd-json '${{ inputs.cfd }}' 2>&1 | tail -40
+      - name: Logs and mesh size
+        if: always()
+        run: |
+          mkdir -p out/logs
+          for f in $(find part2-simulation/cfd_case_template -path "*/logs/*.log" -o -name checkMesh.log 2>/dev/null); do
+            tail -200 "$f" > "out/logs/$(basename "$f")"
+          done
+          grep -h "^ *cells:" out/logs/checkMesh.log 2>/dev/null | head -1 || true
+          find part2-simulation/cfd_case_template -path "*postProcessing*" -name "*.dat" -exec cp --parents {} out/logs/ \; 2>/dev/null || true
+          cat out/*.json 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-${{ inputs.label }}-${{ matrix.slant }}-${{ matrix.res }}
+          path: |
+            out/*.json
+            out/logs/
