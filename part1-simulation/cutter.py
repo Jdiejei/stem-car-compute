@@ -94,3 +94,56 @@ def cut(geom, dT_dn, half_mesh, step_m: float, max_substeps: int = 6,
               else "")
     rep["status"], rep["reason"] = ("refused", reason) if reason else ("ok", "")
     return (geom if reason else g), rep
+
+
+def finish(geom, layout: dict, target_body_g: float, out_dir) -> dict:
+    """A carved field to a finished body and its files (BUILD_SPEC section 6 output).
+
+    param_body.build cuts it at Ref A, joins required pieces, mills it and sizes the skin to
+    target_body_g. Writes into out_dir, all lengths in metres:
+      carved_phi.npy   the carved field as given, to carry on carving from
+      body_half.stl    watertight right half (y >= 0), for CFD (Part 4 adds the parts)
+      body.stl         the whole finished body
+      cut.json         the verdict and report below
+    Returns the cut.json dict: status "ok" or "refused" with reason mass_unreachable,
+    open_surface or mesh_quality; mass_g, com_m, skin_offset_mm and the build report."""
+    import json
+    from pathlib import Path
+
+    import param_body as pb
+    import unified_phi as up
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    save_field(geom, out / "carved_phi.npy")
+    body = pb.build(layout["W"], layout["x_front"], layout["d_halo"], pb.BodyParams(),
+                    target_body_kg=target_body_g / 1e3, field_mm=geom.phi.grid * 1e3)
+    br = dict(body.build_report)
+    comps = up.compute_mass_com(body)
+    m = sum(c.mass_kg for c in comps)
+    res = {"status": "ok", "reason": "", "field": "carved_phi.npy", "body_half_stl": "body_half.stl",
+           "body_stl": "body.stl", "units": "m", "mass_g": m * 1e3,
+           "com_m": [sum(c.mass_kg * c.com_x_m for c in comps) / m, 0.0,
+                     sum(c.mass_kg * c.com_z_m for c in comps) / m],
+           "skin_offset_mm": br.get("skin_offset_mm"),
+           "report": {k: v for k, v in br.items() if k != "sizing_tried"}}
+    err = br.get("mass_error_g")
+    if err is None or abs(err) > 0.05:                  # the sizing tolerance (BUILD_SPEC 12.4)
+        res.update(status="refused", reason=f"mass_unreachable: {err} g from target")
+    if res["status"] == "ok":
+        half = up.extract_half_surface(body)
+        half.vertices[half.vertices[:, 1] < 0, 1] = 0.0
+        if not half.is_watertight:
+            half.update_faces(half.nondegenerate_faces())
+            half.remove_unreferenced_vertices()
+            half.merge_vertices()
+        if not half.is_watertight:
+            res.update(status="refused", reason="open_surface")
+        else:
+            half.export(str(out / "body_half.stl"))
+            try:
+                up.extract_unified_surface(body, allow_inaccessible=True)[0].export(str(out / "body.stl"))
+            except Exception as exc:  # noqa: BLE001 -- a quality gate refusing is the answer
+                res.update(status="refused", reason=f"mesh_quality: {str(exc)[:120]}")
+    (out / "cut.json").write_text(json.dumps(res, indent=1, default=float))
+    return res
