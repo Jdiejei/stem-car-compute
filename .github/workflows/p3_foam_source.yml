@@ -35,7 +35,8 @@ jobs:
             curl -sL https://develop.openfoam.com/Development/openfoam/-/archive/OpenFOAM-v2412/openfoam-OpenFOAM-v2412.tar.gz?path=src/optimisation/adjointOptimisation/adjoint/optimisation/adjointSensitivity | tar -xz
             for f in $(find . -iname "*${{ inputs.pattern }}*" -name "*.[CH]"); do echo "===== $f"; cat "$f"; done
           fi
-      - shell: bash
+      - if: always()
+        shell: bash
         run: |
           T=/usr/lib/openfoam/openfoam2412/tutorials/incompressible/adjointOptimisationFoam/${{ inputs.tutorial }}
           find $T -type f | sort
