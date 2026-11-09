@@ -110,18 +110,21 @@ def test_save_and_load_round_trip(tmp_path):
 
 def test_finish_writes_a_sized_body_and_its_files(tmp_path):
     """Start block -> one cut -> finish: a closed half body, the field and cut.json, the mass
-    on target within the sizing tolerance (or a named refusal, never a crash)."""
+    on target within the sizing tolerance. At this test's 2 mm grid the whole block weighs
+    under 48.2 g, so the reachable target is 40 g; an impossible one is a named refusal."""
     import json
 
     import cutter
     import trimesh
     g, mesh = _block()
     g1, _ = _cut(g, mesh, +1.0)
-    res = cutter.finish(g1, LAYOUT, 48.2, tmp_path)
+    bad = cutter.finish(g1, LAYOUT, 400.0, tmp_path / "heavy")
+    assert bad["status"] == "refused" and bad["reason"].startswith("mass_unreachable"), bad
+    res = cutter.finish(g1, LAYOUT, 40.0, tmp_path)
     assert json.loads((tmp_path / "cut.json").read_text())["status"] == res["status"]
     assert (tmp_path / "carved_phi.npy").exists()
     assert res["status"] == "ok", res["reason"]
-    assert abs(res["mass_g"] - 48.2) <= 0.05, res["mass_g"]
+    assert abs(res["mass_g"] - 40.0) <= 0.05, res["mass_g"]
     half = trimesh.load(tmp_path / "body_half.stl")
     assert half.is_watertight and half.vertices[:, 1].min() >= -1e-9
     assert (tmp_path / "body.stl").exists()

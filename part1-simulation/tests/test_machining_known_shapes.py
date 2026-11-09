@@ -43,11 +43,17 @@ def _box(i, j, k):
 def test_a_4mm_slot_is_filled_unless_required_then_widened_past_the_ball():
     """A slot 4.5 mm wide (9 cells), 6 mm deep from the top, closed at both ends (x 2.5 to
     17 mm; open ends let a ball outside the block clip them, which is real). The ball
-    (6.25 mm) cannot enter: as plain air it is filled; as rule-required air it is grown
-    until the ball fits, so at least 6.25 mm wide."""
+    (6.25 mm) cannot enter: as plain air it is filled, all but its mouth. Over the mouth the
+    ball's centre must stay r from the slot's top edges (cells at |dj| = 5, k = 59), so
+    sqrt(25 + a^2) > 6.25 puts it a > 3.75 cells above the top cell and it dips to k > 56.5:
+    a rounded groove in the top 3 cells, everything deeper filled. As rule-required air it
+    is grown until the ball fits, so at least 6.25 mm wide."""
     slot = _box((5, NX - 6), (MID - 4, MID + 4), (NZ - 12, NZ - 1))
     S, _ = _run(slot)
-    assert S[slot].all(), "a slot the ball cannot enter was left open"
+    deep = slot.copy()
+    deep[:, :, NZ - 3:] = False
+    assert S[deep].all(), "a slot the ball cannot enter was left open below its mouth"
+    assert not S[NX // 2, MID, NZ - 1], "the ball should round the slot's mouth"
     S, rep = _run(np.zeros_like(slot), forced=slot)
     assert rep["legal_air_violated"] == 0 and not S[slot].any()
     width_mm = (~S[NX // 2, :, NZ - 6]).sum() * D * 1e3
