@@ -125,7 +125,7 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
         od = re.sub(r"direction\s+\([^)]*\);", f"direction ({d[0]:.12f} {d[1]:.12f} 0);", od)
         it = iter([PRIMAL_ITERS, adjoint_iters])
         od = re.sub(r"nIters\s+\d+;", lambda m: f"nIters {next(it)};", od)
-        od = re.sub(r"1\.e-6;", "1.e-14;", od)
+        od = re.sub(r"(\"[A-Za-z.*]+\"\s+)1\.e-6;", r"\g<1>1.e-14;", od)   # residual targets only
         od = re.sub(r"includeMeshMovement\s+\w+;", f"includeMeshMovement {str(variant['mesh_move']).lower()};", od)
         od = re.sub(r"includeDistance\s+\w+;", f"includeDistance {str(variant['distance']).lower()};", od)
         assert "lift" not in re.sub(r"//.*", "", od) and od.count("1.e-14") == 6, od
