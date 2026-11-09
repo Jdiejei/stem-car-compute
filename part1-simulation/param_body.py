@@ -240,6 +240,13 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     from phi_updater import reinitialise_sdf
     import machining
     base = up.build_unified_geometry(W_mm, x_front_mm, d_halo_mm, init_mode="full")
+    # Milling runs on one fixed MILL_SPACING_MM grid whatever this car's grid (team lead,
+    # 2026-11-09): on the car's own grid the ball's fit flipped with the cell alignment and
+    # the same carved body weighed 0.7-1.2 % differently across 1.0 / 0.75 / 0.5 mm.
+    mill_base = None
+    if machinable and up.GRID_SPACING_M * 1e3 > MILL_SPACING_MM + 1e-9:
+        with _spacing(MILL_SPACING_MM):
+            mill_base = up.build_unified_geometry(W_mm, x_front_mm, d_halo_mm, init_mode="full")
     # Read at call time: sandbox/coarse.use_spacing rewrites the module globals,
     # and an import-time copy drew the body at 0.3 mm on a 1 mm grid.
     r, d = base.region, up.GRID_SPACING_M
@@ -276,7 +283,12 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         up.enforce_symmetry(g)
         reinitialise_sdf(g.phi)
         g.phi.apply_hard_constraints()
-        rep = machining.make_machinable(g) if machinable else {}
+        if not machinable:
+            rep = {}
+        elif mill_base is None:
+            rep = machining.make_machinable(g)
+        else:
+            rep = _mill_on(g, mill_base)
         up.enforce_symmetry(g)
         rep["islands_removed_mm3"] = _drop_islands(g) * (d * 1e3) ** 3
         rep["pinch_cells_filled"] = _close_pinches(g, d)
@@ -323,6 +335,10 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
                     return make(offset_mm, bar_to=bar_to, bridges=bar)
         rep["bore_cells_stamped"] = _stamp_bore(g, X, Y, Z)
         rep["zone_cells_stamped"] = exact_zones.stamp(g, X, Y, Z)   # last: the zones' true faces
+        # A stamp can cut a thin neck: drop what came loose and close pinches again, or the
+        # field held 4 bodies under a 1-piece mesh (Part 4, 2026-11-09).
+        rep["islands_after_stamp_mm3"] = _drop_islands(g) * (d * 1e3) ** 3
+        rep["pinch_cells_after_stamp"] = _close_pinches(g, d)
         g.spacing_m = d
         g.build_report = dict(rep, skin_offset_mm=offset_mm)
         return g
@@ -452,8 +468,11 @@ def _stamp_bore(g, X, Y, Z) -> int:
     sd = np.minimum(R - rad, X - x_end)                              # + inside the bore
     x_rear = (cyl.x_center_m + cyl.x_half_width_m) * 1e3 - d_mm    # the car's rear face
     R_out = R + 3.05                                                 # T5.5, plus a margin
-    wall = (X >= x_end) & (X <= x_rear) & (rad <= R_out + 1.5 * d_mm) & (rad > R)
-    g.phi.grid[wall] = np.minimum(g.phi.grid[wall], ((rad[wall] - R_out) / 1e3).astype(np.float32))
+    # The wall's distance stops at the rear face and the bore's inner end too: run a cell
+    # past the rear face, it stood 181 mm3 outside the official block (Part 4, 2026-11-09).
+    wall_s = np.minimum(np.minimum(R_out - rad, x_rear - X), X - x_end)    # + inside the wall
+    wall = (rad > R) & (wall_s > -1.5 * d_mm)
+    g.phi.grid[wall] = np.minimum(g.phi.grid[wall], (-wall_s[wall] / 1e3).astype(np.float32))
     zone = in_x & (rad <= R + 1.5 * d_mm) & ((g.phi.grid < 0) | (sd > 0))
     g.phi.grid[zone] = (sd[zone] / 1e3).astype(np.float32)
     g.phi.apply_hard_constraints()
@@ -482,6 +501,8 @@ def _shave_to(g, target_kg: float, mass, spacing_m: float, XYZ, tol_kg: float = 
         up.enforce_symmetry(h)
         _stamp_bore(h, *XYZ)                   # the shave widened the chamber: put it back
         exact_zones.stamp(h, *XYZ)
+        _drop_islands(h)
+        _close_pinches(h, spacing_m)
         return h
 
     lo, hi, n = 0.0, max_mm, 1
@@ -496,6 +517,57 @@ def _shave_to(g, target_kg: float, mass, spacing_m: float, XYZ, tol_kg: float = 
             return h, mid, n
         lo, hi = (mid, hi) if e >= tol_kg else (lo, mid)
     return None, 0.0, n
+
+
+MILL_SPACING_MM = 0.5
+
+
+class _spacing:
+    """with _spacing(mm): the module-wide grid spacing set to mm, restored afterwards."""
+
+    def __init__(self, mm):
+        self.mm = mm
+
+    def __enter__(self):
+        import geometry_contract
+        import coarse
+        self.old = geometry_contract.GRID_SPACING_MM
+        coarse.use_spacing(self.mm)
+
+    def __exit__(self, *exc):
+        import coarse
+        coarse.use_spacing(self.old)
+
+
+def _resample(field, src_region, src_d, dst_region, dst_d):
+    """A field (metres) on one grid, sampled linearly at another grid's cell centres."""
+    from scipy.ndimage import map_coordinates
+    so, do = np.asarray(src_region.origin_m), np.asarray(dst_region.origin_m)
+    idx = np.indices(dst_region.shape, dtype=np.float32)
+    for a in range(3):
+        idx[a] = (do[a] + idx[a] * dst_d - so[a]) / src_d
+    return map_coordinates(field.astype(np.float32), idx, order=1, mode="nearest").astype(np.float32)
+
+
+def _mill_on(g, fine_base) -> dict:
+    """Mill g on fine_base's grid (MILL_SPACING_MM) and bring the result back to g's grid.
+    The rules are re-applied on both grids; g's extra required solids (joining bars) win."""
+    import copy
+    import machining
+    import unified_phi as up
+    from phi_updater import reinitialise_sdf
+    d = up.GRID_SPACING_M
+    with _spacing(MILL_SPACING_MM):
+        h = copy.deepcopy(fine_base)
+        h.phi.grid = _resample(g.phi.grid, g.region, d, h.region, MILL_SPACING_MM / 1e3)
+        h.phi.apply_hard_constraints()
+        reinitialise_sdf(h.phi)
+        h.phi.apply_hard_constraints()
+        rep = machining.make_machinable(h)
+        rep["mill_spacing_mm"] = MILL_SPACING_MM
+    g.phi.grid = _resample(h.phi.grid, h.region, MILL_SPACING_MM / 1e3, g.region, d)
+    g.phi.apply_hard_constraints()
+    return rep
 
 
 def _close_pinches(geom, spacing_m: float, rounds: int = 4) -> int:
