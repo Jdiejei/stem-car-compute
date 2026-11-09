@@ -246,14 +246,14 @@ def test_guides_on_the_wrong_side_or_too_many(xs, rule, tmp_path):
     assert not bad, bad
 
 
-def test_a_hairline_in_the_bore_is_not_a_wider_bore_but_a_groove_is(tmp_path):
-    # The real milled file has a V-notch at y = 0 along the bore (lab 2026-11-09); a gauge
-    # (0.5 mm caliper tips) does not see a 0.4 mm slot, it sees a 1 mm groove.
-    bad, r = fails(tmp_path, bore_slit=0.4)
+def test_a_groove_in_the_bore_is_not_a_wider_bore_but_is_reported(tmp_path):
+    # The real milled file has a notch at y = 0 along the bore (lab 2026-11-09). T5.1 is
+    # judged with plug gauges, which a groove does not let through; calipers across it
+    # read wider, and the note says so. An oversize bore fails (EDGES, T5.1_diameter_max).
+    bad, r = fails(tmp_path, bore_slit=1.0)
     assert not bad, {k: r[k] for k in bad}
-    (tmp_path / "groove").mkdir()
-    bad, r = fails(tmp_path / "groove", bore_slit=1.0)
-    assert bad == {"T5.1_diameter_max"}, (bad, r["T5.1_diameter_max"])
+    across = float(r["T5.1_diameter_max"]["note"].split("widest across ")[1].split()[0])
+    assert across > 19.5, r["T5.1_diameter_max"]
 
 
 def test_a_body_without_a_chamber_fails(tmp_path):

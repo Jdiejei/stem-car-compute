@@ -570,29 +570,31 @@ def chamber_measures(body_mm) -> dict | None:
             rims.append(float(loc[:, 0].max()))
     x_rim = min(rims) if rims else x_back
     depth = x_rim - x_end
-    d_min, d_max, cz = [], [], []
+    # T5.1 by plug gauges, as scrutineers check a bore: the 18.0 mm plug must go in all
+    # through the minimum depth, the 18.5 mm one must go in nowhere. A plug sees the widest
+    # circle that fits each section. Calipers would also catch a narrow notch: the milled
+    # file has one, where its two halves meet at y = 0 along the bore's top and bottom (lab
+    # 2026-11-09: 0.85 mm deep, widest across 19.85 mm on a bore whose area is that of an
+    # 18.16 mm circle). The real bore comes drilled in the block, so that notch is in the
+    # file only; it is reported in the note, and as `chamber_widest_across_mm`.
+    plug, across, area_d, cz = [], [], [], []
     for x in np.linspace(max(x_rim - 45.0, x_end) + 1.0, x_rim - 1.0, 7):
         hs = [q for q in _x_section_holes(body_mm, x) if q.distance(h.centroid) < r0]
         if not hs:
-            d_min.append(0.0)
+            plug.append(0.0)
             continue
         q = max(hs, key=lambda q: q.area)
         c = q.centroid
-        d_min.append(_thickness(q))
-        # A gauge does not see a hairline: the milled file's two halves meet at y = 0 with
-        # a crack 0.85 mm deep and no width along the bore's top and bottom (lab 2026-11-09:
-        # widest 19.85 mm, area that of an 18.16 mm circle). It is a V-notch, so closing only
-        # 0.1 mm left 19.58. Calipers' inside jaws are about 0.5 mm at the tip: anything
-        # narrower than that is shut (it cannot change a round bore's own diameter).
-        g = q.buffer(-0.25).buffer(0.25)
-        g = max(getattr(g, "geoms", [g]), key=lambda p: p.area)
-        d_max.append(2.0 * max(math.hypot(px - c.x, pz - c.y) for px, pz in g.exterior.coords))
+        plug.append(_thickness(q))
+        across.append(2.0 * max(math.hypot(px - c.x, pz - c.y) for px, pz in q.exterior.coords))
+        area_d.append(2.0 * math.sqrt(q.area / math.pi))
         cz.append((x, c.y))
     ang = (math.degrees(math.atan2(cz[-1][1] - cz[0][1], cz[-1][0] - cz[0][0]))
            if len(cz) >= 2 else 0.0)
     return {"rim_x_mm": x_rim, "depth_mm": depth, "axis_z_mm": zc, "axis_y_mm": yc,
-            "diameter_min_mm": min(d_min), "diameter_max_mm": max(d_max) if d_max else 0.0,
-            "angle_deg": ang}
+            "diameter_min_mm": min(plug), "diameter_max_mm": max(plug),
+            "diameter_area_mm": max(area_d) if area_d else 0.0,
+            "chamber_widest_across_mm": max(across) if across else 0.0, "angle_deg": ang}
 
 
 def _chamber_checks(ch: dict | None) -> dict:
@@ -601,8 +603,9 @@ def _chamber_checks(ch: dict | None) -> dict:
     d0, d1, z, dep, a = (ch["diameter_min_mm"], ch["diameter_max_mm"], ch["axis_z_mm"],
                          ch["depth_mm"], ch["angle_deg"])
     return {
-        "T5.1_diameter_min": _entry(d0 - 18.0, f"narrowest {d0:.3f} mm"),
-        "T5.1_diameter_max": _entry(18.5 - d1, f"widest {d1:.3f} mm"),
+        "T5.1_diameter_min": _entry(d0 - 18.0, f"18.0 plug: the bore takes {d0:.3f} mm all through"),
+        "T5.1_diameter_max": _entry(18.5 - d1, f"18.5 plug: widest {d1:.3f} mm fits; "
+                                               f"widest across {ch['chamber_widest_across_mm']:.2f} mm"),
         "T5.2_height_min": _entry(z - 30.0, f"centre {z:.2f} mm above the track"),
         "T5.2_height_max": _entry(40.0 - z, f"centre {z:.2f} mm above the track"),
         "T5.3_depth_min": _entry(dep - 45.0, f"{dep:.2f} mm deep"),
@@ -887,7 +890,7 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     r.update(_chamber_checks(ch))
     if ch is not None:
         frac = t55_wall_fraction(probe_body, rear_face_mm=ch["rim_x_mm"], depth_mm=ch["depth_mm"],
-                                 bore_r_mm=ch["diameter_max_mm"] / 2.0, axis_z_mm=ch["axis_z_mm"],
+                                 bore_r_mm=ch["diameter_area_mm"] / 2.0, axis_z_mm=ch["axis_z_mm"],
                                  angle_deg=ch["angle_deg"])
     else:
         frac = t55_wall_fraction(probe_body, rear_face_mm=W + xf + 16.0 + 40.0)
