@@ -1,0 +1,142 @@
+name: p2_reshape_cuts
+run-name: "Part 2: reshaped vs fresh mesh on local cuts (${{ inputs.label }})"
+
+# Remesh limit for carving: local cuts from Part 1's cutter (nose, sidepod, rear;
+# 0.5 and 2 mm deep) on the start block, each car timed on a mesh reshaped from
+# the uncut reference AND on a fresh mesh. Same car, two meshes: the drag
+# difference and the mesh-quality numbers set when a reshape is no longer good.
+on:
+  workflow_dispatch:
+    inputs:
+      label: { required: true }
+      iters: { default: "1000" }
+      opt: { default: '{"layer_overrides": {"nSurfaceLayers": 0}}' }
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+  OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+  OMPI_MCA_rmaps_base_oversubscribe: "1"
+
+jobs:
+  fields:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - run: |
+          set -o pipefail
+          python -W ignore part2-simulation/cut_cars.py fields 2>&1 | tail -20 | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with: { name: "cutfields-${{ inputs.label }}", path: fields, retention-days: 3 }
+
+  ref:
+    needs: fields
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - run: pip install $PY_DEPS
+      - uses: actions/download-artifact@v4
+        with: { name: "cutfields-${{ inputs.label }}", path: fields }
+      - working-directory: part5-simulation
+        run: |
+          set -o pipefail
+          python -W ignore run_car.py --out ../out/ref --skin-mm 0 --support beam --phi-npy ../fields/ref.npy --cfd \
+            --cfd-iters ${{ inputs.iters }} --res medium --np 4 --keep-runs --cfd-json '${{ inputs.opt }}' 2>&1 | tail -3
+      - run: |
+          r=$(ls -d part2-simulation/cfd_case_template/runs/*/ | head -1)
+          mkdir -p refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C refmesh
+          cp out/ref/summary.json refmesh/ref_summary.json
+      - uses: actions/upload-artifact@v4
+        with: { name: "cutref-${{ inputs.label }}", path: refmesh, retention-days: 3 }
+
+  car:
+    needs: [fields, ref]
+    name: ${{ inputs.label }} ${{ matrix.cut }} ${{ matrix.mode }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        cut: ["nose_0.5", "nose_2", "sidepod_0.5", "sidepod_2", "rear_0.5", "rear_2"]
+        mode: ["fresh", "morph"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - run: pip install $PY_DEPS
+      - uses: actions/download-artifact@v4
+        with: { name: "cutfields-${{ inputs.label }}", path: fields }
+      - uses: actions/download-artifact@v4
+        if: matrix.mode == 'morph'
+        with: { name: "cutref-${{ inputs.label }}", path: /tmp/refmesh }
+      - working-directory: part5-simulation
+        run: |
+          set -o pipefail
+          opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); d.update({'morph_from': '/tmp/refmesh'} if sys.argv[2]=='morph' else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ matrix.mode }}')
+          python -W ignore run_car.py --out ../out/c --skin-mm 0 --support beam --phi-npy ../fields/${{ matrix.cut }}.npy --cfd \
+            --cfd-iters ${{ inputs.iters }} --res medium --np 4 --keep-runs --cfd-json "$opt" 2>&1 | tail -3
+      - if: always()
+        run: |
+          mkdir -p keep && cp out/c/summary.json keep/ 2>/dev/null
+          cp part2-simulation/cfd_case_template/runs/*/logs/checkMesh.log keep/ 2>/dev/null; cp part2-simulation/cfd_case_template/runs/*/logs/moveMesh.log keep/ 2>/dev/null; true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: "reshape-${{ inputs.label }}-${{ matrix.cut }}-${{ matrix.mode }}", path: keep/ }
+
+  report:
+    needs: car
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { pattern: "reshape-${{ inputs.label }}-*", path: got }
+      - run: |
+          python3 - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, re, pathlib
+          def q(p):
+              t = p.read_text() if p.exists() else ""
+              no = re.search(r"Mesh non-orthogonality Max: ([0-9.]+)", t)
+              sk = re.search(r"Max skewness = ([0-9.]+)", t)
+              return (float(no.group(1)) if no else None, float(sk.group(1)) if sk else None,
+                      "Mesh OK" in t)
+          rows = {}
+          for d in sorted(pathlib.Path("got").iterdir()):
+              *_, cut, mode = d.name.split("-")
+              s = d / "summary.json"
+              c = json.loads(s.read_text())["cfd_initial"] if s.exists() else None
+              rows.setdefault(cut, {})[mode] = (c, q(d / "checkMesh.log"))
+          print("| cut | D fresh N | D reshaped N | diff mN | diff ms | non-orth max | skew max | mesh OK |")
+          print("|---|---|---|---|---|---|---|---|")
+          for cut, m in rows.items():
+              f, r = m.get("fresh", (None,))[0], m.get("morph", (None,))[0]
+              qr = m.get("morph", (None, (None, None, None)))[1]
+              if f and r:
+                  dd = (r["D20_N"] - f["D20_N"]) * 1e3
+                  dt = (r["T_at_target_s"] - f["T_at_target_s"]) * 1e3
+                  print(f"| {cut} | {f['D20_N']:.4f} | {r['D20_N']:.4f} | {dd:+.2f} | {dt:+.2f} | {qr[0]} | {qr[1]} | {qr[2]} |")
+              else:
+                  print(f"| {cut} | {f and f['D20_N']} | {r and r['D20_N']} | missing | | {qr[0]} | {qr[1]} | {qr[2]} |")
+          EOF
