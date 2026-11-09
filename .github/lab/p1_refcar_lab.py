@@ -51,8 +51,10 @@ print(f"LAB {cid} body {json.dumps({k: body.get(k) for k in ('faces', 'watertigh
       f"build {json.dumps({k: v for k, v in (body.get('build') or {}).items() if k != 'sizing_tried'}, default=str)[:600]}", flush=True)
 import re  # noqa: E402
 sj = json.dumps(S, default=str)
-print(f"LAB {cid} keys {list(S)} field_bodies {re.findall(r'"field_bodies": (d+)', sj)} "
-      f"mass_error_g {re.findall(r'"mass_error_g": ([-0-9.e]+)', sj)[:4]} sizing_builds {re.findall(r'"sizing_builds": (d+)', sj)[:4]}", flush=True)
+fb = re.findall(r'"field_bodies": (\d+)', sj)
+me = re.findall(r'"mass_error_g": ([-0-9.e]+)', sj)[:4]
+sb = re.findall(r'"sizing_builds": (\d+)', sj)[:4]
+print(f"LAB {cid} keys {list(S)} field_bodies {fb} mass_error_g {me} sizing_builds {sb}", flush=True)
 print(f"LAB {cid} failed {L['summary']['failed']}", flush=True)
 for k, v in sorted(L["checks"].items()):
     if not v["pass"] or any(s in k for s in ("T5.1", "T4.2", "block", "T5.5", "T3.6", "T4.1")):
