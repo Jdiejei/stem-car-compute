@@ -1,5 +1,5 @@
 name: p3_known_answer
-run-name: "Part 3: known-answer wing test (${{ inputs.setup }} primal), 20 bumps, mesh fade ${{ inputs.morph }}, refined ${{ inputs.refine }}x"
+run-name: "Part 3: known-answer wing test (${{ inputs.setup }} primal), 20 bumps + 10 two-way shapes, mesh fade ${{ inputs.morph }}, refined ${{ inputs.refine }}x"
 
 # Step 1 of Part 3: prove the adjoint on a 2-D wing where measured slopes are cheap and quiet.
 # 5 adjoint settings side by side; 20 bumps, each measured at +-a and +-a/2 (4 runs on 4 cores).
@@ -10,7 +10,7 @@ on:
       refine: { default: "0" }
       setup: { default: "car" }
       variants:
-        default: '["car", "car_cancel", "car_mm", "sst", "sst_mm"]'
+        default: '["car", "car_raw", "car_cancel", "car_mm", "sst"]'
 
 permissions: { contents: read }
 
@@ -52,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 10
-      matrix: { k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] }
+      matrix: { k: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29] }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

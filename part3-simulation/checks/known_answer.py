@@ -50,11 +50,17 @@ CENTRES = [("suction", .1), ("suction", .3), ("suction", .5), ("suction", .7), (
            ("suction", .03), ("suction", .2), ("suction", .4), ("suction", .6), ("suction", .8),
            ("pressure", .1), ("pressure", .3), ("pressure", .5), ("pressure", .7), ("pressure", .9)]
 OFFICIAL = 10
+# 10 "move material" shapes: grow at bump i, shrink at bump j. Every single outward bump on
+# this wing adds drag, so a map that is simply positive everywhere would pass a sign check
+# on single bumps; these can make drag go either way, so the sign check can fail (user,
+# 2026-11-09). They are official for the sign mark.
+PAIRS = [(0, 1), (2, 1), (2, 3), (4, 3), (5, 6), (7, 6), (7, 8), (9, 8), (0, 5), (9, 4)]
 # Adjoint variants run side by side. "car" is exactly the car's setting.
 VARIANTS = {
     "car":        dict(ras="adjointLaminar", atc="standard", mesh_move=False),
     "car_cancel": dict(ras="adjointLaminar", atc="cancel", mesh_move=False),
     "car_mm":     dict(ras="adjointLaminar", atc="standard", mesh_move=True),
+    "car_raw":    dict(ras="adjointLaminar", atc="standard", mesh_move=False, raw=True),   # dJ/dx, no area division
     "sst":        dict(ras="adjointkOmegaSST", atc="standard", mesh_move=False),
     "sst_mm":     dict(ras="adjointkOmegaSST", atc="standard", mesh_move=True),
     # OpenFOAM's shipped turbulent sensitivity-map case (sensitivityMaps/naca0012/turbulent/
@@ -128,6 +134,9 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
         od = re.sub(r"(\"[A-Za-z.*]+\"\s+)1\.e-6;", r"\g<1>1.e-14;", od)   # residual targets only
         od = re.sub(r"includeMeshMovement\s+\w+;", f"includeMeshMovement {str(variant['mesh_move']).lower()};", od)
         od = re.sub(r"includeDistance\s+\w+;", f"includeDistance {str(variant['distance']).lower()};", od)
+        geo = f"includeSurfaceArea {str(variant.get('raw', False)).lower()};\n        writeGeometricInfo true;"
+        od, n = re.subn(r"includeSurfaceArea\s+\w+;", geo, od)
+        assert n == 1, od
         assert "lift" not in re.sub(r"//.*", "", od) and od.count("1.e-14") == 6, od
         (case / "system/optimisationDict").write_text(od)
         return mesh
@@ -147,6 +156,12 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
     od = re.sub(r"(\"[A-Za-z]+\.\*\"\s+)1\.e-5;", r"\g<1>1.e-14;", od)
     if variant["mesh_move"]:
         od = od.replace("includeMeshMovement false;", "includeMeshMovement true;")
+    # OpenFOAM's own point areas and normals (writeGeometricInfo); raw: dJ/dx with no division
+    # by the point's face area (includeSurfaceArea true), to pin down the map's units.
+    geo = f"writeGeometricInfo true;\n        includeSurfaceArea {str(variant.get('raw', False)).lower()};\n"
+    od, n = re.subn(r"^(\s*)(includeMeshMovement (true|false);)", lambda m: m.group(1) + geo + m.group(1) + m.group(2),
+                    od, flags=re.M)
+    assert n == 1, od
     assert od.count(" ".join(WALLS)) == 2 and "(1 0 0)" not in od and od.count("1.e-14") == 8, od
     (case / "system/optimisationDict").write_text(od)
     mesh["chord"], mesh["nu"] = chord, nu
@@ -183,7 +198,11 @@ def read_mesh(case: Path, walls=WALLS, flat: bool = True) -> dict:
 
 
 def bump(mesh: dict, k: int) -> np.ndarray:
-    """Outward move of every wall point (chords) for bump k at amplitude 1: a*b_i."""
+    """Outward move of every wall point (chords) for shape k at amplitude 1: a*b_i.
+    k < len(CENTRES): one bump; after that the PAIRS (grow at i minus grow at j)."""
+    if k >= len(CENTRES):
+        i, j = PAIRS[k - len(CENTRES)]
+        return bump(mesh, i) - bump(mesh, j)
     w, xc = CENTRES[k]
     Pw = mesh["P"][mesh["wall"]]
     chord, x0 = mesh["chord"], Pw[:, 0].min()
@@ -226,6 +245,20 @@ def run_base(name: str, out: Path) -> None:
             continue
         if len(v) == len(mesh["P"]):
             fields[f.name] = v[mesh["wall"]] * (oa.OUTWARD_SIGN if v.ndim == 1 else 1.0)
+    geom = {}
+    for g in ("pointMagSf", "pointNf"):                  # OpenFOAM's own point areas and normals
+        hits = sorted(case.glob(f"[0-9]*/{g}"), key=lambda p: float(p.parent.name))
+        if hits:
+            txt = hits[-1].read_text()
+            v = oa._parse_foam_vector_list(txt) if g == "pointNf" else oa._parse_foam_scalar_list(txt)
+            geom["m_" + g] = v[mesh["wall"]]
+    if "m_pointMagSf" in geom:
+        ratio = geom["m_pointMagSf"] / mesh["area"]
+        print(f"LAB base {name}: OpenFOAM point area / my point area: p5 p50 p95 "
+              f"{np.round(np.percentile(ratio, [5, 50, 95]), 3).tolist()}", flush=True)
+    if "m_pointNf" in geom:
+        print(f"LAB base {name}: OpenFOAM point normal . my outward normal: mean "
+              f"{np.mean((geom['m_pointNf'] * mesh['n_out']).sum(axis=1)):+.4f}", flush=True)
     print(f"LAB base {name}: J {J:.8e} spread {spread:.2e} chord {mesh['chord']:.4f} nu {mesh['nu']:.3e}"
           f" wall points {len(mesh['wall'])} fields {list(fields)}", flush=True)
     log = (case / "log.run").read_text()
@@ -234,8 +267,8 @@ def run_base(name: str, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     np.savez(out / f"base_{name}.npz", P=mesh["P"][mesh["wall"]], n_out=mesh["n_out"], area=mesh["area"],
              side=mesh["side"], chord=mesh["chord"], J=J, spread=spread,
-             bumps=np.array([bump(mesh, k) for k in range(len(CENTRES))]),
-             **{"f_" + k: v for k, v in fields.items()})
+             bumps=np.array([bump(mesh, k) for k in range(len(CENTRES) + len(PAIRS))]),
+             **{"f_" + k: v for k, v in fields.items()}, **geom)
 
 
 def morph(mesh: dict, move_wall: np.ndarray) -> np.ndarray:
@@ -272,7 +305,10 @@ def judge(src: Path) -> int:
     for f in src.rglob("bump_*.json"):
         d = json.loads(f.read_text())
         runs[(d["k"], d["amp"])] = d
-    K = len(CENTRES)
+    K = len(CENTRES) + len(PAIRS)
+    K = max(k for k in range(K) if all((j, a) in runs for j in range(k + 1) for a in (1.0, -1.0, 0.5, -0.5))) + 1
+    singles = np.arange(OFFICIAL)                                    # r mark
+    sign_set = np.r_[singles, np.arange(len(CENTRES), K)]            # sign mark: singles and pairs
     cd = {a: np.array([(runs[(k, a)]["J"] - runs[(k, -a)]["J"]) / 2 for k in range(K)]) for a in (1.0, 0.5)}
     noise = np.array([max(runs[(k, s * a)]["spread"] for a in (1.0, 0.5) for s in (1, -1)) for k in range(K)])
     bad_mesh = [k for (k, a), d in runs.items() if not d["mesh_ok"]]
@@ -288,26 +324,37 @@ def judge(src: Path) -> int:
     for f in sorted(src.rglob("base_*.npz")):
         name = f.stem[5:]
         z = np.load(f)
+        B = z["bumps"][:K]
+        raw = VARIANTS.get(name, {}).get("raw", False)
         for key in [k for k in z.files if k.startswith("f_")]:
             v = z[key]
             if v.ndim == 2:     # a vector map: dJ = sum(v . move), no sign convention needed
                 vn = (v * z["n_out"]).sum(axis=1)
-                preds = {"vector, per area": z["bumps"] @ (vn * z["area"]), "vector, per point": z["bumps"] @ vn}
+                preds = {"vector, per area": B @ (vn * z["area"]), "vector, per point": B @ vn}
+            elif raw:           # dJ/dx . n per point (includeSurfaceArea true): sum over points
+                preds = {"raw dJ/dx, per point": B @ v}
             else:
-                # read through Part 2's OUTWARD_SIGN (base saves it that way): + = grow
-                preds = {"as coded, per area": z["bumps"] @ (v * z["area"]),
-                         "as coded, per point": z["bumps"] @ v}
+                # read through Part 2's OUTWARD_SIGN (base saves it that way): + = grow.
+                # OpenFOAM divides dJ/dx by pointMagSf (the FULL area of every face at the
+                # point), so dJ = sum(value * pointMagSf * move) is its exact definition.
+                preds = {"x my point area": B @ (v * z["area"]), "per point": B @ v}
+                if "m_pointMagSf" in z.files:
+                    preds["x OpenFOAM pointMagSf"] = B @ (v * z["m_pointMagSf"])
             for how, pred in preds.items():
-                off, all_ = stats(pred[:OFFICIAL], meas[:OFFICIAL]), stats(pred, meas)
-                result["variants"][f"{name} {key[2:]} {how}"] = dict(official=off, all=all_, pred=pred.tolist())
-                print(f"LAB {name:10s} {key[2:]:24s} {how:26s} official: signs {off['sign']:.2f} r {off['r']:+.3f}"
-                      f" slope {off['slope']:+.3g} | all 20: signs {all_['sign']:.2f} r {all_['r']:+.3f}", flush=True)
-                if name == "car" and key.startswith("f_pointSensNormal") and how.endswith("per area"):
-                    verdict[how] = off["sign"] >= 0.9 and off["r"] >= 0.9
+                off, all_ = stats(pred[singles], meas[singles]), stats(pred[:len(CENTRES)], meas[:len(CENTRES)])
+                sg = float(np.mean(np.sign(pred[sign_set]) == np.sign(meas[sign_set])))
+                result["variants"][f"{name} {key[2:]} {how}"] = dict(official=off, all=all_, sign_set=sg,
+                                                                     pred=pred.tolist())
+                print(f"LAB {name:10s} {key[2:]:24s} {how:22s} official r {off['r']:+.3f} slope {off['slope']:+.3g}"
+                      f" | signs incl. pairs {sg:.2f} ({len(sign_set)}) | all 20 singles r {all_['r']:+.3f}", flush=True)
+                if name == "car" and how == "x OpenFOAM pointMagSf":
+                    verdict[how] = sg >= 0.9 and off["r"] >= 0.9
+                    print(f"LAB car per shape: measured / predicted: "
+                          f"{np.array2string(meas / pred, precision=3, max_line_width=250)}", flush=True)
     for how, v in verdict.items():
-        ok = v and not bad_mesh and bool(clear[:OFFICIAL].all())
-        print(f"LAB VERDICT car settings, {how} (sign >= 9/10, r >= 0.9, official bumps clear of 3x noise): "
-              f"{'PASS' if ok else 'FAIL'}")
+        ok = v and not bad_mesh and bool(clear[sign_set].all())
+        print(f"LAB VERDICT car settings, {how} (sign >= 90% of singles and pairs, r >= 0.9 on the 10 official "
+              f"singles, all clear of 3x noise): {'PASS' if ok else 'FAIL'}")
     (src / "known_answer_result.json").write_text(json.dumps(result, indent=1))
     return 0
 
