@@ -104,7 +104,7 @@ def race(D20: float, L20: float, mass: dict, assembly: dict | None = None) -> tu
     model = build_smooth_sheet_model(str(THRUST_CSV))
     geometry = "default layout"
     if assembly and "fixed_hardware_kwargs" in assembly:
-        geo, gas = geometry_from_assembly(assembly)
+        geo, gas = geometry_from_assembly(assembly, mass)
         model = model._replace(geometry=geo, gas_xz_m=gas)
         geometry = "from assembly.json"
     T_raw, _, _ = race_value_and_grad_guarded(params, model)

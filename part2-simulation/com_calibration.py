@@ -17,7 +17,7 @@ import json
 
 import numpy as np
 
-from race_objective import DEFAULT_GEOMETRY, BuildSettings, build_smooth_sheet_model, race_time_seconds
+from race_objective import DEFAULT_GAS_XZ_M, DEFAULT_GEOMETRY, BuildSettings, build_smooth_sheet_model, race_time_seconds
 from pitch_balance import lift_threshold_offset_m
 import jax.numpy as jnp
 
@@ -65,7 +65,7 @@ def main():
               f"(target {TARGET_PCT_PER_MM:.2f} %/mm, {T_LAST} s)", flush=True)
     # where our own car's wheels lift, at peak thrust, launch mass (car + 8 g CO2)
     m0 = BEST["mass"] + 0.008
-    gx, gz = 0.1963, DEFAULT_GEOMETRY.z_thrust_m
+    gx, gz = DEFAULT_GAS_XZ_M
     for h in (0.030,):
         xc = (BEST["mass"] * BEST["x"] + 0.008 * gx) / m0
         zc = (BEST["mass"] * h + 0.008 * gz) / m0

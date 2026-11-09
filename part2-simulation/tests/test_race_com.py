@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from race_objective import (DEFAULT_GEOMETRY, PARAM_NAMES, BuildSettings, build_smooth_sheet_model,
+from race_objective import (DEFAULT_GAS_XZ_M, DEFAULT_GEOMETRY, PARAM_NAMES, BuildSettings, build_smooth_sheet_model,
                             finite_difference_check, geometry_from_assembly, race_value_and_grad)
 
 FAST = BuildSettings(n_steps=300)
@@ -61,10 +61,16 @@ def test_geometry_from_assembly():
     geo, gas = geometry_from_assembly(asm)
     assert geo.x_front_axle_m == pytest.approx(0.046) and geo.wheelbase_m == pytest.approx(0.1203)
     assert (geo.x_guide_front_m, geo.x_guide_rear_m) == pytest.approx((0.041, 0.1713))
-    assert geo.z_guide_m == pytest.approx(0.00825) and geo.z_thrust_m == pytest.approx(0.031)
+    assert geo.z_guide_m == pytest.approx(0.006) and geo.z_thrust_m == pytest.approx(0.031)
     assert gas == pytest.approx((0.1963, 0.031))
-    for f in ("x_front_axle_m", "wheelbase_m", "z_thrust_m", "x_guide_front_m", "x_guide_rear_m", "z_guide_m"):
+    # Part 4's mass report (start car, 2026-11-09) gives the cartridge and the line as built
+    mr = {"cartridge_rear_centre_x_mm": 235.3, "cartridge_axis_z_mm": 31.0, "tether_line_z_mm": 6.0}
+    geo, gas = geometry_from_assembly(asm, mr)
+    assert geo.x_thrust_m == pytest.approx(0.2353) and gas == pytest.approx((0.2028, 0.031))
+    for f in ("x_front_axle_m", "wheelbase_m", "x_thrust_m", "z_thrust_m", "x_guide_front_m",
+              "x_guide_rear_m", "z_guide_m"):
         assert getattr(geo, f) == pytest.approx(getattr(DEFAULT_GEOMETRY, f))
+    assert DEFAULT_GAS_XZ_M == pytest.approx(gas)
 
 
 def test_param_names_are_unchanged():

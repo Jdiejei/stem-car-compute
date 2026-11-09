@@ -107,33 +107,40 @@ R_WHEEL = 0.01413
 # target and nothing is penalised for leaving it.
 COM_TARGET_HEIGHT_M = 0.030
 
-# Default geometry: the default layout (front axle 46 mm from the nose tip,
-# wheelbase 120.3 mm, Part 4's tether guides 5 mm outside each axle with the
-# line touching the top of a 4.5 mm hole whose ring sits 2 mm up, the cartridge
-# axis at 31 mm with its centre 26 mm ahead of the 222.3 mm rear face). A car
-# folder's assembly.json overrides it (geometry_from_assembly).
-# x_thrust_m: the cartridge's rear centre is taken at the rear face; the exact
-# protrusion is still to come from Part 4. It only matters for a tilted thrust.
+# Default geometry: Part 4's start car (mass_report.json, 2026-11-09): front axle
+# 46 mm from the nose tip, wheelbase 120.3 mm, tether guides 5 mm outside each
+# axle; the line runs through the guides' centres 6.0 mm above the track, and a
+# guide catches it there when its wheel pair lifts; the 65 mm cartridge's axis
+# at 31.0 mm with its rear centre at 235.3 mm, so its centre (where the CO2 is)
+# 32.5 mm ahead of that. A car folder's own files override it.
+CARTRIDGE_LENGTH_M = 0.065
 DEFAULT_GEOMETRY = CarGeometry(
-    x_front_axle_m=0.046, wheelbase_m=0.1203, x_thrust_m=0.2223, z_thrust_m=0.031,
-    x_guide_front_m=0.041, x_guide_rear_m=0.1713, z_guide_m=0.00825)
-DEFAULT_GAS_XZ_M = (0.1963, 0.031)
+    x_front_axle_m=0.046, wheelbase_m=0.1203, x_thrust_m=0.2353, z_thrust_m=0.031,
+    x_guide_front_m=0.041, x_guide_rear_m=0.1713, z_guide_m=0.0060)
+DEFAULT_GAS_XZ_M = (0.2353 - CARTRIDGE_LENGTH_M / 2, 0.031)
 # Wheel bearing load law (see wheel_resistance): 1.0 = plain Coulomb rolling
 # resistance; > 1 makes friction grow faster than the load on an axle.
 DEFAULT_BEARING_P = 1.0
 
 
-def geometry_from_assembly(asm: dict, mu_guide: float = 0.25):
-    """(CarGeometry, (x_gas, z_gas)) from a Part 4 assembly.json dict (metres)."""
+def geometry_from_assembly(asm: dict, mass_report: dict | None = None, mu_guide: float = 0.25):
+    """(CarGeometry, (x_gas, z_gas)) in metres from a car folder's assembly.json
+    and, when given, Part 4's mass_report.json, which carries the cartridge's
+    rear centre and axis height and the tether line height as built."""
     xf = asm["x_front_mm"] / 1e3
     wb = asm["W_mm"] / 1e3
-    gx, _gy, gz = asm["fixed_hardware_kwargs"]["co2_cartridge_com"]
     guides = sorted(asm["info"]["tethers"], key=lambda t: t["x_mm"])
-    top = lambda t: (t["bottom_mm"] + (t["od_mm"] + t["id_mm"]) / 2.0) / 1e3   # top of the hole
-    geo = CarGeometry(x_front_axle_m=xf, wheelbase_m=wb,
-                      x_thrust_m=gx + 0.026, z_thrust_m=gz,      # bore mid-depth -> rear face
+    gx, _gy, gz = asm["fixed_hardware_kwargs"]["co2_cartridge_com"]
+    x_thrust, z_thrust = gx + 0.026, gz                  # bore mid-depth -> rear face
+    z_line = (guides[0]["bottom_mm"] + guides[0]["od_mm"] / 2.0) / 1e3     # guide centre
+    if mass_report and "cartridge_rear_centre_x_mm" in mass_report:
+        x_thrust = mass_report["cartridge_rear_centre_x_mm"] / 1e3
+        z_thrust = mass_report["cartridge_axis_z_mm"] / 1e3
+        z_line = mass_report["tether_line_z_mm"] / 1e3
+        gx, gz = x_thrust - CARTRIDGE_LENGTH_M / 2, z_thrust
+    geo = CarGeometry(x_front_axle_m=xf, wheelbase_m=wb, x_thrust_m=x_thrust, z_thrust_m=z_thrust,
                       x_guide_front_m=guides[0]["x_mm"] / 1e3, x_guide_rear_m=guides[-1]["x_mm"] / 1e3,
-                      z_guide_m=top(guides[0]), mu_guide=mu_guide)
+                      z_guide_m=z_line, mu_guide=mu_guide)
     return geo, (gx, gz)
 
 
