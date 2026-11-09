@@ -42,6 +42,7 @@ ADJOINT_ITERS = 4000     # at a known iteration and writes its fields there
 BUMP_R = 0.04            # Gaussian radius, chords
 BUMP_A = 1.0e-3          # amplitude, chords (amp=1); amp=0.5 checks linearity
 MORPH_L = float(os.environ.get("P3_MORPH", "0.10"))   # how far the move fades into the mesh, chords
+REFINE = int(os.environ.get("P3_REFINE", "0"))         # mesh refinements (each 4x the cells)
 # 20 bump centres: (wall, x/c). The first 10 are the pre-chosen official set (pass mark
 # 9/10 signs, r >= 0.9); all 20 are reported too for a firmer r.
 CENTRES = [("suction", .1), ("suction", .3), ("suction", .5), ("suction", .7), ("suction", .9),
@@ -88,6 +89,12 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
     for gz in (case / "constant/polyMesh").glob("*.gz"):
         if gz.with_suffix("").exists():
             gz.unlink()
+    for _ in range(REFINE):      # split every cell in x and y (2-D), 4x the cells each time
+        (case / "system/refineMeshDict").write_text(
+            "FoamFile { version 2.0; format ascii; class dictionary; object refineMeshDict; }\n"
+            "set c0; coordinateSystem global; globalCoeffs { tan1 (1 0 0); tan2 (0 1 0); }\n"
+            "directions (tan1 tan2); useHexTopology yes; geometricCut no; writeMesh no;\n")
+        foam(case, "refineMesh -overwrite -all -dict system/refineMeshDict", "log.refine")
     mesh = read_mesh(case)
     chord = np.ptp(mesh["P"][mesh["wall"], 0])
     nu = np.linalg.norm(U) * chord / RE

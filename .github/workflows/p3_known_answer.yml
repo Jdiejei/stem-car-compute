@@ -1,5 +1,5 @@
 name: p3_known_answer
-run-name: "Part 3: known-answer wing test, 20 bumps, 5 map settings, mesh fade ${{ inputs.morph }}"
+run-name: "Part 3: known-answer wing test, 20 bumps, 5 map settings, mesh fade ${{ inputs.morph }}, refined ${{ inputs.refine }}x"
 
 # Step 1 of Part 3: prove the adjoint on a 2-D wing where measured slopes are cheap and quiet.
 # 5 adjoint settings side by side; 20 bumps, each measured at +-a and +-a/2 (4 runs on 4 cores).
@@ -7,11 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       morph: { default: "0.10" }
+      refine: { default: "0" }
 
 permissions: { contents: read }
 
 env:
   P3_MORPH: ${{ inputs.morph }}
+  P3_REFINE: ${{ inputs.refine }}
   INSTALL: |
     (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
     curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
