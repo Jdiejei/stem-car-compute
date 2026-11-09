@@ -108,7 +108,7 @@ def _marching_cubes(phi: PhiGrid, eps_frac: float = 0.0) -> "trimesh.Trimesh":
 
 # ── Stage 2: Geometry repair ───────────────────────────────────────────────
 
-def _repair_mesh(mesh: "trimesh.Trimesh") -> "trimesh.Trimesh":
+def _repair_mesh(mesh: "trimesh.Trimesh", pin_plane_y0: bool = False) -> "trimesh.Trimesh":
     """Fill holes, fix normals, fix winding, remove tiny faces, smooth slivers.
 
     Taubin smoothing (root-caused live, 2026-07-15): raw marching-cubes output
@@ -128,6 +128,14 @@ def _repair_mesh(mesh: "trimesh.Trimesh") -> "trimesh.Trimesh":
     components = mesh.split(only_watertight=False)
     if len(components) > 1:
         mesh = max(components, key=lambda c: len(c.faces))
+    # pin_plane_y0 (a half body closed at the symmetry plane): its cap vertices are put on
+    # y = 0 and held there through the smoothing. Free, the smoothing pulled them a little
+    # into y > 0, and the mirrored half then had a crack along the centreline: a 0.85 mm
+    # notch at the top and bottom of the chamber, 19.9 mm against T5.1's 18.5 (2026-11-09).
+    cap = None
+    if pin_plane_y0:
+        cap = mesh.vertices[:, 1] <= 0.0
+        mesh.vertices[cap, 1] = 0.0
 
     trimesh.repair.fill_holes(mesh)
     trimesh.repair.fix_normals(mesh)
@@ -160,7 +168,14 @@ def _repair_mesh(mesh: "trimesh.Trimesh") -> "trimesh.Trimesh":
     # before dropping degenerate faces broke it on the very first step.
     try:
         import trimesh.smoothing as _sm
-        _sm.filter_taubin(mesh, iterations=10)
+        if cap is None:
+            _sm.filter_taubin(mesh, iterations=10)
+        else:
+            for _ in range(10):
+                _sm.filter_taubin(mesh, iterations=1)
+                v = mesh.vertices.copy()
+                v[cap, 1] = 0.0
+                mesh.vertices = v
     except Exception:
         pass
 

@@ -117,8 +117,15 @@ def make_machinable(geom, tool_r_mm: float = TOOL_R_MM, max_iter: int = 4) -> di
                                             * d_mm ** 3),
     }
     from scipy.ndimage import distance_transform_edt
+    from scipy.ndimage import binary_erosion
     sd = (distance_transform_edt(~S2) - distance_transform_edt(S2)) * up.GRID_SPACING_M
-    phi.grid = sd.astype(np.float32)
+    # Keep the drawn surface wherever milling changed nothing: a cell keeps its old value
+    # when it and its six neighbours are unchanged, so the surface between two kept cells
+    # is still the sub-cell one. Rebuilding the whole field from solid/air snapped every
+    # face to a cell boundary, and the body's mass then moved 0.5 to 2 % between grids
+    # (2026-11-09 grid study).
+    keep = binary_erosion(S2 == S, iterations=1, border_value=1)
+    phi.grid = np.where(keep, phi.grid, sd).astype(np.float32)
     phi.apply_hard_constraints()
     reinitialise_sdf(phi)
     phi.apply_hard_constraints()

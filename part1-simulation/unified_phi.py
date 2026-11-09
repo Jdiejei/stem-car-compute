@@ -1039,7 +1039,7 @@ def extract_half_surface(geom: UnifiedGeometry):
     clone = PhiGrid("car", geom.region, half_grid.astype(np.float32),
                     geom.phi.hard_mask_solid, geom.phi.hard_mask_air)
     for eps_frac in (0.0, 1e-6, 1e-4):     # nudge only if the half body comes out open
-        mesh = SE._repair_mesh(SE._marching_cubes(clone, eps_frac))
+        mesh = SE._repair_mesh(SE._marching_cubes(clone, eps_frac), pin_plane_y0=True)
         # Flatten any sub-cell overshoot onto the symmetry plane (y >= 0).
         mesh.vertices[mesh.vertices[:, 1] < 0.0, 1] = 0.0
         mesh.merge_vertices()

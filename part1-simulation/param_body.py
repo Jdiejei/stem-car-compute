@@ -345,6 +345,26 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # and floor steps below need no rebuild: at most 2 + 6 + 8 = 16 builds.
     over = next(((o, gg) for o, f, gg in sorted([(a, fa, ga), (b, fb, gb)], key=lambda t: t[0]) if f > 0), None)
     del ga, gb
+    # Bracket first. A thinned carved body can sit under the target even at +4 mm; the
+    # secant then wandered below and gave up 0.29 g light, under the 48 g floor, with
+    # nothing tried past 4.3 mm while the block reaches 54 g at 15 mm (1 of 200 carved
+    # bodies, 2026-11-09). Step the skin out (or in) until the target is crossed.
+    for out_to, in_to in ((8.0, -5.0), (15.0, -8.0)):
+        if fa < 0 and fb < 0:
+            c = out_to
+        elif fa > 0 and fb > 0:
+            c = in_to
+        else:
+            break
+        gc = make(c)
+        evals += 1
+        fc = mass(gc) - target_body_kg
+        tried.append((c, fc))
+        if abs(fc) < best[0]:
+            best = (abs(fc), gc)
+        if fc > 0 and (over is None or c < over[0]):
+            over = (c, gc)
+        (a, fa, b, fb) = (b, fb, c, fc) if c > b else (c, fc, a, fa)
     for _ in range(6):
         if abs(fb - fa) < 1e-9:
             break
@@ -365,7 +385,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # v2 CAD supports, 2026-09-28). Bisect between the closest evaluated skins
     # either side of the target.
     for _ in range(8):
-        if best[0] < 5e-5:
+        if best[0] < 5e-5 or evals >= 16:          # BUILD_SPEC: at most 16 builds
             break
         # The bracket is in skin, not in error: mass grows with the skin. Ranking by error
         # stalled on ties (one skin built nine times over, 2026-11-09).
