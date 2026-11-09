@@ -31,7 +31,7 @@ for s in (1.0, 0.75, 0.5):
     import param_body as pb
     import unified_phi as up
     coarse.use_spacing(s)
-    dst = up.remap_geometry(src) if s != 1.0 else src
+    dst = up.remap_geometry(src) if (s != 1.0 or "selfremap" in MODE) else src   # selfremap: 1.0 carried too
     b = pb.build(lay["W"], lay["x_front"], lay["d_halo"], pb.BodyParams(), skin_offset_mm=0.0,
                  field_mm=dst.phi.grid * 1e3, machinable=MILL)
     comps = up.compute_mass_com(b)
@@ -51,7 +51,10 @@ for s in (1.0, 0.75, 0.5):
     sx = np.bincount(np.floor(xc / 10).astype(int), weights=w.sum(axis=(1, 2)), minlength=26)[:26]
     sz = np.bincount(np.floor(zc / 5).astype(int), weights=w.sum(axis=(0, 1)), minlength=12)[:12]
     print(f"LAB slabs k {k} s {s} x10 {np.round(sx, 3).tolist()} z5 {np.round(sz, 3).tolist()}", flush=True)
-    rows[s] = {"mass_g": m, "extent_mm": ext, "com_mm": com}
+    from geometry_contract import DENSITY_BODY_KGM3 as _rho_f
+    mesh_g = 2 * abs(up.extract_half_surface(b).volume) * _rho_f * 1e3       # the milled mesh, foam only
+    print(f"LAB meshmass k {k} s {s} field_g {m:.4f} mesh_g {mesh_g:.4f}", flush=True)
+    rows[s] = {"mass_g": m, "extent_mm": ext, "com_mm": com, "mesh_g": mesh_g}
     print(f"LAB {json.dumps({'seed': seed, 'k': k, 'spacing_mm': s, 'mass_g': round(m, 4), 'com_x_z_mm': [round(v, 3) for v in com], 'extent_mm': ext})}", flush=True)
 # Richardson: m(h) = m0 + C h^p through the three points, p by bisection
 h = np.array([1.0, 0.75, 0.5])
