@@ -41,10 +41,11 @@ def _box(i, j, k):
 
 
 def test_a_4mm_slot_is_filled_unless_required_then_widened_past_the_ball():
-    """A slot 4.5 mm wide (9 cells), 6 mm deep from the top, the whole length. The ball
+    """A slot 4.5 mm wide (9 cells), 6 mm deep from the top, closed at both ends (x 2.5 to
+    17 mm; open ends let a ball outside the block clip them, which is real). The ball
     (6.25 mm) cannot enter: as plain air it is filled; as rule-required air it is grown
     until the ball fits, so at least 6.25 mm wide."""
-    slot = _box((0, NX - 1), (MID - 4, MID + 4), (NZ - 12, NZ - 1))
+    slot = _box((5, NX - 6), (MID - 4, MID + 4), (NZ - 12, NZ - 1))
     S, _ = _run(slot)
     assert S[slot].all(), "a slot the ball cannot enter was left open"
     S, rep = _run(np.zeros_like(slot), forced=slot)
@@ -90,12 +91,16 @@ def test_an_undercut_no_side_reaches_is_filled():
 
 
 def test_a_pocket_open_to_the_top_stays_open():
-    """A 10 x 10.5 x 5 mm pocket from the top: the ball reaches all of it except its bottom
-    fillets (a band under 0.29 r = 0.9 mm along the floor edges)."""
+    """A 10 x 10.5 x 5 mm pocket from the top (20 x 21 x 10 cells): the ball reaches all of it
+    but the fillets along its concave edges. A fillet of radius r fills r^2 (1 - pi/4) =
+    8.4 cells^2 of cross-section per cell of edge; the edges are the floor's 2 (20 + 21) = 82
+    cells and four 10-cell uprights, so about 8.4 x 122 = 1,020 of 4,200 cells (24 %) fill and
+    76 % stays open (the corner overlaps make it a little more)."""
     pocket = _box((10, 29), (MID - 10, MID + 10), (50, NZ - 1))
     S, _ = _run(pocket)
     assert not S[20, MID, 50:].any(), "the pocket's middle was filled"
-    assert (~S[pocket]).mean() > 0.85, f"only {(~S[pocket]).mean():.0%} of the pocket left open"
+    open_ = (~S[pocket]).mean()
+    assert 0.70 < open_ < 0.82, f"{open_:.0%} of the pocket left open, expected about 76 %"
 
 
 def test_required_air_with_square_corners_grows_until_the_ball_reaches():
