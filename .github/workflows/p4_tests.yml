@@ -1,0 +1,44 @@
+name: p4_tests
+
+# Part 4's slice of the main account: the Part 4 and Part 5 unit tests (referee included).
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: pytest -k filter (empty = all)
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: pytest numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix:
+        part: [part4-simulation, part5-simulation]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: pytest
+        working-directory: ${{ matrix.part }}
+        env:
+          PART2_PATH: ${{ github.workspace }}/part2-simulation
+        run: |
+          set -o pipefail
+          python -m pytest tests -q -p no:cacheprovider --tb=short -W ignore -rA ${{ inputs.only && format('-k "{0}"', inputs.only) || '' }} 2>&1 | tee pytest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-${{ matrix.part }}
+          path: ${{ matrix.part }}/pytest.log
