@@ -520,10 +520,32 @@ def _wheel_checks(assembly: dict, parts_mm: dict) -> dict:
         r[f"T7.5_{tag}_diameter_min"] = _entry(d - 28.0, f"{d:.2f} mm")
         r[f"T7.5_{tag}_diameter_max"] = _entry(32.0 - d, f"{d:.2f} mm")
         r[f"T7.4_{tag}_contact_width"] = _entry(w - need, f"{w:.2f} mm at full diameter")
+    r["T7.1_four_wheels"] = _entry(0.0 if {"wheelF", "wheelR"} <= set(parts_mm) else -1.0,
+                                   "a front and a rear wheel each side" if {"wheelF", "wheelR"} <= set(parts_mm)
+                                   else "wheels missing: " + ", ".join(sorted({"wheelF", "wheelR"} - set(parts_mm))))
     for tag, name, need in (("front", "wheelF", 38.0), ("rear", "wheelR", 30.0)):
         if name in parts_mm:
-            gap = 2.0 * float(parts_mm[name].bounds[0, 1])
+            b = parts_mm[name].bounds
+            gap = 2.0 * float(b[0, 1])
             r[f"T7.2_{tag}_gap"] = _entry(gap - need, f"{gap:.2f} mm between the wheels")
+            # T7.6: on the track (the CFD wheels sit 0.3 mm into it); 0.05 mm of round-off.
+            r[f"T7.6_{tag}_on_track"] = _entry(0.05 - float(b[0, 2]), f"lowest point {b[0, 2]:+.2f} mm")
+    # T7.12.1: each wheel support only inside the cylinder through its axle's wheels.
+    if "supports" in parts_mm and {"wheelF", "wheelR"} <= set(parts_mm):
+        axles = {}
+        for tag, name in (("front", "wheelF"), ("rear", "wheelR")):
+            b = parts_mm[name].bounds
+            axles[tag] = (float(b[:, 0].mean()), float(b[:, 2].mean()), float(b[1, 2] - b[0, 2]) / 2.0)
+        for p in parts_mm["supports"].split(only_watertight=False):
+            xc = float(p.bounds[:, 0].mean())
+            tag = min(axles, key=lambda t: abs(axles[t][0] - xc))
+            x0, z0, R = axles[tag]
+            v = p.vertices
+            far = float(np.hypot(v[:, 0] - x0, v[:, 2] - z0).max())
+            key = f"T7.12.1_{tag}_support_in_cylinder"
+            m = R - far
+            if key not in r or m < r[key]["margin"]:
+                r[key] = _entry(m, f"reaches {far:.2f} mm from the axle, wheel radius {R:.2f} mm")
     return r
 
 
@@ -900,7 +922,8 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     wr =_wing_checks(assembly, mm(body), {n: mm(m) for n, m in parts.items()})
     pz, py = wr.pop("_nose_parts_zy")
     r.update(wr)
-    r.update(_wheel_checks(assembly, {n: mm(m) for n, m in parts.items() if n.startswith("wheel")}))
+    r.update(_wheel_checks(assembly, {n: mm(m) for n, m in parts.items()
+                                      if n.startswith("wheel") or n == "supports"}))
     xF = float(parts["wheelF"].bounds[:, 0].mean()) * 1e3 if "wheelF" in parts else xf
     xR = float(parts["wheelR"].bounds[:, 0].mean()) * 1e3 if "wheelR" in parts else xf + W
     r.update(_tether_checks({n: mm(m) for n, m in parts.items() if n == "tethers"}, xF, xR))

@@ -83,13 +83,15 @@ def build(tmp, W=130.0, **o):
     parts = {
         "fwing": trimesh.util.concatenate(fwing),
         "rwing": trimesh.util.concatenate([rw, pylon]),
-        "wheelF": _box((xf - 14.0, o.get("wf_y0", FY), 0), (xf + 14.0, o.get("wf_y", 36.5), 28.1)),
+        "wheelF": _box((xf - 14.0, o.get("wf_y0", FY), o.get("wf_z0", 0.0)), (xf + 14.0, o.get("wf_y", 36.5), 28.1)),
         "wheelR": _box((xf + W - 14.0, o.get("wr_y0", RY), 0), (xf + W + 14.0, o.get("wr_y", 33.5), 28.1)),
         # Tether guides, 5 mm out from each axle, hole 4.5 mm, each on a stalk into the body.
         "tethers": trimesh.util.concatenate(
             [guide(x, o.get("tg_id", 4.5)) for x in o.get("tg_x", (xf - 5.0, xf + W + 5.0))]),
     }
     parts.update({k: _box(*b) for k, b in o.get("extra_parts", {}).items()})
+    if "support" in o:                      # wheel supports: boxes
+        parts["supports"] = trimesh.util.concatenate([_box(*b) for b in o["support"]])
     # The wheels' own files (mm): (diameter, contact width), 0.5 mm chamfers each side.
     wf = {"front": (30.0, 13.5), "rear": (30.0, 17.5)} | o.get("wheels", {})
     files = {}
@@ -185,6 +187,10 @@ EDGES = {
     "T5.3_depth_max": ({"bore_depth": 57.8}, {"bore_depth": 58.2}, set()),
     "T5.4_angle": ({"bore_deg": 2.8}, {"bore_deg": 3.2}, set()),
     # Wheels: their own files, and where they stand.
+    "T7.6_front_on_track": ({"wf_z0": -0.15}, {"wf_z0": 0.25}, set()),
+    # A support reaching up past the wheel's radius above the axle (wheel R 14.05).
+    "T7.12.1_front_support_in_cylinder": ({"support": [((49.9, 12, 10), (50.1, 21.5, 27.9))]},
+                                          {"support": [((49.9, 12, 10), (50.1, 21.5, 28.3))]}, set()),
     "T7.5_front_diameter_min": ({"wheels": {"front": (28.2, 13.5)}}, {"wheels": {"front": (27.8, 13.5)}}, set()),
     "T7.5_front_diameter_max": ({"wheels": {"front": (31.8, 13.5)}}, {"wheels": {"front": (32.2, 13.5)}}, set()),
     "T7.5_rear_diameter_min": ({"wheels": {"rear": (28.2, 17.5)}}, {"wheels": {"rear": (27.8, 17.5)}}, set()),

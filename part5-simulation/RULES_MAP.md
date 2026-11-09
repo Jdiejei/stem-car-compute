@@ -25,7 +25,7 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | T1.6.1-3 | 10 | Wing supports and end plate definitions | - | definition | not checkable: definition |
 | T1.7 | 10 | Nose cone only forward of Ref A | - | `T8.2_nose_overhang`, `T8.5.1_*` | checked (via T8) |
 | T1.8 | 10 | Wheel definition | - | definition | not checkable: definition |
-| T1.9 | 10 | Wheel supports inside the wheel cylinder | - | `P4.T7.12.1_*` | gate only (see T7.12.1) |
+| T1.9 | 10 | Wheel supports inside the wheel cylinder | - | `T7.12.1_front/rear_support_in_cylinder` | checked (see T7.12.1) |
 | T1.10 | 10 | Tether guide fully surrounds the line | - | guide is a closed ring | by construction (see T6.3) |
 | T1.11 | 10 | Finish and decals count in dimensions | - | - | not checkable: paint and decals not modelled (user, 2026-11) |
 | T1.12 | 11 | Logo decal 30 x 15 mm | 30 x 15 mm | `T4.6_logo_decal_room` | checked (via T4.6) |
@@ -58,7 +58,7 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | --- | --- | --- | --- | --- | --- | --- |
 | T3.1.1-4 | 19 | CAD/CAM, CNC body, hologram sticker, both cars identical | - | - | - | not checkable: process |
 | T3.2.1-2 | 19 | Safe construction | - | - | - | not checkable: judge's call |
-| T3.3 | 19 | Only T1.1 components | - | - | - | GAP (small): no check lists the parts |
+| T3.3 | 19 | Only T1.1 components | - | `T3.3_only_listed_parts` (the car's part files by name) | checked |
 | T3.4 | 19 | Total width | 65.0-85.0 mm, PP | - | `T3.4_width_min`, `T3.4_width_max` | checked |
 | T3.5 | 19 | Total height (cartridge in, on 4 wheels) | <= 65.0 mm, PP | - | `T3.5_height` | checked (without cartridge; it sits below the top) |
 | T3.6 | 20 | Total weight, no cartridge | >= 48.0 g, PP | - | `T3.6_mass` | checked (needs `mass_state`) |
@@ -71,7 +71,7 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | id | page | short text | limit | check | status |
 | --- | --- | --- | --- | --- | --- |
 | T4.1 | 22 | One piece of block behind Ref A, holding cargo and chamber | 1 piece | `T4.1_single_body` | checked |
-| T4.2 | 22 | Virtual cargo wholly inside the body, between the axle lines | figure sizes | `T4.2_cargo_inside_body` | checked (inside); GAP: "between the axle lines" not checked |
+| T4.2 | 22 | Virtual cargo wholly inside the body, between the axle lines | figure sizes | `T4.2_cargo_inside_body`, `T4.2_cargo_between_axles` | checked |
 | T4.3 | 22 | Cargo shown on drawings | - | - | not checkable: documentation |
 | T4.4.1 | 23 | Halo used unchanged | - | - | GAP (small): halo file not compared with the official file |
 | T4.4.2 | 23 | Halo seen from front and side | no obstruction | `T4.4.2_halo_seen_from_front`, `T4.4.2_halo_seen_from_side` | checked |
@@ -91,7 +91,7 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | T5.2 | 26 | Cartridge centre above track | 30.0-40.0 mm, PP | `T5.2_height_min/max` | checked |
 | T5.3 | 26 | Chamber depth, rim to end | 45.0-58.0 mm | `T5.3_depth_min/max` | checked |
 | T5.4 | 26 | Chamber angle to track | -3 to +3 deg | `T5.4_angle` | checked |
-| T5.5 | 26 | 3.0 mm block wall round the chamber; chamber not cut by anything | >= 3.0 mm | `T5.5_wall` (on the milled file, round the measured chamber) | checked (wall); GAP: "bore not intersected" not checked |
+| T5.5 | 26 | 3.0 mm block wall round the chamber; chamber not cut by anything | >= 3.0 mm | `T5.5_wall` (milled file, round the measured chamber), `T5.5_chamber_clear` (nothing made inside the bore) | checked |
 | T5.6 | 27 | Cartridge sticks out >= 5.0 mm, visible all round | >= 5.0 mm, PP | `T5.6_protrusion` (64.5 mm shortest cartridge minus measured depth) | checked (protrusion); GAP: "visible all round" not checked |
 | - | - | A chamber exists, open at the back | - | `T5_chamber_found` | checked |
 
@@ -107,14 +107,14 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 
 | id | page | short text | limit | check | status |
 | --- | --- | --- | --- | --- | --- |
-| T7.1 | 30 | 4 wheels, 2 front 2 rear, opposing wheels share an axis | 4 | - | by construction; GAP (small): not counted |
+| T7.1 | 30 | 4 wheels, 2 front 2 rear, opposing wheels share an axis | 4 | `T7.1_four_wheels` (front and rear wheel files, mirrored) | checked |
 | T7.2.1 | 30 | Front inner wheel gap | >= 38.0 mm, PP | `T7.2_front_gap` (the car's wheels) | checked |
 | T7.2.2 | 30 | Rear inner wheel gap | >= 30.0 mm, PP | `T7.2_rear_gap` | checked |
 | T7.3 | 30 | Wheelbase | 120.0-140.0 mm, PP | `T7.3_W_min`, `T7.3_W_max` (between the measured wheel centres) | checked |
 | T7.4.1 | 31 | Front contact width, no chamfers/fillets | >= 13.0 mm, PP | `T7.4_front_contact_width` (`wheel_measures`: tread at full radius, on the wheel file) | checked |
 | T7.4.2 | 31 | Rear contact width | >= 17.0 mm, PP | `T7.4_rear_contact_width` | checked |
 | T7.5 | 31 | Wheel diameter, each wheel | 28.0-32.0 mm, PP | `T7.5_front/rear_diameter_min/max` (on the wheel files) | checked |
-| T7.6 | 31 | All 4 wheels touch across full width | - | - | by construction; GAP (small) |
+| T7.6 | 31 | All 4 wheels touch the track | - | `T7.6_front/rear_on_track` | checked (full contact width: by construction, cylindrical tread) |
 | T7.7 | 31 | Even diameter across contact width | - | - | by construction (team wheel file) |
 | T7.8 | 31 | Wheels turn freely on a 3 deg slope | <= 3 deg | - | not checkable: friction/bearing, physical |
 | T7.9.1 | 32 | Clear zone ahead of front wheels | >= 5.0 mm | `T7.9.1_zone_clear`; `P4.T7.9.1_zone_ahead_of_wheel` | checked (zone shape from Part 1) |
@@ -123,7 +123,7 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | T7.9.4 | 32 | Clear zone behind rear wheels | >= 5.0 mm | `T7.9.4_zone_clear` | checked (zone shape from Part 1) |
 | T7.10 | 33 | Wheels seen from the side (supports excepted) | no obstruction | `T7.10_wheelF_seen_from_side`, `T7.10_wheelR_seen_from_side` | checked |
 | T7.11 | 33 | Front wheels hidden from front only up to 20 mm | <= 20 mm, PP | `T7.11_front_wheel_seen_from_front` | checked |
-| T7.12.1 | 33 | Supports only inside the wheel cylinder | - | `P4.T7.12.1_*_support_in_cylinder`, `P4.T7.12.1_*_pod_in_cylinder` | gate only |
+| T7.12.1 | 33 | Supports only inside the wheel cylinder | - | `T7.12.1_front/rear_support_in_cylinder` (support mesh against the measured wheels) | checked |
 | T7.12.2 | 34 | Supports shown on drawings | - | - | not checkable: documentation |
 | T7.13 | 34 | Claw clearance at the wheel's inner corner (figure); 100 g test | 1.5 x 1.5 mm | `T7.13_front_claw_clearance`, `T7.13_rear_claw_clearance` | checked (clearance); load test not checkable |
 
@@ -175,7 +175,7 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | App. ii | 48 | Model Block dimensions | figure | `official_block_mm`, `block_body_inside_official_block` | checked (sizes from Part 1's contract) |
 | App. iii | 49-50 | Front wing examples | - | see T8.6 | information |
 | App. iv | 51-52 | Rear wing examples | - | see T9.5 | information |
-| App. v | 53 | Multi-vane overlap | - | single vane + flap | by construction; GAP (small) if multi-vane is ever searched |
+| App. v | 53 | Multi-vane overlap | - | `T8.6.2_front_vanes_overlap`, `T9.5.2_rear_vanes_overlap` | checked |
 | App. vi | 54 | Cartridge size; 28.9-29.4 g | 65.0 -0.5 mm long | `CARTRIDGE_LENGTH_MIN_MM = 64.5` | constant |
 | App. vii | 54 | Halo deceleration system | - | - | not checkable: information |
 | App. viii | 55 | Component identification example | - | - | not checkable: documentation |
@@ -195,33 +195,18 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | `mesh_longest_edge`, `mesh_slivers_body`, `mesh_slivers_printed` | mesh quality of the made files |
 | `P4.machining_*_foam_over_pod` | foam left over the wheel-support channel |
 
-## Gaps found (to fix in Steps 2-3, each with a fail test)
+## Gaps left
 
-Numeric rules not measured independently (gate only or constant): these need a referee measurement on the final mesh, not a copy of the Part 4 design value.
-1. **T8.6.1 / T9.5.1 span**: design value only. Measure the shortest of LE/TE/top/bottom span on the wing mesh.
-2. **T8.6.2 / T9.5.2 chord**: Part 4 gate only. Measure the horizontal chord along the span on the mesh.
-3. **T8.6.3 / T9.5.3 thickness**: design value only. Measure on mesh sections.
-4. **T9.5.4 height deviation**: hard-coded 0. Measure the top surface along the span.
-5. **T8.5.2 front wing ahead of Ref A and <= 20 mm outboard**, **T8.5.3 end plates**, **T9.4.1 rear wing behind Ref B**: gate only. Measure from bounding boxes of the wing meshes.
-6. **T8.5.1 printed nose and mount**: the referee measures only body material ahead of Ref A, not the printed nose or mount meshes.
-7. **T7.2, T7.4, T7.5 wheels**, **T7.12.1 supports in cylinder**: gate only. Measure on the wheel and support meshes.
-8. **T6.1 guide position, T6.2 hole size**: constants. Measure on the guide meshes.
-9. **T5.1-T5.3, T5.6**: constants. Measure the bore on the milled body file.
-10. **T5.4 chamber angle**: missing. Add (constant 0 deg today; measure the bore axis).
-11. **T7.3 wheelbase**: taken from the layout value. Measure from the wheel meshes.
+Fixed since the first map (2026-11-09), each with a just-inside and a just-outside test in `tests/test_rules_edges.py`: every wing size and position rule, the printed nose and wing mount, the wheels (diameter, contact width, gaps, wheelbase, on the track, four of them), the wheel supports, the tether guides, the whole chamber (T5.1-T5.4, T5.6, nothing inside it), T4.2 between the axles, and T3.3. The `P4.*` gates are still reported, as a second opinion from the builder.
 
-Rules not checked at all (non-numeric or small):
-12. **T4.2**: cargo between the axle lines.
-13. **T5.5**: nothing inside the bore.
-14. **T5.6**: cartridge visible all round behind the car.
-15. **T3.3 / T7.1 / T7.6**: list of parts, 4 wheels, all 4 touching.
-16. **T4.4.1 / T4.5**: halo and helmet file unchanged (compare with the official file).
+Still not checked:
+1. **T5.6 "visible in its entirety"** round the cartridge behind the car (only the 5 mm protrusion is measured).
+2. **T4.4.1 / T4.5**: the halo and helmet file used unchanged (compare with the official file).
 
-Independence (Step 3): the referee takes the Model Block, bore, chamber axis, wheel inner faces, T7.9 zone shapes, cargo sizes and the halo pocket from Part 1 (`geometry_contract`, `wheel_visibility_zones`, `virtual_cargo`, `halo_pocket`).
+Independence (Step 3): the referee imports nothing from Part 1. Its rule geometry is in `rules_constants.py`, typed from the regulations with pages; `tests/test_independence.py` checks both the imports and that Part 1 reads the same numbers. Wheel positions, the chamber and the halo pocket are measured on the car itself.
 
 ## Count
 
-Counted from the tables above (some rows group sub-rules, e.g. T3.1.1-4):
-- 112 rows, covering every rule in T1-T10 and appendices i-ix. Each has a check or a stated reason; none is blank.
-- checked 40 (several with a partial gap noted), gate only 17, constant 6, by construction 9, not checkable 31, GAP 5, pointer to another row ("see", "information") 4.
-- Numeric rules not yet measured independently by the referee: 11 groups (list above).
+113 rows (every rule in T1-T10 and appendices i-ix; some rows group sub-rules). Each has a check or a stated reason; none is blank.
+- checked 68, constant 2 (the shortest legal cartridge, from Appendix vi), by construction 6, not checkable 31 (definitions, documents, process, physical load tests, judges' calls, paint and decals), pointers to another row 4, GAP 2 (above).
+- No numeric rule is left to a Part 4 gate alone.
