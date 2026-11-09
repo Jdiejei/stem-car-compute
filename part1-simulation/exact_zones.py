@@ -322,5 +322,7 @@ def cut_boxes(g, mesh):
         c = m3.Manifold.cube([(h - l) / 1e3 for l, h in zip(lo, hi)]).translate([l / 1e3 for l in lo])
         cut = c if cut is None else cut + c
     o = (body - cut).to_mesh()
-    out = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3], np.asarray(o.tri_verts), process=True)
+    # process=False: merging the output's near-coincident vertices opened it (2026-11-10)
+    out = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
+                          process=False)
     return out if out.is_volume else mesh
