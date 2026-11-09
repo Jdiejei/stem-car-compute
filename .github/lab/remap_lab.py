@@ -56,10 +56,10 @@ def rule_parts(g):
 
 if variant == "norules":
     up.apply_build_rules = lambda g: None
-if variant.startswith("no_"):                     # no_cap | no_stub | no_column | no_bridge
+if variant.startswith("no_") or variant == "probe_nocap":   # no_cap | no_stub | no_column | no_bridge
     _orig = up.build_rule_masks
 
-    def _without(g, part=variant[3:]):
+    def _without(g, part=variant[3:] if variant.startswith("no_") else "cap"):
         air, solid = _orig(g)
         p = rule_parts(g)
         keep = [k for k in ("stub", "column", "bridge") if k != part]
@@ -86,6 +86,31 @@ if variant == "milled_dst":
 if variant == "reinit_end":                       # redistance after the last clamp
     reinitialise_sdf(dst.phi)
     up.enforce_symmetry(dst)
+if variant in ("probe", "probe_nocap"):         # field values at the sliver spot (x 42, y 18, z 30-42)
+    def ax(g, a, mm, dx):
+        return int(round((mm / 1e3 - g.region.origin_m[a]) / dx))
+
+    for name, g, dx in (("src", src, 0.003), ("dst", dst, 0.0015)):
+        iy, iz = ax(g, 1, 18.0, dx), ax(g, 2, 36.0, dx)
+        ix0, ix1 = ax(g, 0, 36.0, dx), ax(g, 0, 48.0, dx)
+        xs = [round((g.region.origin_m[0] + i * dx) * 1e3, 2) for i in range(ix0, ix1 + 1)]
+        print(f"LAB {variant} {name} x mm {xs}")
+        for zmm in (30.0, 33.0, 36.0, 39.0, 42.0):
+            row = g.phi.grid[ix0:ix1 + 1, iy, ax(g, 2, zmm, dx)] / dx
+            print(f"LAB {variant} {name} phi/dx along x at y 18 z {zmm}: {np.round(row, 4).tolist()}")
+        ix = ax(g, 0, 42.0, dx)
+        col = g.phi.grid[ix, ax(g, 1, 12.0, dx):ax(g, 1, 24.0, dx) + 1, iz] / dx
+        print(f"LAB {variant} {name} phi/dx along y 12..24 at x 42 z 36: {np.round(col, 4).tolist()}")
+        box = (slice(ax(g, 0, 39.0, dx), ax(g, 0, 45.0, dx) + 1), slice(ax(g, 1, 15.0, dx), ax(g, 1, 21.0, dx) + 1),
+               slice(ax(g, 2, 28.0, dx), ax(g, 2, 44.0, dx) + 1))
+        v = g.phi.grid[box]
+        print(f"LAB {variant} {name} box: exact zeros {int((v == 0).sum())}, |phi|<1e-6 dx {int((np.abs(v) < 1e-6 * dx).sum())},"
+              f" forced air {int(g.phi.hard_mask_air[box].sum())}, forced solid {int(g.phi.hard_mask_solid[box].sum())},"
+              f" cells {v.size}, values equal to +-dx {int((np.abs(np.abs(v) - dx) < 1e-9).sum())}")
+    cap = rule_parts(dst)["cap"]
+    xi = np.where(cap.any(axis=(1, 2)))[0]
+    print(f"LAB {variant} dst cap x mm from {(dst.region.origin_m[0] + xi.min() * 0.0015) * 1e3:.2f}"
+          f" to {(dst.region.origin_m[0] + xi.max() * 0.0015) * 1e3:.2f}")
 if variant == "pinch":
     print(f"LAB {variant} pinch cells {up.close_pinches(dst, 0.0015)}")
 
