@@ -78,8 +78,10 @@ inst = sorted((run / "optimisation/objective").rglob("*Instant*"))
 if inst:
     J = np.array([float(l.split()[1]) for l in inst[0].read_text().splitlines()
                   if l.strip() and not l.startswith("#")])[:cfg.primal_iters]
-    print(f"{tag} primal drag last value {J[-1]:.6e}, spread last 200 / value {np.ptp(J[-200:]) / abs(J[-1]):.2e}", flush=True)
-log = (run / "adjoint.log").read_text(errors="replace")
+    print(f"{tag} primal iterations {len(J)}, drag last value {J[-1]:.6e}, spread last 200 / value {np.ptp(J[-200:]) / abs(J[-1]):.2e}", flush=True)
+logs = sorted(run.rglob("*adjoint*.log")) or sorted(run.rglob("log*"))
+log = "".join(p.read_text(errors="replace") for p in logs if "adjoint" in p.name.lower()) if logs else ""
+print(f"{tag} logs {[p.name for p in logs][:8]}", flush=True)
 for f in ("Ux", "p", "Uax", "pa"):
     r = re.findall(rf"Solving for {f}, Initial residual = ([0-9.eE+-]+)", log)
     if r:
