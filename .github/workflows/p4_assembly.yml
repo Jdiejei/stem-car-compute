@@ -59,3 +59,19 @@ jobs:
         with:
           name: stress-${{ matrix.seed }}
           path: stress/*.json
+  summary:
+    needs: cars
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - uses: actions/download-artifact@v4
+        with: { path: all, pattern: "stress-*" }
+      - run: pip install $PY_DEPS
+      - name: Summary
+        working-directory: part5-simulation
+        run: python checks/stress_cars.py --summary ../all 2>&1 | tee ../summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with: { name: summary, path: summary.txt }
