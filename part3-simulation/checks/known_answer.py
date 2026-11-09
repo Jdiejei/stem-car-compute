@@ -57,7 +57,15 @@ VARIANTS = {
     "car_mm":     dict(ras="adjointLaminar", atc="standard", mesh_move=True),
     "sst":        dict(ras="adjointkOmegaSST", atc="standard", mesh_move=False),
     "sst_mm":     dict(ras="adjointkOmegaSST", atc="standard", mesh_move=True),
+    # OpenFOAM's shipped turbulent sensitivity-map case (sensitivityMaps/naca0012/turbulent/
+    # liftFullSetup): Spalart-Allmaras primal with its matching adjoint, distance and
+    # mesh-movement terms, with its own schemes. Its primal differs, so it needs its own bumps.
+    "sa_full":    dict(setup="sa", ras="adjointSpalartAllmaras", mesh_move=True, distance=True),
+    "sa_min":     dict(setup="sa", ras="adjointSpalartAllmaras", mesh_move=False, distance=False),
+    "sa_frozen":  dict(setup="sa", ras="adjointLaminar", mesh_move=False, distance=False),
 }
+SA_CASE = "sensitivityMaps/naca0012/turbulent/liftFullSetup"
+SETUP = os.environ.get("P3_SETUP", "car")      # whose primal the bump runs use: car or sa
 
 
 def foam(case: Path, cmd: str, log: str) -> None:
@@ -76,9 +84,13 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
     """Copy the tutorial, convert the mesh to plain text, write our settings. Returns the mesh."""
     src = Path(subprocess.run(["bash", "-c", f"source {BASHRC} >/dev/null 2>&1; echo $FOAM_TUTORIALS"],
                               capture_output=True, text=True).stdout.strip()) / TUT
-    shutil.copytree(src / "shapeOptimisation/naca0012/kOmegaSST/lift", case)
+    sa = variant.get("setup") == "sa"
+    shutil.copytree(src / (SA_CASE if sa else "shapeOptimisation/naca0012/kOmegaSST/lift"), case)
     shutil.copytree(src / "resources/meshes/naca0012/polyMesh", case / "constant/polyMesh")
-    (case / "constant/dynamicMeshDict").unlink()
+    if sa:
+        shutil.copytree(case / "0.orig", case / "0")
+    else:
+        (case / "constant/dynamicMeshDict").unlink()
     end = PRIMAL_ITERS + adjoint_iters
     cd = (case / "system/controlDict").read_text()
     for k, v in {"endTime": end, "writeInterval": end, "writeCompression": "off",
@@ -99,7 +111,26 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
     chord = np.ptp(mesh["P"][mesh["wall"], 0])
     nu = np.linalg.norm(U) * chord / RE
     tp = (case / "constant/transportProperties").read_text()
-    (case / "constant/transportProperties").write_text(re.sub(r"\]\s*[0-9.eE+-]+;", f"] {nu:.8e};", tp))
+    tp, n = re.subn(r"^(nu\s.*?)[0-9.eE+-]+;", rf"\g<1>{nu:.8e};", tp, flags=re.M)
+    assert n == 1, tp
+    (case / "constant/transportProperties").write_text(tp)
+    mesh["chord"], mesh["nu"] = chord, nu
+    d = U / np.linalg.norm(U)
+    if sa:
+        # the shipped case as it is, retargeted to drag with fixed iteration counts
+        ras = (case / "constant/adjointRASProperties").read_text()
+        (case / "constant/adjointRASProperties").write_text(ras.replace("adjointSpalartAllmaras", variant["ras"]))
+        od = (case / "system/optimisationDict").read_text()
+        od = re.sub(r"^(\s*)lift(\s*)$", r"\1drag\2", od, flags=re.M)
+        od = re.sub(r"direction\s+\([^)]*\);", f"direction ({d[0]:.12f} {d[1]:.12f} 0);", od)
+        it = iter([PRIMAL_ITERS, adjoint_iters])
+        od = re.sub(r"nIters\s+\d+;", lambda m: f"nIters {next(it)};", od)
+        od = re.sub(r"1\.e-6;", "1.e-14;", od)
+        od = re.sub(r"includeMeshMovement\s+\w+;", f"includeMeshMovement {str(variant['mesh_move']).lower()};", od)
+        od = re.sub(r"includeDistance\s+\w+;", f"includeDistance {str(variant['distance']).lower()};", od)
+        assert "lift" not in re.sub(r"//.*", "", od) and od.count("1.e-14") == 6, od
+        (case / "system/optimisationDict").write_text(od)
+        return mesh
     # Part 2's car dictionaries, retargeted.
     (case / "system/fvSchemes").write_text(oa._FV_SCHEMES_ADJOINT)
     (case / "system/fvSolution").write_text(oa._FV_SOLUTION_ADJOINT)   # no early primal stop (fixed there)
@@ -217,7 +248,7 @@ def morph(mesh: dict, move_wall: np.ndarray) -> np.ndarray:
 
 def run_bump(k: int, amp: float, out: Path) -> None:
     case = Path(f"ka_bump_{k}_{amp:+g}")
-    mesh = case_setup(case, 1, VARIANTS["car"])
+    mesh = case_setup(case, 1, VARIANTS["sa_min" if SETUP == "sa" else "car"])
     P = morph(mesh, amp * bump(mesh, k))
     body = "\n".join(f"({x:.16e} {y:.16e} {z:.16e})" for x, y, z in P)
     head = read(case / "constant/polyMesh/points").split(f"\n{len(P)}\n(")[0]

@@ -1,5 +1,5 @@
 name: p3_known_answer
-run-name: "Part 3: known-answer wing test, 20 bumps, 5 map settings, mesh fade ${{ inputs.morph }}, refined ${{ inputs.refine }}x"
+run-name: "Part 3: known-answer wing test (${{ inputs.setup }} primal), 20 bumps, mesh fade ${{ inputs.morph }}, refined ${{ inputs.refine }}x"
 
 # Step 1 of Part 3: prove the adjoint on a 2-D wing where measured slopes are cheap and quiet.
 # 5 adjoint settings side by side; 20 bumps, each measured at +-a and +-a/2 (4 runs on 4 cores).
@@ -8,12 +8,15 @@ on:
     inputs:
       morph: { default: "0.10" }
       refine: { default: "0" }
+      setup: { default: "car" }
+      variants: { default: "[\"car\", \"car_cancel\", \"car_mm\", \"sst\", \"sst_mm\"]" }
 
 permissions: { contents: read }
 
 env:
   P3_MORPH: ${{ inputs.morph }}
   P3_REFINE: ${{ inputs.refine }}
+  P3_SETUP: ${{ inputs.setup }}
   INSTALL: |
     (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
     curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
@@ -27,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 5
-      matrix: { variant: [car, car_cancel, car_mm, sst, sst_mm] }
+      matrix: { variant: ${{ fromJSON(inputs.variants) }} }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
