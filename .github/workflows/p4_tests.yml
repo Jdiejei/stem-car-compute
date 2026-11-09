@@ -18,7 +18,7 @@ env:
 jobs:
   tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       max-parallel: 15
@@ -30,14 +30,14 @@ jobs:
         with: { python-version: "3.11" }
       - timeout-minutes: 25
         run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
-      - run: pip install $PY_DEPS
+      - run: pip install $PY_DEPS pytest-xdist
       - name: pytest
         working-directory: ${{ matrix.part }}
         env:
           PART2_PATH: ${{ github.workspace }}/part2-simulation
         run: |
           set -o pipefail
-          python -m pytest tests -q -p no:cacheprovider --tb=short -W ignore -rA ${{ inputs.only && format('-k "{0}"', inputs.only) || '' }} 2>&1 | tee pytest.log
+          python -m pytest tests -n 4 -q -p no:cacheprovider --tb=short -W ignore -rA ${{ inputs.only && format('-k "{0}"', inputs.only) || '' }} 2>&1 | tee pytest.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
