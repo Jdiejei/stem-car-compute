@@ -1,11 +1,14 @@
 name: p4_assembly
-run-name: "Part 4: ${{ inputs.carve == 'true' && 'carved' || 'lofted' }} cars assembled and judged, ${{ inputs.machines }} machines x ${{ inputs.cars_per_machine }} cars, seeds from ${{ inputs.seed_base }}"
+run-name: "Part 4: ${{ inputs.label }} ${{ inputs.carve == 'true' && 'carved' || 'lofted' }} cars assembled and judged, ${{ inputs.machines }} machines x ${{ inputs.cars_per_machine }} cars, seeds from ${{ inputs.seed_base }}"
 
 # Part 4's car rounds: random bodies (carved or lofted), every part attached, the referee run.
 # One machine per seed; max_parallel keeps to Part 4's cap on the account it runs on.
 on:
   workflow_dispatch:
     inputs:
+      label:
+        description: "canary (untagged Part 1 main) or official (Part 1 frozen tag)"
+        default: "canary"
       cars_per_machine:
         default: "25"
       carve:
