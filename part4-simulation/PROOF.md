@@ -56,3 +56,18 @@ Ray from each of 4,000 surface points straight into the part (start and round2 c
 - printed_rwing: median 1.96; 13 % under 0.8 (the NACA trailing edge, sharp by design).
 - team wheels: 0.40 (the team's own design, which they already print).
 Pass mark: the team confirms these can be made. Needs the printer's minimum wall (question to the team). If it is above 0.7 mm, the supports and hubcaps need a thicker minimum, and the wing trailing edges a blunt minimum.
+
+## Carved canary 1 (not the official run): blackwinglinkedin-crypto 42655282327, summary 42697932704
+
+1,008 cars (42 seeds from 43800) on Part 1's untagged main as of 2026-11-09 ~16:29 UTC: 382 legal, 623 illegal, **3 crashes** ("body_half.stl is not watertight", Part 1's half body; sent to Part 1).
+Rejects by rule: T4.4.2 halo seen from front 480 (6-13 mm3 of body ahead of the halo above its base + 4 mm, the p23 front-view outline; checked against the drawing; sent to Part 1 as a cutter zone); T4.6 decal 69; P4.machining_rear_slot_corner_radius 59 (a bare beam support whose section's tightest corner is under the 3.125 mm ball radius: random support settings, for Step 7); T4.2 cargo 25 (5.3 mm3, since fixed by Part 1); T8.6.1 front span 18 (segments 24.65 mm: wing half-span vs nose width, Step 7); T7.9.4 17; mesh_slivers_printed 9 and manufacture_files_are_solids 3 (Part 4 file quality, to trace); T4.4.2 side 4; T4.7 2.
+
+## One print minimum (component_contract.MIN_WALL_MM; P4_MIN_WALL_MM overrides)
+
+Reference cars at 0.7, 1.0 and 1.2 mm (blackwingstem-wq 42682204999, 42682212616, 42682220443): every part builds and every rule passes at all three. The only failure is Part 1's block-slot strip (5-7 mm3), which is Part 1's to fix. Wing thickness grows with the blunt trailing edge: 2.52 / 2.62 / 2.70 mm (limit 6.0). test_min_wall: 2 passed (42682227523; the run reads "failure" only because the filter matched nothing in part5).
+Walls at 1.0 mm (lab 42682234702): rear wing ≥ 1.03 everywhere; hubcaps 1.00 (1.5 % of rays under 1, at edges); supports median 1.00-1.05, 1st percentile 0.41-0.51 (edges and grazing rays); front assembly median 2.06, 8 % under 0.8. When the team gives its printer's figure, it is one value.
+- The 3 canary cars with "machined_body not one closed solid" (43825/16, 43836/13, 43806/20) did not repeat when rebuilt on the same commit with `stress_cars.py --only` (lab blackwinglinkedin-crypto 42698359819): every file was one closed solid. But the rebuilt cars' masses differ from the batch's (43.6 vs passing T3.6), so `--only` isn't a faithful rebuild and the cause is still open. The check's note now records the file, closed state, pieces and remesh state, so the official run captures the cause if it recurs.
+
+## Lofted canaries on Part 1 9123b41 (not official)
+
+blackwingstem-wq 42696426214 (575 cars, seeds 43700) and blackwinglinkedin-crypto 42696432993 (300 cars, seeds 43723): **every car crashed** with "ValueError: Not all meshes are volumes!" inside trimesh's boolean (boolean_manifold), about 100 s into each car. Same error the halo-slot lab showed on Part 1's body_half at that time. Part 1 has since pushed reload-safe zone cuts (a90e2af, 0bb3701, be43b12). Check run on 78badef: blackwinglinkedin-crypto 42713843308 (20 lofted cars, seeds 43900). These crashes are not counted toward the regression bar; that bar is judged on Part 1's frozen tag.
