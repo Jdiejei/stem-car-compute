@@ -1,12 +1,15 @@
 name: p2_race
-run-name: "Part 2: race model on the measured thrust"
+run-name: "Part 2: race model on the measured thrust, centre of mass in the physics"
 
-# Converts the team's measured thrust into the race model's sheet, checks the
-# smooth fit, times today's best search car on the old and new thrust (raw and
-# calibrated), prints the slopes, and runs every race-model test incl. the
+# Converts the team's measured thrust into the race model's sheet and checks the
+# fit; times today's best search car (raw and calibrated) with the centre of mass
+# acting through the pitch balance, prints the slopes; runs the COM calibration
+# study against the team's 14-setting test; runs every race-model test incl. the
 # JAX-vs-finite-difference gradient check.
 on:
   workflow_dispatch:
+    inputs:
+      bearing_p: { default: "1.0", description: "bearing load-law exponent for the best-car report" }
 
 permissions:
   contents: read
@@ -14,7 +17,7 @@ permissions:
 jobs:
   race:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,35 +28,36 @@ jobs:
         run: python thrust_convert.py | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with: { name: thrust-sheet, path: part2-simulation/thrust_measured_beta.csv }
-      - name: Best car, old vs new thrust, and slopes
+      - name: Best car and slopes
         working-directory: part2-simulation
         run: |
           python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
           import numpy as np
-          from race_objective import build_smooth_sheet_model, race_value_and_grad
-          from race_objective_adapter import race_value_and_grad_guarded
+          from race_objective import build_smooth_sheet_model, race_value_and_grad, DEFAULT_GEOMETRY
           from physics_contract import TIME_COEFFICIENT as TC
-          # best search car, solver chain 2 (2026-11-08): D20 0.38037 N, at the
-          # 48.2 g target + 21.15 g cartridge shell; lift not recorded, so 0
-          def p(tc, h=0.030, x=0.0):
-              return np.array([0.38037, 0.0482 + 0.02115, 0.010, 1.39e-7, tc, h, 0.0, x])
-          for name, csv in (("old invented thrust", "co2_thrust_data.csv"),
-                            ("measured thrust", "thrust_measured_beta.csv")):
-              m = build_smooth_sheet_model(csv)
-              T1 = race_value_and_grad_guarded(p(1.0), m)[0]
-              Tc, _, g = race_value_and_grad_guarded(p(TC), m)
-              _, raw = race_value_and_grad(p(TC), m)
-              print(f"\nRACE {name}: raw {T1:.4f} s, x {TC} = {Tc:.4f} s")
-              print(f"RACE   drag  {g['dT_dD20']:.4f} ms per mN (calibrated)")
-              print(f"RACE   mass  {g['dT_dmass']:.3f} ms per g (calibrated)")
-              # COM: the dynamics have no COM term; only the placeholder penalties do
-              for h in (0.030, 0.035):
-                  _, r = race_value_and_grad(p(TC, h=h), m)
-                  print(f"RACE   COM height {h*1e3:.0f} mm: {r['com_height_m']*1e-3*1e3:.4f} ms per mm (placeholder penalty)")
-              print(f"RACE   COM x: {raw['com_x_m']*1e-3*1e3:.6f} ms per mm at 0 (placeholder penalty)")
+          # best search car, solver chain 2 (2026-11-08): D20 0.38037 N at the 48.2 g
+          # target + 21.15 g cartridge shell. Its lift and COM were not recorded:
+          # lift 0, COM 110 mm behind the nose tip and 30 mm up are assumed.
+          bp = float("${{ inputs.bearing_p }}")
+          m = build_smooth_sheet_model()._replace(bearing_p=bp)
+          def p(tc, h=0.030):
+              return np.array([0.38037, 0.0482 + 0.02115, 0.010, 1.39e-7, tc, h, 0.0, 0.110])
+          T1, _ = race_value_and_grad(p(1.0), m)
+          Tc, g = race_value_and_grad(p(TC), m)
+          print(f"RACE bearing_p {bp}: raw {T1:.4f} s, x {TC} = {Tc:.4f} s")
+          print(f"RACE   drag {g['drag_20_n']:.4f} ms per mN, mass {g['car_weight_kg']:.3f} ms per g (calibrated)")
+          print(f"RACE   COM height {g['com_height_m']:.4f} ms per mm, COM x {g['com_x_m']:.4f} ms per mm (calibrated)")
+          zt = DEFAULT_GEOMETRY.z_thrust_m
+          for off in (-6, -4, -2, 0, 2, 4, 6, 8, 10):
+              t, gg = race_value_and_grad(p(TC, zt + off / 1e3), m)
+              print(f"RACE   COM {off:+d} mm vs thrust line: {t:.4f} s, slope {gg['com_height_m']:.3f} ms per mm")
           EOF
       - name: Race-model tests
         working-directory: part2-simulation
         run: |
-          python -m pytest tests/test_thrust_measured.py tests/test_race_objective_adapter.py tests/test_physics_contract.py \
-            tests/test_stopwatch.py tests/test_mass_com_ingest.py -q -p no:cacheprovider --tb=short -W ignore -s 2>&1 | tail -30 | tee -a "$GITHUB_STEP_SUMMARY"
+          python -m pytest tests/test_thrust_measured.py tests/test_race_com.py tests/test_pitch_balance.py \
+            tests/test_race_objective_adapter.py tests/test_physics_contract.py tests/test_stopwatch.py \
+            tests/test_mass_com_ingest.py -q -p no:cacheprovider --tb=short -W ignore 2>&1 | tail -30 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: COM calibration against the 14-setting test
+        working-directory: part2-simulation
+        run: python com_calibration.py 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
