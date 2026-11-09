@@ -566,6 +566,10 @@ def _mill_on(g, fine_base) -> dict:
         rep = machining.make_machinable(h)
         rep["mill_spacing_mm"] = MILL_SPACING_MM
     g.phi.grid = _resample(h.phi.grid, h.region, MILL_SPACING_MM / 1e3, g.region, d)
+    # Linear sampling leaves |grad phi| off 1 near edges; the sub-cell mass (0.5 - phi/dx)
+    # then parted from the mesh by 0.19 g (2026-11-09). Redistance on g's own grid.
+    g.phi.apply_hard_constraints()
+    reinitialise_sdf(g.phi)
     g.phi.apply_hard_constraints()
     return rep
 
