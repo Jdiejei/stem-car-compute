@@ -163,6 +163,13 @@ class OpenFOAMRunConfig:
     # benchmarks such as the Ahmed body (Ahmed, Ramm & Faltin 1984), so the
     # benchmark is compared like with like. Cars always use True.
     moving_ground: bool = True
+    # MESH MORPHING (2026-11-09, noise fix 3 of BUILD_SPEC 12.3). A finished
+    # case directory whose constant/polyMesh is reused instead of re-snapping:
+    # its `car` patch points are projected onto THIS car's STL and the interior
+    # follows by a Laplacian motion solve (moveMesh). Same topology for every
+    # car, so remeshing noise is zero by construction. Only for small moves of
+    # the same car on the same frame and extra surfaces; None = snap as usual.
+    morph_from: Optional[str] = None
 
     @property
     def resolved(self) -> bool:
@@ -1423,6 +1430,84 @@ def _run(cmd: str, cwd: Path, bashrc: str, log_name: str, timeout: int) -> str:
     return proc.stdout
 
 
+MORPH_STEPS = 3
+
+
+def morph_point_displacement() -> str:
+    """0/pointDisplacement for the morph: `car` points follow the new STL
+    (nearest-point projection), every other boundary stays put."""
+    return _header("pointVectorField", "pointDisplacement") + """
+dimensions      [0 1 0 0 0 0 0];
+internalField   uniform (0 0 0);
+boundaryField
+{
+    car
+    {
+        type            surfaceDisplacement;
+        value           uniform (0 0 0);
+        velocity        (1 1 1);
+        geometry
+        {
+            car.stl { type triSurfaceMesh; name carTarget; }
+        }
+        projectMode     nearest;
+    }
+    symmetry        { type symmetryPlane; }
+    ".*"            { type fixedValue; value uniform (0 0 0); }
+}
+"""
+
+
+_MORPH_DYNAMIC_MESH = """
+dynamicFvMesh       dynamicMotionSolverFvMesh;
+motionSolverLibs    (fvMotionSolvers);
+motionSolver        displacementLaplacian;
+displacementLaplacianCoeffs { diffusivity inverseDistance (car); }
+"""
+
+def _morph(run: Path, cfg: OpenFOAMRunConfig, bashrc: str, timeout_s: int) -> None:
+    """Replace snapping by moving the reference mesh onto this car (see morph_from)."""
+    ref = Path(cfg.morph_from) / "constant" / "polyMesh"
+    if not (ref / "points").exists():
+        raise FileNotFoundError(f"morph_from has no mesh: {ref}")
+    dest = run / "constant" / "polyMesh"
+    shutil.rmtree(dest, ignore_errors=True)
+    shutil.copytree(ref, dest)
+    control = (run / "system" / "controlDict").read_text()
+    solution = (run / "system" / "fvSolution").read_text()
+    try:
+        _write(run / "constant" / "dynamicMeshDict",
+               _header("dictionary", "dynamicMeshDict") + _MORPH_DYNAMIC_MESH)
+        _write(run / "0" / "pointDisplacement", morph_point_displacement())
+        # the motion solver needs its own linear solver, inside the existing block
+        _write(run / "system" / "fvSolution",
+               solution.replace("solvers\n{", "solvers\n{\n    \"cellDisplacement.*\" "
+                                "{ solver GAMG; smoother GaussSeidel; tolerance 1e-9; relTol 0; }", 1))
+        _write(run / "system" / "controlDict",
+               re.sub(r"\nendTime\s+\S+;", f"\nendTime         {MORPH_STEPS};", control)
+               .replace(f"writeInterval   {cfg.max_iterations};", f"writeInterval   {MORPH_STEPS};"))
+        _run("moveMesh -noFunctionObjects", run, bashrc, "moveMesh.log", timeout_s)
+        moved = run / str(MORPH_STEPS) / "polyMesh" / "points"
+        if not moved.exists():
+            raise FileNotFoundError(f"moveMesh wrote no points at {moved}")
+        shutil.copy(moved, dest / "points")
+    finally:
+        shutil.rmtree(run / str(MORPH_STEPS), ignore_errors=True)
+        for p in (run / "constant" / "dynamicMeshDict", run / "0" / "pointDisplacement"):
+            p.unlink(missing_ok=True)
+        _write(run / "system" / "controlDict", control)
+        _write(run / "system" / "fvSolution", solution)
+
+
+def _mesh(run: Path, cfg: OpenFOAMRunConfig, bashrc: str, timeout_s: int) -> str:
+    """Snap (or morph) the mesh serially and return the checkMesh log."""
+    if cfg.morph_from:
+        _morph(run, cfg, bashrc, timeout_s)
+    else:
+        _run("snappyHexMesh -overwrite", run, bashrc, "snappyHexMesh.log", timeout_s)
+    return _run("checkMesh", run, bashrc, "checkMesh.log", timeout_s)
+
+
 def run_stages(run_dir: str, cfg: OpenFOAMRunConfig, bashrc: str,
                timeout_s: Optional[int] = None) -> dict:
     """Execute mesh + solve stages in order and return parsed logs.
@@ -1454,15 +1539,13 @@ def run_stages(run_dir: str, cfg: OpenFOAMRunConfig, bashrc: str,
         # (measured 13.7 s on 4 ranks, so tens of seconds serially) against a
         # solve measured in tens of minutes -- a trade worth taking for a stage
         # that is not the bottleneck.
-        _run("snappyHexMesh -overwrite", run, bashrc, "snappyHexMesh.log", timeout_s)
-        checkmesh = _run("checkMesh", run, bashrc, "checkMesh.log", timeout_s)
+        checkmesh = _mesh(run, cfg, bashrc, timeout_s)
         _run("decomposePar -force", run, bashrc, "decomposePar.log", timeout_s)
         solver_log = _run(f"mpirun -np {cfg.n_subdomains} {solver} -parallel",
                           run, bashrc, "solver.log", timeout_s)
         _run("reconstructPar -latestTime", run, bashrc, "reconstructPar.log", timeout_s)
     else:
-        _run("snappyHexMesh -overwrite", run, bashrc, "snappyHexMesh.log", timeout_s)
-        checkmesh = _run("checkMesh", run, bashrc, "checkMesh.log", timeout_s)
+        checkmesh = _mesh(run, cfg, bashrc, timeout_s)
         solver_log = _run(solver, run, bashrc, "solver.log", timeout_s)
     return {"checkmesh_log": checkmesh, "solver_log": solver_log}
 
