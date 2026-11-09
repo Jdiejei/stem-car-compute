@@ -263,7 +263,9 @@ def halo_zones(X, aY, Z, ref_A_mm, d_halo_mm, canister=None, part="all"):
             crown = z_h + s * (zc + r - z_h)      # the highest valid profile point, at y = 0
             ceil_ = np.where(aY <= yv, z_h + s * (z_can - z_h), crown)
             ceil_ = np.where(X > xc, zc + r, ceil_)      # flat at the bore's top to the tail
-            out.append(np.where(X >= x1, Z - ceil_, -np.inf))
+            # Its front face at the halo's rear, as a true face: the mask starts the ceiling
+            # on the cell holding that face, which a -inf ahead of it put 2-6 mm out.
+            out.append(np.maximum(x1 - X, Z - ceil_))
     if part == "shadows":
         return np.maximum.reduce(out)
     return np.maximum.reduce(out + [above])
@@ -327,17 +329,22 @@ def cut_boxes(g, mesh):
     if body.is_empty():
         return mesh
     cut = None
+    # Each box 1 um past its face: the stamp and the projection put the body's surface
+    # exactly on those faces, and a boolean of coincident faces leaves zero-width slivers
+    # whose corners an STL's float32 merges, after which the mesh is not a volume (2026-11-10).
+    e = 1e-3
     for box in _air_boxes(g):
-        lo = [b[0] if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
-        hi = [b[1] if b[1] is not None else 500.0 for b in box]
+        lo = [(b[0] - e) if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
+        hi = [(b[1] + e) if b[1] is not None else 500.0 for b in box]
         c = m3.Manifold.cube([(h - l) / 1e3 for l, h in zip(lo, hi)]).translate([l / 1e3 for l in lo])
         cut = c if cut is None else cut + c
     o = (body - cut).to_mesh()
     # Cleaned as an STL reload would clean it (merged vertices, no degenerate faces): a
     # result that is a volume only before that reload broke Part 4's booleans (2026-11-10).
-    out = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
+    # Checked as delivered: through an STL and back (a result that is a volume only before
+    # that reload broke Part 4's booleans, 2026-11-10).
+    import io
+    raw = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
                           process=False)
-    out.merge_vertices()
-    out.update_faces(out.nondegenerate_faces())
-    out.remove_unreferenced_vertices()
+    out = trimesh.load(io.BytesIO(raw.export(file_type="stl")), file_type="stl", force="mesh")
     return out if out.is_volume else mesh

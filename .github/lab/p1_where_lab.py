@@ -44,6 +44,9 @@ if what == "halo":
                 break
             r, d = g.region, 1.0
             idx = tuple(int(round(V[i, a] - r.origin_m[a] * 1e3)) for a in range(3))
+            cc = [r.origin_m[a] * 1e3 + idx[a] for a in range(3)]
+            bb = float(ez.halo_zones(np.array(cc[0]), np.array(abs(cc[1])), np.array(cc[2]), ra, g.d_halo_mm, ez._canister(g), part=part))
+            print(f"LAB where halo {part}: cell centre {np.round(cc, 2).tolist()} zone there {bb:+.3f}", flush=True)
             print(f"LAB where halo {part}: vertex ({V[i, 0]:.2f},{V[i, 1]:.2f},{V[i, 2]:.2f}) inside {f[i]:.3f} mm; "
                   f"cell {idx} phi {g.phi.grid[idx] * 1e3:+.3f} mm forced solid {bool(g.phi.hard_mask_solid[idx])} "
                   f"forced air {bool(g.phi.hard_mask_air[idx])} label {int(g.labels[idx])}", flush=True)
@@ -105,20 +108,14 @@ if what == "cut":
     import trimesh
     import unified_phi as up
     g = lofted()
-    ez.cut_boxes = lambda gg, m: m
-    half = up.extract_half_surface(g)
-    hm = half.copy()
-    hm.apply_scale(1e3)
-    boxes = []
-    for box in ez._air_boxes(g):
-        lo = [b[0] if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
-        hi = [b[1] if b[1] is not None else 500.0 for b in box]
-        boxes.append(trimesh.creation.box(bounds=[lo, hi]))
-    out = hm.difference(trimesh.boolean.union(boxes, engine="manifold"), engine="manifold")
-    out.apply_scale(1e-3)
-    with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as t:
-        out.export(t.name)
-        back = trimesh.load(t.name, force="mesh")
-    print(f"LAB where cut: in volume {half.is_volume} out volume {out.is_volume} watertight {out.is_watertight} "
-          f"after reload volume {back.is_volume} watertight {back.is_watertight} faces {len(out.faces)} -> {len(back.faces)} "
-          f"volume {2 * abs(half.volume) * 1e6:.3f} -> {2 * abs(out.volume) * 1e6:.3f} cm3", flush=True)
+    real = ez.cut_boxes
+    for name, fn in (("no cut", lambda gg, m: m), ("cut", real)):
+        ez.cut_boxes = fn
+        half = up.extract_half_surface(g)
+        with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as t:
+            half.export(t.name)
+            back = trimesh.load(t.name, force="mesh")
+        a = ez.air_at_points(g, np.asarray(back.vertices) * 1e3)
+        print(f"LAB where cut [{name}]: volume {back.is_volume} after an STL reload, faces {len(back.faces)}, "
+              f"{2 * abs(back.volume) * 1e6:.3f} cm3; vertices in zones {int((a > 1e-4).sum())} worst {a.max():.4f} mm",
+              flush=True)

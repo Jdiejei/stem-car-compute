@@ -205,8 +205,12 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
             idx[ax] = sh
             nb = pad[tuple(idx)]
             cross = np.sign(nb) != s0
-            t = np.abs(phi0) / np.maximum(np.abs(phi0 - nb), 1e-300)
-            best = np.where(cross, np.minimum(best, t), best)
+            # Toward the surface |phi| falls by dec over the cell. Across a crossing this is
+            # the intercept above; along an axis with no crossing, the same line run on.
+            # Dropping such an axis put oblique cells of a sphere 20 % too far (2026-11-10).
+            dec = s0 * (phi0 - nb)
+            t = np.abs(phi0) / np.maximum(dec, 1e-300)
+            best = np.where(dec > 0, np.minimum(best, t), best)
             near |= cross
         inv2 += np.where(np.isfinite(best), 1.0 / np.maximum(best, 1e-9) ** 2, 0.0)
     D = np.where(inv2 > 0, s0 / np.sqrt(np.maximum(inv2, 1e-300)), 0.0) * GRID_SPACING_M
