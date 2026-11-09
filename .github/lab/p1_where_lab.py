@@ -133,8 +133,8 @@ if what == "inside":
     import exact_zones as ez
     import unified_phi as up
     from bounding_volumes import default_rule_envelope
-    from test_exact_zones import _setup
-    g, *_ = _setup(1.0)
+    import coarse; coarse.use_spacing(1.0)
+    g = up.build_unified_geometry(127.0, 49.0, 41.0, init_mode="full")
     up.enforce_symmetry(g)
     mesh = up.extract_half_surface(g)
     P = np.asarray(mesh.vertices) * 1e3
