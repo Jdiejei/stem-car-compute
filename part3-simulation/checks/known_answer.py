@@ -38,6 +38,7 @@ RE = 3.0e5
 U = np.array([59.96344962, 2.0939698, 0.0])     # the tutorial's freestream (2 deg)
 PRIMAL_ITERS = 4000      # fixed counts (residual targets unreachable) so every run ends
 ADJOINT_ITERS = 4000     # at a known iteration and writes its fields there
+FV_RESIDUAL_STOP = False  # True = keep the car's early stop (as the car runs today)
 BUMP_R = 0.04            # Gaussian radius, chords
 BUMP_A = 1.0e-3          # amplitude, chords (amp=1); amp=0.5 checks linearity
 MORPH_L = 0.10           # how far the move fades into the mesh, chords
@@ -94,7 +95,13 @@ def case_setup(case: Path, adjoint_iters: int, variant: dict) -> dict:
     (case / "constant/transportProperties").write_text(re.sub(r"\]\s*[0-9.eE+-]+;", f"] {nu:.8e};", tp))
     # Part 2's car dictionaries, retargeted.
     (case / "system/fvSchemes").write_text(oa._FV_SCHEMES_ADJOINT)
-    (case / "system/fvSolution").write_text(oa._FV_SOLUTION_ADJOINT)
+    # The car's fvSolution carries SIMPLE residualControl 1e-4, and adjointOptimisationFoam's
+    # primal obeys it: the first run stopped the primal after 173 of 4000 iterations with the
+    # drag still moving ~1e-3 a step. Removed here so every run ends at a fixed count.
+    fvs = oa._FV_SOLUTION_ADJOINT
+    if not FV_RESIDUAL_STOP:
+        fvs = re.sub(r"residualControl\s*\{[^}]*\}", "", fvs)
+    (case / "system/fvSolution").write_text(fvs)
     ras = oa.build_adjoint_ras_properties().replace("adjointLaminar", variant["ras"])
     (case / "constant/adjointRASProperties").write_text(ras)
     speed = float(np.linalg.norm(U))
@@ -245,7 +252,7 @@ def judge(src: Path) -> int:
     print(f"LAB linearity (cd(a)/(2 cd(a/2)), 1 = linear): {np.array2string(lin, precision=3)}")
     print(f"LAB meshes not OK: {bad_mesh}")
     result = {"measured": meas.tolist(), "noise": noise.tolist(), "linearity": lin.tolist(), "variants": {}}
-    verdict = None
+    verdict = {}
     for f in sorted(src.rglob("base_*.npz")):
         name = f.stem[5:]
         z = np.load(f)
@@ -255,18 +262,24 @@ def judge(src: Path) -> int:
                 vn = (v * z["n_out"]).sum(axis=1)
                 preds = {"vector, per area": z["bumps"] @ (vn * z["area"]), "vector, per point": z["bumps"] @ vn}
             else:
+                # "as coded": the car code reads + as growing the solid. "OpenFOAM normal":
+                # OpenFOAM's wall normal points out of the FLUID (into the solid), so growing
+                # the solid is MINUS the value. Neither is fitted to the data.
                 preds = {"as coded, per area": z["bumps"] @ (v * z["area"]),
-                         "as coded, per point": z["bumps"] @ v}
+                         "as coded, per point": z["bumps"] @ v,
+                         "OpenFOAM normal, per area": -(z["bumps"] @ (v * z["area"])),
+                         "OpenFOAM normal, per point": -(z["bumps"] @ v)}
             for how, pred in preds.items():
                 off, all_ = stats(pred[:OFFICIAL], meas[:OFFICIAL]), stats(pred, meas)
                 result["variants"][f"{name} {key[2:]} {how}"] = dict(official=off, all=all_, pred=pred.tolist())
-                print(f"LAB {name:10s} {key[2:]:28s} {how:20s} official: signs {off['sign']:.2f} r {off['r']:+.3f}"
+                print(f"LAB {name:10s} {key[2:]:24s} {how:26s} official: signs {off['sign']:.2f} r {off['r']:+.3f}"
                       f" slope {off['slope']:+.3g} | all 20: signs {all_['sign']:.2f} r {all_['r']:+.3f}", flush=True)
-                if name == "car" and key.startswith("f_pointSensNormal") and how == "as coded, per area":
-                    verdict = off["sign"] >= 0.9 and off["r"] >= 0.9
-    ok = verdict is True and not bad_mesh and bool(clear[:OFFICIAL].all())
-    print(f"LAB VERDICT car settings (sign >= 9/10, r >= 0.9, all official bumps clear of noise): "
-          f"{'PASS' if ok else 'FAIL'}")
+                if name == "car" and key.startswith("f_pointSensNormal") and how.endswith("per area"):
+                    verdict[how] = off["sign"] >= 0.9 and off["r"] >= 0.9
+    for how, v in verdict.items():
+        ok = v and not bad_mesh and bool(clear[:OFFICIAL].all())
+        print(f"LAB VERDICT car settings, {how} (sign >= 9/10, r >= 0.9, official bumps clear of 3x noise): "
+              f"{'PASS' if ok else 'FAIL'}")
     (src / "known_answer_result.json").write_text(json.dumps(result, indent=1))
     return 0
 
