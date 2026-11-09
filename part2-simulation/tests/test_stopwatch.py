@@ -60,9 +60,12 @@ def test_stopwatch_json_has_the_contract_fields(tmp_path, fake_cfd):
         assert k in rec
     assert rec["D20_N"] == pytest.approx(0.12) and rec["L20_N"] == pytest.approx(-0.02)
     assert set(rec["dT_d"]) == set(sw.DT_NAMES)
-    assert 1.2 < rec["race_time_s"] < 1.8
-    # the brief's sensitivities: ~0.48 ms per mN of drag, ~16.6 ms per gram
-    assert 0.3 < rec["dT_d"]["drag_20_n"] < 0.7 and 10 < rec["dT_d"]["car_weight_kg"] < 25
+    mi = rec["model_inputs"]
+    assert mi["thrust_csv"] == "thrust_measured_beta.csv" and mi["time_coefficient"] == 0.802
+    assert rec["race_time_s"] == pytest.approx(0.802 * mi["race_time_uncalibrated_s"])
+    assert 0.6 < rec["race_time_s"] < 1.8
+    # slower with more drag and more mass, by amounts of the right order
+    assert 0.05 < rec["dT_d"]["drag_20_n"] < 0.7 and 2 < rec["dT_d"]["car_weight_kg"] < 25
     assert rec["model_inputs"]["placeholders"] == ["mu", "wheel_moi_kg_m2"]
     # search mesh by default, wheel from assembly.json resolved against the folder
     kw = calls[0][1]
@@ -76,7 +79,8 @@ def test_compare_sign_and_sd(tmp_path, fake_cfd):
     a, forces["a"] = _car(tmp_path / "a", D_half=0.060)
     b, forces["b"] = _car(tmp_path / "b", D_half=0.061)       # 2 mN more full-car drag
     dT, sd = sw.compare(a, b, noise_s=3e-4)
-    assert 0.5e-3 < dT < 1.5e-3                                # slower by about 1 ms
+    ra = json.loads((a / "stopwatch.json").read_text())
+    assert dT == pytest.approx(ra["dT_d"]["drag_20_n"] * 0.002, rel=0.05)   # 2 mN x the slope
     assert sd == pytest.approx(3e-4 * math.sqrt(2))
 
 

@@ -1,0 +1,59 @@
+name: p2_race
+run-name: "Part 2: race model on the measured thrust"
+
+# Converts the team's measured thrust into the race model's sheet, checks the
+# smooth fit, times today's best search car on the old and new thrust (raw and
+# calibrated), prints the slopes, and runs every race-model test incl. the
+# JAX-vs-finite-difference gradient check.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  race:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install pytest numpy==2.4.6 scipy==1.17.1 pandas jax jaxlib trimesh==5.2.0
+      - name: Convert and check the fit
+        working-directory: part2-simulation
+        run: python thrust_convert.py | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with: { name: thrust-sheet, path: part2-simulation/thrust_measured_beta.csv }
+      - name: Best car, old vs new thrust, and slopes
+        working-directory: part2-simulation
+        run: |
+          python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import numpy as np
+          from race_objective import build_smooth_sheet_model, race_value_and_grad
+          from race_objective_adapter import race_value_and_grad_guarded
+          from physics_contract import TIME_COEFFICIENT as TC
+          # best search car, solver chain 2 (2026-11-08): D20 0.38037 N, at the
+          # 48.2 g target + 21.15 g cartridge shell; lift not recorded, so 0
+          def p(tc, h=0.030, x=0.0):
+              return np.array([0.38037, 0.0482 + 0.02115, 0.010, 1.39e-7, tc, h, 0.0, x])
+          for name, csv in (("old invented thrust", "co2_thrust_data.csv"),
+                            ("measured thrust", "thrust_measured_beta.csv")):
+              m = build_smooth_sheet_model(csv)
+              T1 = race_value_and_grad_guarded(p(1.0), m)[0]
+              Tc, _, g = race_value_and_grad_guarded(p(TC), m)
+              _, raw = race_value_and_grad(p(TC), m)
+              print(f"\nRACE {name}: raw {T1:.4f} s, x {TC} = {Tc:.4f} s")
+              print(f"RACE   drag  {g['dT_dD20']:.4f} ms per mN (calibrated)")
+              print(f"RACE   mass  {g['dT_dmass']:.3f} ms per g (calibrated)")
+              # COM: the dynamics have no COM term; only the placeholder penalties do
+              for h in (0.030, 0.035):
+                  _, r = race_value_and_grad(p(TC, h=h), m)
+                  print(f"RACE   COM height {h*1e3:.0f} mm: {r['com_height_m']*1e-3*1e3:.4f} ms per mm (placeholder penalty)")
+              print(f"RACE   COM x: {raw['com_x_m']*1e-3*1e3:.6f} ms per mm at 0 (placeholder penalty)")
+          EOF
+      - name: Race-model tests
+        working-directory: part2-simulation
+        run: |
+          python -m pytest tests/test_thrust_measured.py tests/test_race_objective_adapter.py tests/test_physics_contract.py \
+            tests/test_stopwatch.py tests/test_mass_com_ingest.py -q -p no:cacheprovider --tb=short -W ignore -s 2>&1 | tail -30 | tee -a "$GITHUB_STEP_SUMMARY"

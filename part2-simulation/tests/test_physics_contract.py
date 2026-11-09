@@ -70,8 +70,8 @@ def test_full_car_quantities_is_distinct_type_from_half():
     assert isinstance(full, HalfCarQuantities) is False
 
 
-def test_time_coefficient_is_frozen_at_one():
-    assert TIME_COEFFICIENT == 1.0
+def test_time_coefficient_is_the_approved_calibration():
+    assert TIME_COEFFICIENT == 0.802      # team lead, 2026-11-09
 
 
 def test_reference_condition_constants():

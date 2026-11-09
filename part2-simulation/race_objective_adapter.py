@@ -52,13 +52,17 @@ COM_HEIGHT_FIT_RANGE_M = (
 # time_coefficient, matching physics_contract.py's frozen value --
 # NOT because this is confirmed correct, but because it is the safer
 # default until a human resolves the conflict explicitly.
+#
+# RESOLVED 2026-11-09 by the team lead: the coefficient is a fixed calibration
+# factor, physics_contract.TIME_COEFFICIENT = 0.802. The guard now admits
+# exactly that value or 1.0 (the uncalibrated model) -- still never a free
+# optimiser input.
 def _assert_time_coefficient_unity(param_vector) -> None:
-    assert param_vector[PARAM_NAMES.index("time_coefficient")] == 1.0, (
-        "time_coefficient must be 1.0 through this adapter until the human "
-        "explicitly resolves the conflict between race_objective.py "
-        "(locked) treating it as a variable and physics_contract.py "
-        "freezing it at 1.0 -- see the UNRESOLVED CONFLICT note in the "
-        "build spec."
+    from physics_contract import TIME_COEFFICIENT
+    tc = param_vector[PARAM_NAMES.index("time_coefficient")]
+    assert tc in (1.0, TIME_COEFFICIENT), (
+        f"time_coefficient must be 1.0 (uncalibrated) or the approved "
+        f"calibration factor {TIME_COEFFICIENT}, got {tc}"
     )
 
 

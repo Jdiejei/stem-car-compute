@@ -147,7 +147,7 @@ class BuildSettings:
 
 
 def _clean_csv_arrays(csv_path: str | Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path, comment="#")   # sheets may carry a "# ..." provenance header
     required = ["time (s)", "force (N)", "mass (kg)"]
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -185,7 +185,7 @@ def _ridge_fit(Phi: np.ndarray, y: np.ndarray, ridge: float) -> np.ndarray:
 
 
 def build_smooth_sheet_model(
-    csv_path: str | Path = "co2_thrust_data.csv",
+    csv_path: str | Path = Path(__file__).resolve().parent / "thrust_measured_beta.csv",
     settings: BuildSettings = BuildSettings(),
 ) -> SmoothSheetModel:
     """Fit smooth JAX-evaluable thrust and mass-sheet functions from the CSV."""

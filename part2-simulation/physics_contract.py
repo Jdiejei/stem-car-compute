@@ -74,7 +74,11 @@ DEFAULT_ROLLING_MU: float = 0.010
 # time_coefficient is FROZEN. It must never be exposed as a callable
 # parameter anywhere in Part 2 (see Stage 6). Any code that needs it reads
 # this constant directly; nothing may accept it as a function argument.
-TIME_COEFFICIENT: float = 1.0
+#
+# 2026-11-09: set to 0.802 by the team lead. It is a CALIBRATION FACTOR on the
+# model's race time (model x 0.802), not physics; 1.0 still means the plain,
+# uncalibrated model and is what race_value_and_grad_guarded also accepts.
+TIME_COEFFICIENT: float = 0.802
 
 
 @dataclass(frozen=True)

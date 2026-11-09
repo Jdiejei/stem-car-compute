@@ -264,6 +264,15 @@ def test_time_coefficient_guard_allows_unity():
     race_value_and_grad_guarded(params, model)
 
 
+def test_time_coefficient_guard_allows_the_calibration_and_scales_time():
+    model, p1 = _model_and_params(time_coefficient=1.0)
+    _, pc = _model_and_params(time_coefficient=0.802)
+    T1, _, g1 = race_value_and_grad_guarded(p1, model)
+    Tc, _, gc = race_value_and_grad_guarded(pc, model)
+    assert Tc == pytest.approx(0.802 * T1, rel=1e-9)
+    assert gc["dT_dD20"] == pytest.approx(0.802 * g1["dT_dD20"], rel=1e-6)
+
+
 def test_returns_three_tuple_T_raw_T_penalized_gradients():
     """Per the Part 2 spec, the adapter must return (T_raw, T_penalized, gradients).
     T_raw excludes the COM penalty; T_penalized includes it."""
