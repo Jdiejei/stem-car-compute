@@ -41,6 +41,16 @@ for s in (1.0, 0.75, 0.5):
     r, d = b.region, up.GRID_SPACING_M
     idx = [np.where(S.any(axis=tuple(a for a in range(3) if a != ax)))[0] for ax in range(3)]
     ext = [float((ix.max() - ix.min() + 1) * d * 1e3) for ix in idx]
+    # where the mass sits: per 10 mm along x and per 5 mm up z (sub-cell fill x density), to
+    # find which part of the body the grids disagree on
+    fill = np.clip(0.5 - b.phi.grid.astype(np.float64) / d, 0.0, 1.0)
+    rho = up.density_field(b)
+    w = fill * rho * d ** 3 * 1e3
+    xc = (r.origin_m[0] + np.arange(r.shape[0]) * d) * 1e3
+    zc = (r.origin_m[2] + np.arange(r.shape[2]) * d) * 1e3
+    sx = np.bincount(np.floor(xc / 10).astype(int), weights=w.sum(axis=(1, 2)), minlength=26)[:26]
+    sz = np.bincount(np.floor(zc / 5).astype(int), weights=w.sum(axis=(0, 1)), minlength=12)[:12]
+    print(f"LAB slabs k {k} s {s} x10 {np.round(sx, 3).tolist()} z5 {np.round(sz, 3).tolist()}", flush=True)
     rows[s] = {"mass_g": m, "extent_mm": ext, "com_mm": com}
     print(f"LAB {json.dumps({'seed': seed, 'k': k, 'spacing_mm': s, 'mass_g': round(m, 4), 'com_x_z_mm': [round(v, 3) for v in com], 'extent_mm': ext})}", flush=True)
 # Richardson: m(h) = m0 + C h^p through the three points, p by bisection
