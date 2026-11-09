@@ -1,5 +1,5 @@
 name: p2_noise_morph
-run-name: "Part 2: timing noise with a reshaped (not rebuilt) mesh (${{ inputs.label }})"
+run-name: "Part 2: timing noise from one reference car, ${{ inputs.mode }} (${{ inputs.label }})"
 
 # Noise fix 3 (BUILD_SPEC 12.3): one reference car is meshed normally; the 16
 # ladder cars reuse its mesh, moved onto their own surface (morph_from), so the
@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       label: { required: true }
+      mode: { default: "morph", description: "morph (reuse its mesh), warm (start from its flow), or both" }
       ref_skin: { default: "3.975" }
       res: { default: "medium" }
       iters: { default: "1000" }
@@ -44,7 +45,8 @@ jobs:
             --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np 4 --keep-runs --cfd-json '${{ inputs.opt }}' 2>&1 | tail -3
       - run: |
           r=$(ls -d part2-simulation/cfd_case_template/runs/*/ | head -1)
-          mkdir -p refmesh/constant && cp -r "$r/constant/polyMesh" refmesh/constant/
+          mkdir -p refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C refmesh
+          ls refmesh
           du -sh refmesh
       - uses: actions/upload-artifact@v4
         with:
@@ -77,7 +79,7 @@ jobs:
         with: { name: "morphref-${{ inputs.label }}", path: /tmp/refmesh }
       - working-directory: part5-simulation
         run: |
-          opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); d['morph_from']='/tmp/refmesh'; print(json.dumps(d))" '${{ inputs.opt }}')
+          opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); m=sys.argv[2]; d.update({'morph_from': '/tmp/refmesh'} if m in ('morph', 'both') else {}); d.update({'warm_from': '/tmp/refmesh'} if m in ('warm', 'both') else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ inputs.mode }}')
           set -o pipefail
           python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm ${{ matrix.skin }} \
             --cfd --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np 4 --keep-runs --cfd-json "$opt" 2>&1 | tail -3
