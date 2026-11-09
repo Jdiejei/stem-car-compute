@@ -1809,12 +1809,11 @@ SIMPLE
 {
     nNonOrthogonalCorrectors 1;
     consistent      yes;
-    residualControl
-    {
-        p               1e-4;
-        U               1e-4;
-        "(k|omega|ReThetat|gammaInt)" 1e-4;
-    }
+    // No residualControl (removed 2026-11-09, found by Part 3). At 1e-4 it
+    // ended car solves at ~170 iterations while the drag was still moving, at
+    // a different point for every car: the forces were averaged over whatever
+    // tail was left. Every solve now runs its full max_iterations, and the
+    // force gates (mean, its standard error, drift) judge convergence.
 }
 
 relaxationFactors
