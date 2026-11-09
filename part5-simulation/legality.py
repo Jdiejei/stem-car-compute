@@ -964,8 +964,10 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     r["T7.3_W_min"] = _entry(wb - REGS["T7.3_W_min"], f"{wb:.2f} mm")
     r["T7.3_W_max"] = _entry(REGS["T7.3_W_max"] - wb, f"{wb:.2f} mm")
     front = nwb[:, 0].min()
+    front_part = ["body"] + [n for n in parts if not n.startswith("wheel")]
+    front_part = front_part[int(nwb[:, 0].argmin()) // 2]   # bb stacks 2 rows per mesh
     r["T8.2_nose_overhang"] = _entry(REGS["T8.2_nose_overhang"] - (ref_a - front),
-                                     f"{ref_a - front:.1f} mm ahead of Ref A")
+                                     f"{ref_a - front:.1f} mm ahead of Ref A ({front_part})")
     rear = allb[:, 0].max()
     r["T9.4.2_rear_overhang"] = _entry(REGS["T9.4.2_rear_overhang"] - (rear - ref_b),
                                        f"{rear - ref_b:.2f} mm behind Ref B")
