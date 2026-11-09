@@ -1,0 +1,85 @@
+name: p2_compare
+run-name: "Part 2: compare two real cars end to end (${{ inputs.label }})"
+
+# Builds two cars (run_car, no CFD), packs each as a stopwatch car folder
+# (car_half.stl, assembly.json, mass_report.json) and times both through
+# stopwatch.compare on ONE machine: the real CFD and race model, no mocks.
+on:
+  workflow_dispatch:
+    inputs:
+      label: { required: true }
+      skin_a: { default: "3.90" }
+      skin_b: { default: "4.20" }
+      iters: { default: "1000" }
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+  OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+  OMPI_MCA_rmaps_base_oversubscribe: "1"
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 25
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y -q openfoam2412-default
+      - run: pip install $PY_DEPS
+      - name: Build the two cars (no CFD)
+        working-directory: part5-simulation
+        run: |
+          for s in ${{ inputs.skin_a }} ${{ inputs.skin_b }}; do
+            python -W ignore run_car.py --out ../build/s$s --body-json '{}' --skin-mm $s 2>&1 | tail -2
+          done
+      - name: Pack car folders
+        run: |
+          python - <<'EOF'
+          import json, shutil, sys
+          from pathlib import Path
+          sys.path.insert(0, "part1-simulation")
+          from ballast import CARTRIDGE_KG
+          for s in ("${{ inputs.skin_a }}", "${{ inputs.skin_b }}"):
+              b, car = Path(f"build/s{s}"), Path(f"cars/s{s}")
+              car.mkdir(parents=True)
+              txt = (b / "body_half.stl").read_text().splitlines()
+              txt[0], txt[-1] = "solid car", "endsolid car"
+              (car / "car_half.stl").write_text("\n".join(txt) + "\n")
+              asm = json.loads(next(b.rglob("assembly.json")).read_text())
+              (car / "assembly.json").write_text(json.dumps({"extra_surfaces": asm["extra_surfaces"]}))
+              m = json.loads((b / "summary.json").read_text())["mass"]
+              # as run_car.cfd_and_objective: manufactured mass + cartridge
+              rep = {"car_weight_kg": m["manufactured_mass_g"] * 1e-3 + CARTRIDGE_KG,
+                     "com_mm": [m["com_x_mm"], 0.0, m["com_z_mm"]],
+                     "wheel_moi_kg_m2": asm["wheel_moi_kg_m2"]}
+              (car / "mass_report.json").write_text(json.dumps(rep))
+              print(s, rep)
+          EOF
+      - name: stopwatch.compare (real CFD, one machine)
+        working-directory: part2-simulation
+        run: |
+          set -o pipefail
+          python -W ignore stopwatch.py ../cars/s${{ inputs.skin_a }} ../cars/s${{ inputs.skin_b }} \
+            --iters ${{ inputs.iters }} --np 4 2>&1 | tail -5 | tee ../cars/compare.txt
+      - name: Result
+        if: always()
+        run: |
+          for f in cars/*/stopwatch.json; do echo "## $f"; cat "$f"; done >> "$GITHUB_STEP_SUMMARY" || true
+          cat cars/compare.txt >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compare-${{ inputs.label }}
+          path: |
+            cars/*/stopwatch.json
+            cars/*/mass_report.json
+            cars/compare.txt
