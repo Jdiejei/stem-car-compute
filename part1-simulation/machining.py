@@ -45,7 +45,7 @@ def _visible(M, axis: int, from_high: bool):
 DIRECTIONS = (("z", 2, True), ("z", 2, False), ("y", 1, True), ("y", 1, False))
 
 
-def reachable_air(A, r):
+def reachable_air(A, r, centres: bool = False):
     """Air the ball (radius r cells) can clear from the allowed directions.
 
     Valid ball-centre positions are the cells at least r from any solid. A
@@ -63,7 +63,38 @@ def reachable_air(A, r):
     for _n, axis, hi in DIRECTIONS:
         usable |= _visible(C, axis, hi)
     reach = _dilate(usable, r) & Ap
+    if centres:                      # the padded usable centres and the pad, for reach_field
+        return reach[p:-p, p:-p, p:-p], usable, Ap, p
     return reach[p:-p, p:-p, p:-p]
+
+
+def reach_field(phi_cells, usable, Ap, p, r, targets):
+    """Signed distance (cells, + in air) to the air the ball clears, at the target cells.
+
+    The ball sits at any point at least r from solid, not just at cell centres, so a
+    cell-centre sweep stops up to a cell short of a flat face and the milled surface snaps
+    to the grid. From each usable centre c the ball is grown to rho(c), its own distance to
+    the drawn solid (phi, sub-cell): it still touches nothing solid, and reaches a flat face
+    exactly. The field is max over centres of rho(c) - |p - c|, searched within r + 2
+    cells. Pad and forced-air cells, which phi does not measure, use their cell distance
+    less half a cell."""
+    from scipy.ndimage import distance_transform_edt
+    rho = distance_transform_edt(Ap) - 0.5
+    drawn = np.pad(phi_cells > 0, p, constant_values=False)
+    rho[drawn] = np.pad(phi_cells, p)[drawn]
+    rho = np.where(usable, np.maximum(rho, r), -np.inf)
+    R = int(np.ceil(r)) + 2
+    g = np.arange(-R, R + 1)
+    o = np.stack(np.meshgrid(g, g, g, indexing="ij"), -1).reshape(-1, 3)
+    o = o[(o ** 2).sum(1) <= R * R]
+    idx = np.argwhere(targets) + p
+    flat = np.ravel_multi_index(idx.T, rho.shape)
+    step = np.array(rho.strides) // rho.itemsize
+    best = np.full(len(idx), -np.inf)
+    rf = rho.ravel()
+    for off in o:
+        best = np.maximum(best, rf[flat - int(off @ step)] - float(np.sqrt(off @ off)))
+    return np.maximum(best, -float(R))           # no centre in reach: at least R cells into solid
 
 
 def make_machinable(geom, tool_r_mm: float = TOOL_R_MM, max_iter: int = 4) -> dict:
@@ -100,7 +131,7 @@ def make_machinable(geom, tool_r_mm: float = TOOL_R_MM, max_iter: int = 4) -> di
         add = _dilate(miss, r) & ~phi.hard_mask_solid
         grown += int((add & ~A).sum())
         A |= add
-    reach = reachable_air(A, r)
+    reach, usable, Ap, pad = reachable_air(A, r, centres=True)
     S2 = ~reach
     S2 |= phi.hard_mask_solid
     S2 &= ~H
@@ -125,7 +156,17 @@ def make_machinable(geom, tool_r_mm: float = TOOL_R_MM, max_iter: int = 4) -> di
     # face to a cell boundary, and the body's mass then moved 0.5 to 2 % between grids
     # (2026-11-09 grid study).
     keep = binary_erosion(S2 == S, iterations=1, border_value=1)
-    phi.grid = np.where(keep, phi.grid, sd).astype(np.float32)
+    # Where milling changed things, the cleared air is the union of the ball's sweeps: its
+    # distance from reach_field, sub-cell, so filled corners and pockets land where the
+    # ball stops, not on a cell boundary (the rest of the grid study's 0.4-0.9 %).
+    new = sd.astype(np.float64)
+    dm = up.GRID_SPACING_M
+    t = ~keep & (np.abs(sd) <= 2.0 * dm)        # the surface band; deeper cells keep sd
+    if t.any():
+        rf = reach_field(phi.grid.astype(np.float64) / dm, usable, Ap, pad, r, t) * dm
+        air_now = ~S2[t]
+        new[t] = np.where(air_now, np.maximum(rf, 1e-9 * dm), np.minimum(np.minimum(rf, phi.grid[t]), -1e-9 * dm))
+    phi.grid = np.where(keep, phi.grid, new).astype(np.float32)
     phi.apply_hard_constraints()
     reinitialise_sdf(phi)
     phi.apply_hard_constraints()
