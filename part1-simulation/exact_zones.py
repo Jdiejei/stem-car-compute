@@ -228,7 +228,10 @@ def project_out(g, V_m, iters: int = 4):
         Q = P[m]
         grad = np.stack([(air_at_points(g, Q + e) - air_at_points(g, Q - e)) / (2 * h)
                          for e in np.eye(3) * h], axis=1)
-        P[m] = Q - (a[m] / np.maximum((grad ** 2).sum(1), 1e-12))[:, None] * grad
+        # A step only where the field has a slope: on a ridge between two zones the central
+        # difference is near zero and a/|grad|^2 threw a vertex 1,000 mm out (2026-11-10).
+        g2 = (grad ** 2).sum(1)
+        P[m] = Q - np.where(g2 > 0.25, a[m] / np.maximum(g2, 1e-12), 0.0)[:, None] * grad
     return P / 1e3, int(moved.sum())
 
 

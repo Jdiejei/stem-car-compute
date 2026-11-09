@@ -161,6 +161,8 @@ if what == "inside":
 
         q, _k = ez.project_out(g, P[i:i + 1] / 1e3)
         print(f"LAB where inside     projected to {np.round(q[0] * 1e3, 4).tolist()}, then {float(ez.air_at_points(g, q * 1e3)[0]):+.4f} mm", flush=True)
+        gr = [(float(ez.air_at_points(g, P[i:i + 1] + e)[0]) - float(ez.air_at_points(g, P[i:i + 1] - e)[0])) / 2e-3 for e in np.eye(3) * 1e-3]
+        print(f"LAB where inside     gradient {np.round(gr, 3).tolist()}", flush=True)
 if what == "sphere3":
     import phi_updater as pu
     from bounding_volumes import BoundingRegion
