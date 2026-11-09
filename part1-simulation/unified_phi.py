@@ -1045,6 +1045,14 @@ def extract_half_surface(geom: UnifiedGeometry):
         mesh.merge_vertices()
         if mesh.is_watertight:
             break
+    # Smoothing rounds zone edges into the zones (the block slot's corners): put them back.
+    try:
+        import exact_zones
+        v, _n = exact_zones.project_out(geom, mesh.vertices)
+        v[v[:, 1] < 0.0, 1] = 0.0
+        mesh.vertices = v
+    except AttributeError:          # a bare test geometry without layout
+        pass
     return mesh
 
 

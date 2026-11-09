@@ -32,7 +32,7 @@ def _box(X, Y, Z, x=(None, None), y=(None, None), z=(None, None)):
     return -(out + np.minimum(m, 0.0))
 
 
-def envelope_air(X, aY, Z, bv, re, d_mm=1.0):
+def envelope_air(X, aY, Z, bv, re, d_mm=1.0):  # d_mm None: points, max() (exact outside)
     """Outside the legal envelope (unified_phi._zone_masks): the union of the nose, sidepod,
     rearpod and main-body boxes; positive outside all of them."""
     mm = 1e3
@@ -47,7 +47,7 @@ def envelope_air(X, aY, Z, bv, re, d_mm=1.0):
         _box(X, aY, Z, x=(bv.ref_plane_A_m * mm, bv.rearpod.origin_m[0] * mm),
              y=(None, re.y_body_half_m * mm), z=(re.z_floor_m * mm, re.z_body_top_m * mm)),
     ]
-    return -union(boxes, d_mm)
+    return -(union(boxes, d_mm) if d_mm else np.maximum.reduce(boxes))
 
 
 def wheel_columns(X, aY, Z, W_mm, x_front_mm):
@@ -102,7 +102,7 @@ def halo_pocket_and_ballast(X, aY, Z, ref_A_mm, d_halo_mm, d_mm=1.0):
     z_top, z_bot = b["z_min_m"], b["z_min_m"] - hp.BALLAST_DEPTH_MM
     plan = r - np.hypot(np.maximum(np.abs(X - cx) - hs, 0.0), aY)
     capsule = np.minimum(plan, np.minimum(Z - z_bot, z_top - Z))
-    return union([pocket, capsule], d_mm)
+    return union([pocket, capsule], d_mm) if d_mm else np.maximum(pocket, capsule)
 
 
 def block_slot(X, aY, Z):
@@ -178,3 +178,41 @@ def stamp(g, X, Y, Z) -> int:
     changed = int((new != g.phi.grid[near]).sum())
     g.phi.grid[near] = new
     return changed
+
+
+def air_at_points(g, P):
+    """The zones' air field (as air_field_mm, with its margins) at points P (n, 3) in mm.
+    Exact where it is positive (inside a zone), which is all project_out needs."""
+    from bounding_volumes import default_rule_envelope
+    X, Y, Z = P[:, 0], P[:, 1], P[:, 2]
+    aY = np.abs(Y)
+    ref_A = g.landmarks["ref_plane_A_m"] * 1e3
+    return np.maximum.reduce([
+        envelope_air(X, aY, Z, g.bv, default_rule_envelope(), None) + MARGIN_MM,
+        wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm) + MARGIN_MM,
+        t79_zones(X, aY, Z, g.W_mm, g.x_front_mm) + MARGIN_MM,
+        t851_cap(X, aY, Z, ref_A) + MARGIN_MM,
+        halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm, None) - 1e-6,
+        block_slot(X, aY, Z) - 1e-6,
+    ])
+
+
+def project_out(g, V_m, iters: int = 4):
+    """Mesh vertices (metres) that smoothing pushed into a zone moved back onto its face.
+    Taubin smoothing rounds every sharp edge a little; where the edge is a zone's (the block
+    slot's top corners, the block's faces) the rounding put body inside the zone: 5.4 mm3 in
+    the slot on Part 4's start car, 2026-11-09. Returns the vertices and how many moved."""
+    P = np.asarray(V_m, dtype=np.float64) * 1e3
+    moved = np.zeros(len(P), bool)
+    h = 1e-3
+    for _ in range(iters):
+        a = air_at_points(g, P)
+        m = a > 0.0
+        if not m.any():
+            break
+        moved |= m
+        Q = P[m]
+        grad = np.stack([(air_at_points(g, Q + e) - air_at_points(g, Q - e)) / (2 * h)
+                         for e in np.eye(3) * h], axis=1)
+        P[m] = Q - (a[m] / np.maximum((grad ** 2).sum(1), 1e-12))[:, None] * grad
+    return P / 1e3, int(moved.sum())

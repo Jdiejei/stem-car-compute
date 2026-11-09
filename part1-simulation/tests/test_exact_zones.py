@@ -102,3 +102,16 @@ def test_stamp_puts_a_flat_face_on_the_zone_at_any_grid():
         k = np.where((col[:-1] > 0) & (col[1:] <= 0))[0][0]
         z0 = Z[0, 0, k] + col[k] / (col[k] - col[k + 1]) * (Z[0, 0, k + 1] - Z[0, 0, k])
         assert abs(z0 - top) < 0.02, (spacing, z0)
+
+
+def test_half_body_mesh_stays_out_of_every_zone():
+    """After smoothing, no vertex of the half body is inside a rule zone (Part 4 found the
+    slot's top corners rounded 0.2 mm into the block slot, 2026-11-09)."""
+    import exact_zones as ez
+    import unified_phi as up
+    g, *_ = _setup(1.0)
+    up.enforce_symmetry(g)
+    mesh = up.extract_half_surface(g)
+    a = ez.air_at_points(g, np.asarray(mesh.vertices) * 1e3)
+    assert a.max() <= 1e-3, f"{int((a > 1e-3).sum())} vertices inside a zone, worst {a.max():.3f} mm"
+    assert mesh.is_watertight
