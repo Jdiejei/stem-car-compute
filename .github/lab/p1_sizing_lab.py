@@ -23,6 +23,7 @@ import numpy as np  # noqa: E402
 
 TARGET_KG = 0.0482
 seed, n = int(sys.argv[1]), int(sys.argv[2])
+ONLY = [int(x) for x in sys.argv[3].split(",")] if len(sys.argv) > 3 else None   # rerun these bodies only
 
 
 def one(k):
@@ -60,11 +61,13 @@ def one(k):
     return {"seed": seed, "k": k, "layout": lay, "aggressive": aggressive, "cuts": cuts,
             "mass_g": round(mass_g, 4), "mass_error_g": round(br["mass_error_g"], 4),
             "builds": br["sizing_builds"], "bracketed": br["mass_bracketed"],
-            "skin_mm": round(br["skin_offset_mm"], 4), "t_cut_s": round(t_cut, 1),
+            "skin_mm": round(br["skin_offset_mm"], 4), "tried": br.get("sizing_tried"), "t_cut_s": round(t_cut, 1),
             "t_build_s": round(time.time() - t0 - t_cut, 1)}
 
 
 for k in range(n):
+    if ONLY is not None and k not in ONLY:
+        continue
     try:
         print("LAB " + json.dumps(one(k)), flush=True)
     except Exception as exc:  # noqa: BLE001
