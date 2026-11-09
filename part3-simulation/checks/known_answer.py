@@ -59,7 +59,9 @@ PAIRS = [(0, 1), (2, 1), (2, 3), (4, 3), (5, 6), (7, 6), (7, 8), (9, 8), (0, 5),
 # Backup measured map dry run (BUILD_SPEC 7 Step 4, 12.7): 40 Gaussian modes on a grid over
 # the wing (20 a side), each measured by central difference; the map they give is judged on
 # the 30 test shapes above, which it never saw.
-MODE_X = np.round(np.linspace(0.02, 0.95, 20), 4)
+NMODES = int(os.environ.get("P3_NMODES", "40"))      # modes in all (half a side each)
+MODE_R = float(os.environ.get("P3_MODE_R", str(0.04)))  # mode radius, chords
+MODE_X = np.round(np.linspace(0.02, 0.95, NMODES // 2), 4)
 MODES = [("suction", x) for x in MODE_X] + [("pressure", x) for x in MODE_X]
 N_TEST = 20 + 10                                     # singles + pairs; modes follow
 # HARD test shapes for the measured map (lead chat, 2026-11-09): the 30 shapes above are the
@@ -253,7 +255,9 @@ def bump(mesh: dict, k: int) -> np.ndarray:
         return bump(mesh, i) - bump(mesh, j)
     if k >= HARD0:
         return sum(s * gauss(mesh, w, x, r) for w, x, r, s in HARD[k - HARD0])
-    w, xc = CENTRES[k] if k < len(CENTRES) else MODES[k - N_TEST]
+    if N_TEST <= k < HARD0:
+        return gauss(mesh, *MODES[k - N_TEST], MODE_R)
+    w, xc = CENTRES[k]
     return gauss(mesh, w, xc)
 
 

@@ -1,5 +1,5 @@
 name: p3_known_answer
-run-name: "Part 3: known-answer wing test (${{ inputs.setup }} primal), 20 bumps + 10 two-way shapes, mesh fade ${{ inputs.morph }}, refined ${{ inputs.refine }}x, speed x${{ inputs.uscale }}, Re ${{ inputs.re }}"
+run-name: "Part 3: known-answer wing test (${{ inputs.setup }} primal), 20 bumps + 10 two-way shapes, mesh fade ${{ inputs.morph }}, refined ${{ inputs.refine }}x, speed x${{ inputs.uscale }}, Re ${{ inputs.re }}, ${{ inputs.nmodes }} modes r ${{ inputs.mode_r }}"
 
 # Step 1 of Part 3: prove the adjoint on a 2-D wing where measured slopes are cheap and quiet.
 # 5 adjoint settings side by side; 20 bumps, each measured at +-a and +-a/2 (4 runs on 4 cores).
@@ -14,6 +14,8 @@ on:
       bump_parallel: { default: "10" }
       uscale: { default: "1" }
       re: { default: "3e5" }
+      nmodes: { default: "40" }
+      mode_r: { default: "0.04" }
       variants:
         default: '["car", "car_raw", "car_cancel", "car_mm", "sst"]'
 
@@ -25,6 +27,8 @@ env:
   P3_SETUP: ${{ inputs.setup }}
   P3_USCALE: ${{ inputs.uscale }}
   P3_RE: ${{ inputs.re }}
+  P3_NMODES: ${{ inputs.nmodes }}
+  P3_MODE_R: ${{ inputs.mode_r }}
   INSTALL: |
     (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
     curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
@@ -69,7 +73,7 @@ jobs:
         run: bash -c "$INSTALL"
       - shell: bash
         run: |
-          amps="1 -1 0.5 -0.5"; [ ${{ matrix.k }} -ge 30 ] && [ ${{ matrix.k }} -lt 70 ] && amps="1 -1"   # modes: 2 runs each (12.7)
+          amps="1 -1 0.5 -0.5"; [ ${{ matrix.k }} -ge 30 ] && [ ${{ matrix.k }} -lt $((30 + P3_NMODES)) ] && amps="1 -1"   # modes: 2 runs each (12.7)
           for a in $amps; do python -u part3-simulation/checks/known_answer.py bump ${{ matrix.k }} $a out > log_$a.txt 2>&1 & done
           wait
           cat log_*.txt
