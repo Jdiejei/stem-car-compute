@@ -340,6 +340,9 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # geometries in memory at a fine grid was too much for a 16 GB machine.
     tried = [(a, fa), (b, fb)]
     best = min(((abs(fa), ga), (abs(fb), gb)), key=lambda t: t[0])
+    # ...and the lightest car over the target (the thinnest skin over), kept so the jump
+    # and floor steps below need no rebuild: at most 2 + 6 + 8 = 16 builds.
+    over = next(((o, gg) for o, f, gg in sorted([(a, fa, ga), (b, fb, gb)], key=lambda t: t[0]) if f > 0), None)
     del ga, gb
     for _ in range(6):
         if abs(fb - fa) < 1e-9:
@@ -348,6 +351,8 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         evals += 1
         gc = make(c)
         fc = mass(gc) - target_body_kg
+        if fc > 0 and (over is None or c < over[0]):
+            over = (c, gc)
         if abs(fc) < best[0]:
             best = (abs(fc), gc)
         if abs(fc) < 5e-5:
@@ -361,31 +366,80 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     for _ in range(8):
         if best[0] < 5e-5:
             break
-        lo = max((t for t in tried if t[1] < 0), key=lambda t: t[1], default=None)
-        hi = min((t for t in tried if t[1] > 0), key=lambda t: t[1], default=None)
-        if lo is None or hi is None:
+        # The bracket is in skin, not in error: mass grows with the skin. Ranking by error
+        # stalled on ties (one skin built nine times over, 2026-11-09).
+        lo = max((t for t in tried if t[1] < 0), key=lambda t: t[0], default=None)
+        hi = min((t for t in tried if t[1] > 0), key=lambda t: t[0], default=None)
+        if lo is None or hi is None or hi[0] - lo[0] < 1e-3:
             break
         c = 0.5 * (lo[0] + hi[0])
         gc = make(c)
         evals += 1
         fc = mass(gc) - target_body_kg
+        if fc > 0 and (over is None or c < over[0]):
+            over = (c, gc)
         tried.append((c, fc))
         if abs(fc) < best[0]:
             best = (abs(fc), gc)
     g = best[1]
+    # A jump, not a slope: at one skin the milling fills a pocket (or a join bar appears)
+    # and the mass leaps 0.4 to 0.75 g, so no skin lands within 0.05 g (7 of 20 carved
+    # bodies, 2026-11-09). Take the body just over the jump and shave it by a uniform
+    # inward move, which is smooth in the mass, until it is just over the target.
+    trim_mm, trim_evals = 0.0, 0
+    if best[0] >= 5e-5:
+        if over is not None:
+            g_t, trim_mm, trim_evals = _shave_to(over[1], target_body_kg, mass, d)
+            if g_t is not None:
+                g = g_t
     # The mass steps as flat faces cross grid cells, and the closest car can be the one
     # just under: 0.17 g short put the start car at 47.997 g, under the 48 g floor. Legal
     # comes first, so under the target it takes the lightest car over it, if that is near.
     if mass(g) - target_body_kg < -5e-5:
-        over = min((t for t in tried if t[1] > 0), key=lambda t: t[1], default=None)
-        if over is not None and over[1] < 1e-3:
-            g = make(over[0])
-            evals += 1
+        if over is not None and mass(over[1]) - target_body_kg < 1e-3:
+            g = over[1]
     g.build_report["mass_error_g"] = (mass(g) - target_body_kg) * 1e3
     g.build_report["sizing_builds"] = evals
+    g.build_report["trim_mm"], g.build_report["trim_evals"] = trim_mm, trim_evals
     g.build_report["sizing_tried"] = [(round(o, 4), round(e * 1e3, 4)) for o, e in tried]   # (skin mm, error g)
     g.build_report["mass_bracketed"] = any(t[1] < 0 for t in tried) and any(t[1] > 0 for t in tried)
     return g
+
+
+def _shave_to(g, target_kg: float, mass, spacing_m: float, tol_kg: float = 5e-5,
+              max_mm: float = 1.0, steps: int = 14):
+    """(body, shave mm, evaluations): g moved inward uniformly until it weighs between the
+    target and target + tol_kg, or (None, 0, n) if no shave up to max_mm gets there.
+
+    An inward move keeps the body machinable: concave fillets grow past the ball radius and
+    every new bit of air touches air the tool already reaches. Rule zones are re-applied,
+    then loose bits, sub-cell strips and pinches are cleaned as after any cut."""
+    import copy
+    import unified_phi as up
+
+    def shaved(delta_mm):
+        h = copy.deepcopy(g)
+        h.phi.grid = (h.phi.grid + np.float32(delta_mm * 1e-3)).astype(np.float32)
+        h.phi.apply_hard_constraints()
+        up.enforce_symmetry(h)
+        _drop_islands(h)
+        up.drop_thin_strips(h, spacing_m)
+        _close_pinches(h, spacing_m)
+        up.enforce_symmetry(h)
+        return h
+
+    lo, hi, n = 0.0, max_mm, 1
+    if mass(shaved(hi)) - target_kg >= tol_kg:
+        return None, 0.0, n
+    for _ in range(steps):
+        mid = 0.5 * (lo + hi)
+        h = shaved(mid)
+        n += 1
+        e = mass(h) - target_kg
+        if 0.0 <= e < tol_kg:
+            return h, mid, n
+        lo, hi = (mid, hi) if e >= tol_kg else (lo, mid)
+    return None, 0.0, n
 
 
 def _close_pinches(geom, spacing_m: float, rounds: int = 4) -> int:
