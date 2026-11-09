@@ -114,6 +114,14 @@ def _volume_in(mesh, region) -> float:
     return 0.0 if r is None or r.is_empty else abs(float(r.volume))
 
 
+def _where(mesh, n: int = 3) -> str:
+    """"; at" the largest pieces of a mesh and their boxes (mm), so a failure can be traced."""
+    if mesh is None or mesh.is_empty:
+        return ""
+    ps = sorted(mesh.split(only_watertight=False), key=lambda p: -abs(p.volume))[:n]
+    return "; at " + "; ".join(f"{abs(p.volume):.1f} mm3 in {np.round(p.bounds, 1).tolist()}" for p in ps)
+
+
 def _absent(volume_mm3: float, note: str) -> dict:
     return _entry(0.0 if volume_mm3 <= _ROUND_OFF_MM3 else -volume_mm3 / 1e3, note)
 
@@ -815,9 +823,10 @@ def manufactured_checks(assembly: dict) -> dict:
     rear_face = (ch["rim_x_mm"] - ch["depth_mm"] + rc.BLOCK_BORE_DEPTH_MM if ch
                  else float(body.bounds[1, 0]))
     axis_z = ch["axis_z_mm"] if ch else DEFAULT_AXIS_Z_MM
-    outside = abs(float(trimesh.boolean.difference([body, official_block_mm(rear_face, axis_z_mm=axis_z)],
-                                                   engine="manifold").volume))
-    r["block_body_inside_official_block"] = _absent(outside, f"{outside:.1f} mm3 outside the block")
+    over = trimesh.boolean.difference([body, official_block_mm(rear_face, axis_z_mm=axis_z)], engine="manifold")
+    outside = abs(float(over.volume)) if over is not None and not over.is_empty else 0.0
+    r["block_body_inside_official_block"] = _absent(outside, f"{outside:.1f} mm3 outside the block"
+                                                    + (_where(over) if outside > _ROUND_OFF_MM3 else ""))
     # T5.5: "the entire circumference and depth of the chamber must not be intersected by
     # any object": nothing made, other than the body round it, inside the measured bore.
     if ch:
@@ -846,7 +855,9 @@ def manufactured_checks(assembly: dict) -> dict:
         # hid 180 mm3 of cargo that was outside the body.
         wanted = trimesh.boolean.difference([wedge, ballast_capsule_mm(pk)], engine="manifold")
         missing = abs(wanted.volume) - _volume_in(body, wanted)
-        r["T4.2_cargo_inside_body"] = _absent(max(missing, 0.0), f"{max(missing, 0.0):.1f} mm3 missing")
+        gap = trimesh.boolean.difference([wanted, body], engine="manifold") if missing > _ROUND_OFF_MM3 else None
+        r["T4.2_cargo_inside_body"] = _absent(max(missing, 0.0), f"{max(missing, 0.0):.1f} mm3 missing"
+                                              + (_where(gap) if gap is not None else ""))
         # "Wholly positioned between the front and rear wheel centre lines" (T4.2).
         lo, hi = x0 - wheels["front"][0], wheels["rear"][0] - (x0 + L_)
         r["T4.2_cargo_between_axles"] = _entry(min(lo, hi), f"{lo:.1f} mm behind the front axle, "
