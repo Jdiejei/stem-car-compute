@@ -178,6 +178,7 @@ def _repair_mesh(mesh: "trimesh.Trimesh", pin_plane_y0: bool = False) -> "trimes
     # before dropping degenerate faces broke it on the very first step.
     try:
         import trimesh.smoothing as _sm
+        v_before = abs(mesh.volume) if mesh.is_watertight else None
         if cap is None:
             _sm.filter_taubin(mesh, iterations=10)
         else:
@@ -186,6 +187,20 @@ def _repair_mesh(mesh: "trimesh.Trimesh", pin_plane_y0: bool = False) -> "trimes
                 v = mesh.vertices.copy()
                 v[cap, 1] = 0.0
                 v[rim] = rim_xyz
+                mesh.vertices = v
+        # Give back the volume the smoothing took: one even move along the vertex normals
+        # (pinned cap and rim stay). At 1 mm it shrank the body 0.8 %, 0.19 g, while the
+        # unsmoothed mesh matched the field to 0.03 g (2026-11-10).
+        if v_before is not None and mesh.is_watertight:
+            free = np.ones(len(mesh.vertices), bool) if cap is None else ~cap
+            for _ in range(2):
+                dv = v_before - abs(mesh.volume)
+                area = float(mesh.area_faces.sum()) if cap is None else float(
+                    mesh.area_faces[~cap[mesh.faces].all(axis=1)].sum())
+                if area <= 0 or abs(dv) < 1e-12:
+                    break
+                v = mesh.vertices.copy()
+                v[free] += (dv / area) * mesh.vertex_normals[free]
                 mesh.vertices = v
     except Exception:
         pass
