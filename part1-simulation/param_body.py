@@ -334,6 +334,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # the voxel-count noise of the mass itself (~0.3 g at 1 mm).
     a, b = -2.0, 4.0
     ga, gb = make(a), make(b)
+    evals = 2                                # whole builds spent on sizing (BUILD_SPEC: at most 16)
     fa, fb = mass(ga) - target_body_kg, mass(gb) - target_body_kg
     # Only the numbers are kept for the bisection, and the one best car: fourteen whole
     # geometries in memory at a fine grid was too much for a 16 GB machine.
@@ -344,6 +345,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         if abs(fb - fa) < 1e-9:
             break
         c = float(np.clip(b - fb * (b - a) / (fb - fa), -8.0, 15.0))
+        evals += 1
         gc = make(c)
         fc = mass(gc) - target_body_kg
         if abs(fc) < best[0]:
@@ -365,6 +367,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
             break
         c = 0.5 * (lo[0] + hi[0])
         gc = make(c)
+        evals += 1
         fc = mass(gc) - target_body_kg
         tried.append((c, fc))
         if abs(fc) < best[0]:
@@ -377,7 +380,10 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         over = min((t for t in tried if t[1] > 0), key=lambda t: t[1], default=None)
         if over is not None and over[1] < 1e-3:
             g = make(over[0])
+            evals += 1
     g.build_report["mass_error_g"] = (mass(g) - target_body_kg) * 1e3
+    g.build_report["sizing_builds"] = evals
+    g.build_report["mass_bracketed"] = any(t[1] < 0 for t in tried) and any(t[1] > 0 for t in tried)
     return g
 
 
