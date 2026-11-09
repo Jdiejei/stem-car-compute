@@ -579,7 +579,12 @@ def chamber_measures(body_mm) -> dict | None:
         q = max(hs, key=lambda q: q.area)
         c = q.centroid
         d_min.append(_thickness(q))
-        d_max.append(2.0 * max(math.hypot(px - c.x, pz - c.y) for px, pz in q.exterior.coords))
+        # A gauge does not see a hairline: the milled file's two halves meet at y = 0 with
+        # a crack 0.85 mm deep and no width along the bore's top and bottom (lab 2026-11-09:
+        # widest 19.85 mm, area that of an 18.16 mm circle). Cracks under 0.1 mm wide are shut.
+        g = q.buffer(-0.05).buffer(0.05)
+        g = max(getattr(g, "geoms", [g]), key=lambda p: p.area)
+        d_max.append(2.0 * max(math.hypot(px - c.x, pz - c.y) for px, pz in g.exterior.coords))
         cz.append((x, c.y))
     ang = (math.degrees(math.atan2(cz[-1][1] - cz[0][1], cz[-1][0] - cz[0][0]))
            if len(cz) >= 2 else 0.0)

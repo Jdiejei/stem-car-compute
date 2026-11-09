@@ -57,6 +57,10 @@ def build(tmp, W=130.0, **o):
         if ang:
             bore.apply_transform(trimesh.transformations.rotation_matrix(math.radians(ang), [0, 1, 0], [rear, 0, z]))
         body = trimesh.boolean.difference([body, bore], engine="manifold")
+        if "bore_slit" in o:                # a groove along the bore's top, this wide (both halves)
+            top_r = z + d / 2.0
+            slit = _box((rear - depth + 1, 0, top_r - 0.5), (rear + 1, o["bore_slit"] / 2.0, top_r + 0.85))
+            body = trimesh.boolean.difference([body, slit], engine="manifold")
     if "loose" in o:                        # a second, separate piece of foam
         body = trimesh.util.concatenate([body, _box(*o["loose"])])
     # Front wing: one element (chord 16, 2.5 thick, 30 out), a centre mount into the nose.
@@ -240,6 +244,15 @@ def test_guides_on_the_wrong_side_or_too_many(xs, rule, tmp_path):
     (tmp_path / "ok").mkdir()
     bad, _ = fails(tmp_path / "ok", tg_x=(49.8, 180.2))          # 0.2 mm out from each axle
     assert not bad, bad
+
+
+def test_a_hairline_in_the_bore_is_not_a_wider_bore_but_a_groove_is(tmp_path):
+    # The real milled file has a no-width crack at y = 0 along the bore (lab 2026-11-09).
+    bad, r = fails(tmp_path, bore_slit=0.02)
+    assert not bad, {k: r[k] for k in bad}
+    (tmp_path / "groove").mkdir()
+    bad, r = fails(tmp_path / "groove", bore_slit=0.4)
+    assert bad == {"T5.1_diameter_max"}, (bad, r["T5.1_diameter_max"])
 
 
 def test_a_body_without_a_chamber_fails(tmp_path):

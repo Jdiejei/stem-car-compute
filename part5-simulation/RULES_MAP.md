@@ -87,19 +87,20 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 
 | id | page | short text | limit | check | status |
 | --- | --- | --- | --- | --- | --- |
-| T5.1 | 26 | Chamber diameter | 18.0-18.5 mm | `T5.1_diameter` | constant |
-| T5.2 | 26 | Cartridge centre above track | 30.0-40.0 mm, PP | `T5.2_height` | constant |
-| T5.3 | 26 | Chamber depth | 45.0-58.0 mm | `T5.3_depth` | constant |
-| T5.4 | 26 | Chamber angle to track | -3 to +3 deg | - | GAP: not in the referee (axis is level by construction) |
-| T5.5 | 26 | 3.0 mm block wall round the chamber; chamber not cut by anything | >= 3.0 mm | `T5.5_wall` (on the milled file) | checked (wall); GAP: "bore not intersected" not checked |
-| T5.6 | 27 | Cartridge sticks out >= 5.0 mm, visible all round | >= 5.0 mm, PP | `T5.6_protrusion` | constant (protrusion); GAP: "visible all round" not checked |
+| T5.1 | 26 | Chamber diameter | 18.0-18.5 mm | `T5.1_diameter_min/max` (`chamber_measures`: sections of the milled body along the minimum depth) | checked |
+| T5.2 | 26 | Cartridge centre above track | 30.0-40.0 mm, PP | `T5.2_height_min/max` | checked |
+| T5.3 | 26 | Chamber depth, rim to end | 45.0-58.0 mm | `T5.3_depth_min/max` | checked |
+| T5.4 | 26 | Chamber angle to track | -3 to +3 deg | `T5.4_angle` | checked |
+| T5.5 | 26 | 3.0 mm block wall round the chamber; chamber not cut by anything | >= 3.0 mm | `T5.5_wall` (on the milled file, round the measured chamber) | checked (wall); GAP: "bore not intersected" not checked |
+| T5.6 | 27 | Cartridge sticks out >= 5.0 mm, visible all round | >= 5.0 mm, PP | `T5.6_protrusion` (64.5 mm shortest cartridge minus measured depth) | checked (protrusion); GAP: "visible all round" not checked |
+| - | - | A chamber exists, open at the back | - | `T5_chamber_found` | checked |
 
 ## Article T6: tether guides (p28-29)
 
 | id | page | short text | limit | check | status |
 | --- | --- | --- | --- | --- | --- |
-| T6.1 | 28 | Exactly 2 guides, within 10.0 mm of each axle line; line passes only through them | 0-10.0 mm | `T6.1_tether_line_clear`; `P4.T6.1_front_guide`, `P4.T6.1_rear_guide` | checked (line clear); gate only for position (a constant, not measured) |
-| T6.2 | 28 | Guide hole | 3.5-6.0 mm | `P4.T6.2_id_min`, `P4.T6.2_id_max` | gate only (constant) |
+| T6.1 | 28 | Exactly 2 guides, within 10.0 mm of each axle line; line passes only through them | 0-10.0 mm | `T6.1_two_guides`, `T6.1_front/rear_guide_position` (from the measured wheel axles), `T6.1_tether_line_clear` | checked |
+| T6.2 | 28 | Guide hole (3.5 and 6.0 mm tools) | 3.5-6.0 mm | `T6.2_front/rear_hole_min/max` (widest circle through the hole) | checked |
 | T6.3 | 29 | Guide closed and robust; 200 g test | - | - | not checkable: physical test (closed ring by construction) |
 
 ## Article T7: wheels and supports (p30-34)
@@ -107,12 +108,12 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | id | page | short text | limit | check | status |
 | --- | --- | --- | --- | --- | --- |
 | T7.1 | 30 | 4 wheels, 2 front 2 rear, opposing wheels share an axis | 4 | - | by construction; GAP (small): not counted |
-| T7.2.1 | 30 | Front inner wheel gap | >= 38.0 mm, PP | `P4.T7.2_front_gap` | gate only |
-| T7.2.2 | 30 | Rear inner wheel gap | >= 30.0 mm, PP | `P4.T7.2_rear_gap` | gate only |
-| T7.3 | 30 | Wheelbase | 120.0-140.0 mm, PP | `T7.3_W_min`, `T7.3_W_max` | checked (from the layout value W, not measured) |
-| T7.4.1 | 31 | Front contact width | >= 13.0 mm, PP | `P4.T7.4_front_contact` | gate only |
-| T7.4.2 | 31 | Rear contact width | >= 17.0 mm, PP | `P4.T7.4_rear_contact` | gate only |
-| T7.5 | 31 | Wheel diameter | 28.0-32.0 mm, PP | `P4.T7.5_diameter_min`, `P4.T7.5_diameter_max` | gate only (uses the mean of front and rear R) |
+| T7.2.1 | 30 | Front inner wheel gap | >= 38.0 mm, PP | `T7.2_front_gap` (the car's wheels) | checked |
+| T7.2.2 | 30 | Rear inner wheel gap | >= 30.0 mm, PP | `T7.2_rear_gap` | checked |
+| T7.3 | 30 | Wheelbase | 120.0-140.0 mm, PP | `T7.3_W_min`, `T7.3_W_max` (between the measured wheel centres) | checked |
+| T7.4.1 | 31 | Front contact width, no chamfers/fillets | >= 13.0 mm, PP | `T7.4_front_contact_width` (`wheel_measures`: tread at full radius, on the wheel file) | checked |
+| T7.4.2 | 31 | Rear contact width | >= 17.0 mm, PP | `T7.4_rear_contact_width` | checked |
+| T7.5 | 31 | Wheel diameter, each wheel | 28.0-32.0 mm, PP | `T7.5_front/rear_diameter_min/max` (on the wheel files) | checked |
 | T7.6 | 31 | All 4 wheels touch across full width | - | - | by construction; GAP (small) |
 | T7.7 | 31 | Even diameter across contact width | - | - | by construction (team wheel file) |
 | T7.8 | 31 | Wheels turn freely on a 3 deg slope | <= 3 deg | - | not checkable: friction/bearing, physical |
@@ -134,12 +135,12 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | T8.2 | 35 | Nose overhang ahead of Ref A | <= 40.0 mm | `T8.2_nose_overhang`; `P4.T8.2_*` | checked |
 | T8.3 | 35 | Front wing has leading and trailing edge across its span | - | NACA section | by construction |
 | T8.4 | 35 | Wings rigid | - | - | not checkable: judge's call |
-| T8.5.1 | 36 | Nose and wing support ahead of Ref A, <= 25.0 high, <= 15 each side | 25.0 / 15 mm | `T8.5.1_nose_z`, `T8.5.1_nose_half_width` (body ahead of Ref A only); `P4.T8.5.1_nose_*`, `P4.T8.5.1_mount_*` | checked on the body part; gate only for the printed nose and mount |
-| T8.5.2 | 37 | Front wing ahead of Ref A; <= 20.0 high where wider than 15 each side | 20.0 mm | `P4.T8.5.2_forward_of_ref_A`, `P4.T8.5.2_height_outboard` | gate only |
-| T8.5.3 | 37 | End plates outside min span, <= 10.0 wide, <= 25.0 high outside the wheels | 10.0 / 25.0 mm | `P4.T8.5.3_endplate_width`, `P4.T8.5.3_endplate_height` | gate only (when end plates exist) |
-| T8.6.1 | 38 | Front span, shortest of LE/TE/top/bottom; 1 x 50 or 2 x 25 | >= 50.0 mm, PP | `P4.T8.6.1_span` | gate only (design value) |
-| T8.6.2 | 39 | Front chord, horizontal, throughout the span; vanes overlap | 15.0-25.0 mm, PP | `P4.T8.6.2_chord_min`, `P4.T8.6.2_chord_max` | gate only |
-| T8.6.3 | 39 | Front thickness throughout span | 2.0-6.0 mm, PP | `P4.T8.6.3_thick_min/max`, `P4.T8.6.3_flap_thick_min` | gate only (design value) |
+| T8.5.1 | 36 | Nose and wing support ahead of Ref A, <= 25.0 high, <= 15 each side | 25.0 / 15 mm | `T8.5.1_nose_z`, `T8.5.1_nose_half_width` (body, printed nose and wing mount ahead of Ref A) | checked |
+| T8.5.2 | 37 | Front wing ahead of Ref A; <= 20.0 high where wider than 15 each side | 20.0 mm | `T8.5.2_front_wing_ahead_of_ref_A`, `T8.5.2_front_wing_height_outboard` | checked |
+| T8.5.3 | 37 | End plates outside min span, <= 10.0 wide, <= 25.0 high outside the wheels | 10.0 / 25.0 mm | `T8.5.3_endplate<i>_width/outside_span/height` | checked (when end plates exist) |
+| T8.6.1 | 38 | Front span; 1 x 50, or 2 x 25 where another part passes through the wing | >= 50.0 mm, PP | `T8.6.1_front_span` (wing mesh; the mount and nose split it) | checked |
+| T8.6.2 | 39 | Front chord, horizontal, throughout the span; up to 3 vanes, overlapping | 15.0-25.0 mm, PP | `T8.6.2_front_chord_min/max`, `T8.6.2_front_vanes_overlap` (9 sections across the span) | checked |
+| T8.6.3 | 39 | Front thickness throughout span | 2.0-6.0 mm, PP | `T8.6.3_front_thickness_min/max` (widest circle in each section) | checked |
 | T8.7 | 40 | 5.0 mm clear air from the wing to any part or the track (5 mm ball on 2 mm rod) | >= 5.0 mm | `T8.7_front_wing_clear_air_all_parts`; `P4.T8.7_*` | checked (nearest distance from 3000 surface points; wing within 5 mm sideways of the nose left out as the fillet) |
 | T8.8 | 40 | Front wing seen from the front | no obstruction | `T8.8_front_wing_seen_from_front` | checked |
 
@@ -150,13 +151,13 @@ All limits are absolute (T2.7.1): 48.0 g passes, 47.9 g fails. No rule gives a m
 | T9.1 | 41 | Shown on drawings | - | - | not checkable: documentation |
 | T9.2 | 41 | Rear wing has leading and trailing edge | - | NACA section | by construction |
 | T9.3 | 41 | Rigid | - | - | not checkable: judge's call |
-| T9.4.1 | 41 | Whole rear wing and support behind Ref B | - | `P4.T9.4.1_aft_of_ref_B` | gate only |
+| T9.4.1 | 41 | Whole rear wing and support behind Ref B | - | `T9.4.1_rear_wing_behind_ref_B` | checked |
 | T9.4.2 | 41 | Rear overhang behind Ref B | <= 40.0 mm | `T9.4.2_rear_overhang`; `P4.T9.4.2_overhang` | checked |
 | T9.4.3 | 41 | Highest point behind Ref B | <= 65.0 mm | `P4.T9.4.3_height`; covered by `T3.5_height` | checked (via T3.5) |
-| T9.5.1 | 42 | Rear span, single unbroken | >= 50.0 mm, PP | `P4.T9.5.1_span` | gate only (design value) |
-| T9.5.2 | 42 | Rear chord, horizontal, throughout span | 15.0-25.0 mm, PP | `P4.T9.5.2_chord_min/max` | gate only |
-| T9.5.3 | 43 | Rear thickness | 2.0-6.0 mm, PP | `P4.T9.5.3_thick_min/max` | gate only (design value) |
-| T9.5.4 | 43 | Height change along the top of the span | <= 15.0 mm, PP | `P4.T9.5.4_height_deviation` | GAP: the gate is hard-coded to 0 ("straight wing"), not measured |
+| T9.5.1 | 42 | Rear span, single unbroken | >= 50.0 mm, PP | `T9.5.1_rear_span` (its own pylon under it does not break it; any other part through it does) | checked |
+| T9.5.2 | 42 | Rear chord, horizontal, throughout span; up to 2 vanes, overlapping | 15.0-25.0 mm, PP | `T9.5.2_rear_chord_min/max`, `T9.5.2_rear_vanes_overlap` | checked |
+| T9.5.3 | 43 | Rear thickness | 2.0-6.0 mm, PP | `T9.5.3_rear_thickness_min/max` | checked |
+| T9.5.4 | 43 | Height change along the top of the span | <= 15.0 mm, PP | `T9.5.4_rear_height_deviation` | checked |
 | T9.6 | 44 | 5.0 mm clear air from the rear wing | >= 5.0 mm | `T9.6_rear_wing_clear_air_all_parts`; `P4.T9.6_clear_air_body` | checked |
 | T9.7 | 45 | Rear wing seen from the front | no obstruction | `T9.7_rear_wing_seen_from_front`; `P4.T9.7_front_view` | checked |
 
