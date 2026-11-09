@@ -31,8 +31,11 @@ env:
   P3_MODE_R: ${{ inputs.mode_r }}
   INSTALL: |
     (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
-    curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
-    sudo apt-get install -y -q openfoam2412-default
+    for i in 1 2 3 4 5; do
+      (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break
+      echo "OpenFOAM install attempt $i failed; retrying"; sleep 30
+    done
+    test -d /usr/lib/openfoam/openfoam2412/tutorials || { echo "OpenFOAM did not install"; exit 1; }
     pip install numpy==2.4.6 scipy==1.17.1
 
 jobs:
@@ -74,9 +77,9 @@ jobs:
       - shell: bash
         run: |
           amps="1 -1 0.5 -0.5"; [ ${{ matrix.k }} -ge 30 ] && [ ${{ matrix.k }} -lt $((30 + P3_NMODES)) ] && amps="1 -1"   # modes: 2 runs each (12.7)
-          for a in $amps; do python -u part3-simulation/checks/known_answer.py bump ${{ matrix.k }} $a out > log_$a.txt 2>&1 & done
-          wait
-          cat log_*.txt
+          pids=""; for a in $amps; do python -u part3-simulation/checks/known_answer.py bump ${{ matrix.k }} $a out > log_$a.txt 2>&1 & pids="$pids $!"; done
+          bad=0; for p in $pids; do wait $p || bad=1; done
+          cat log_*.txt; exit $bad
       - if: always()
         uses: actions/upload-artifact@v4
         with: { name: "bump-${{ matrix.k }}", path: out, if-no-files-found: ignore }
