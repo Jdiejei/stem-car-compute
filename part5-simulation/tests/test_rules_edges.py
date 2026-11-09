@@ -89,6 +89,7 @@ def build(tmp, W=130.0, **o):
         "tethers": trimesh.util.concatenate(
             [guide(x, o.get("tg_id", 4.5)) for x in o.get("tg_x", (xf - 5.0, xf + W + 5.0))]),
     }
+    parts.update({k: _box(*b) for k, b in o.get("extra_parts", {}).items()})
     # The wheels' own files (mm): (diameter, contact width), 0.5 mm chamfers each side.
     wf = {"front": (30.0, 13.5), "rear": (30.0, 17.5)} | o.get("wheels", {})
     files = {}
@@ -259,6 +260,43 @@ def test_a_groove_in_the_bore_is_not_a_wider_bore_but_is_reported(tmp_path):
 def test_a_body_without_a_chamber_fails(tmp_path):
     bad, _ = fails(tmp_path, bore=False)
     assert bad == {"T5_chamber_found"}, bad
+
+
+def test_only_the_listed_parts(tmp_path):
+    # A part that is not in T1.1's list (a fin on the body).
+    bad, _ = fails(tmp_path, extra_parts={"fin": ((100, 0, 49), (120, 1, 55))})
+    assert bad == {"T3.3_only_listed_parts"}, bad
+
+
+def test_nothing_may_sit_in_the_chamber(tmp_path):
+    """T5.5's last line, on the files that get made: a printed plug in the bore fails."""
+    body, asm = build(tmp_path)
+    made = tmp_path / "made"
+    made.mkdir()
+    m = trimesh.load(body, force="mesh")
+    m.apply_scale(1e3)
+    full = m.copy()
+    full.vertices[:, 1] *= -1
+    full.invert()
+    full = trimesh.boolean.union([m, full], engine="manifold")
+    full.export(str(made / "machined_body.stl"))
+    rear = 50.0 + 130.0 + 16.0 + 40.0 - 0.2
+
+    def judge(plug):
+        files = {"machined_body": {"file": str(made / "machined_body.stl")}}
+        if plug is not None:
+            plug.export(str(made / "printed_plug.stl"))
+            files["printed_plug"] = {"file": str(made / "printed_plug.stl")}
+        a = dict(asm, d_halo_mm=40.0, joints={"manufactured": files, "parts": {}},
+                 wheel_design={"front": {"R_mm": 14.05}, "rear": {"R_mm": 14.05}})
+        return legality.manufactured_checks(a)["T5.5_chamber_clear"]
+
+    assert judge(None)["pass"]
+    plug = trimesh.creation.cylinder(radius=4.0, height=10.0, sections=48)
+    plug.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [0, 1, 0]))
+    plug.apply_translation([rear - 20.0, 0.0, AXIS_Z])
+    c = judge(plug)
+    assert not c["pass"] and "printed_plug" in c["note"], c
 
 
 def test_one_piece_of_foam(tmp_path):

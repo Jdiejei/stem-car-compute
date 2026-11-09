@@ -751,6 +751,16 @@ def manufactured_checks(assembly: dict) -> dict:
     outside = abs(float(trimesh.boolean.difference([body, official_block_mm(rear_face, axis_z_mm=axis_z)],
                                                    engine="manifold").volume))
     r["block_body_inside_official_block"] = _absent(outside, f"{outside:.1f} mm3 outside the block")
+    # T5.5: "the entire circumference and depth of the chamber must not be intersected by
+    # any object": nothing made, other than the body round it, inside the measured bore.
+    if ch:
+        bore = _x_cylinder(ch["diameter_area_mm"] / 2.0 - 0.05, ch["rim_x_mm"] - ch["depth_mm"] + 0.5,
+                           ch["rim_x_mm"], ch["axis_z_mm"])
+        bore.apply_translation([0.0, ch["axis_y_mm"], 0.0])
+        hits = {k: _volume_in(m, bore) for k, m in solids.items()}
+        hits = {k: v for k, v in hits.items() if v > _ROUND_OFF_MM3}
+        r["T5.5_chamber_clear"] = _absent(sum(hits.values()), ", ".join(
+            f"{k} {v:.1f} mm3" for k, v in hits.items()) or "nothing in the chamber")
 
     pk = halo_pocket_mm(assembly)
     place = assembly.get("cargo_placement")
@@ -845,6 +855,10 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     ref_a, ref_b = xf - 16.0, xf + W + 16.0
     body = trimesh.load(str(body_half_stl), force="mesh")
     parts = {s["name"]: trimesh.load(s["stl"], force="mesh") for s in assembly["extra_surfaces"]}
+    # T3.3 / T1.1: only the listed components (the halo file carries the helmet).
+    listed = {"wheelF", "wheelR", "supports", "halo", "fwing", "nose", "rwing", "tethers"}
+    extra = sorted(set(parts) - listed)
+    r_t33 = _entry(0.0 if not extra else -1.0, "other parts: " + ", ".join(extra) if extra else "listed parts only")
     everything = [body] + list(parts.values())
     non_wheel = [body] + [m for n, m in parts.items() if not n.startswith("wheel")]
     bb = lambda ms: np.vstack([m.bounds for m in ms]) * 1e3  # noqa: E731
@@ -852,7 +866,7 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
     wheels_bb = bb([m for n, m in parts.items() if n.startswith("wheel")]) if any(
         n.startswith("wheel") for n in parts) else allb
 
-    r = {}
+    r = {"T3.3_only_listed_parts": r_t33}
     width = 2 * allb[:, 1].max()
     r["T3.4_width_min"] = _entry(width - REGS["T3.4_width_min"], f"{width:.1f} mm")
     r["T3.4_width_max"] = _entry(REGS["T3.4_width_max"] - width, f"{width:.1f} mm")
