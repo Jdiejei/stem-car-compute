@@ -2,6 +2,8 @@
 
 > Everything on the car except the body.
 
+> **Status 2026-11-09:** the plan is carving from the block. How to build and test this part, with its rules and pass marks: `BUILD_SPEC.md` (in the private repo). Old work is kept read-only as `archive/*` tags.
+
 | | |
 |---|---|
 | **What it is** | Wheels, wings, supports, nose and joints, with their rule checks and manufacturing files. |

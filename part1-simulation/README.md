@@ -2,6 +2,8 @@
 
 > The car body as one precise 3D shape.
 
+> **Status 2026-11-09:** the plan is carving from the block. How to build and test this part, with its rules and pass marks: `BUILD_SPEC.md` (in the private repo). Old work is kept read-only as `archive/*` tags.
+
 | | |
 |---|---|
 | **What it is** | The milled body of a STEM Racing car as one labelled shape with every rule applied. |
@@ -36,10 +38,10 @@ grid, with every rule that shapes it applied as a hard mask, and the parametric
 | `ballast.py` | the T3.6 target (48.2 g) and the ballast rules; the team adds no ballast, the body volume carries the mass |
 | `coarse.py` | run the pipeline at another grid spacing (1 mm for the search, 0.3 mm production) |
 
-The level-set carve (Stage 1 outer search over W, x_front, d_halo with a Bayesian
-optimiser) was retired on 2026-09-30: the parametric body is the car. `SPEC_ASCII.md` is the
-original build spec, not the rules, and is out of date in places; the regulations are
-the PDF.
+Carving the block with the level set is the plan again (2026-11-08). The lofted
+parametric body still builds, and any field can be carved and finished with
+`param_body.build(..., field_mm=...)`. The rules are the 2026-27 regulations PDF
+(same text as 2025-26).
 
 ```bash
 pip install -r requirements.txt

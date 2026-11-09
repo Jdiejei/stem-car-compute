@@ -2,6 +2,8 @@
 
 > Where the parts meet and improve each other.
 
+> **Status 2026-11-09:** the plan is carving from the block. How to build and test this part, with its rules and pass marks: `BUILD_SPEC.md` (in the private repo). Old work is kept read-only as `archive/*` tags.
+
 | | |
 |---|---|
 | **What it is** | The connections between Parts 1 and 2, and the loop that improves one body. |
