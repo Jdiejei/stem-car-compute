@@ -556,3 +556,30 @@ def test_stage2_update_leaves_no_void_the_cutter_cannot_reach():
             "above proves nothing -- this carve no longer seals cavities")
     finally:
         UP.enforce_machinability = original
+
+
+def test_redistancing_does_not_move_the_surface():
+    """reinitialise_sdf must restore |grad phi| = 1 without moving phi = 0 (Russo-Smereka
+    subcell fix, 2026-11-09: before it, one pass took 0.22 g off a 1 mm carved body). A
+    sphere of radius 9.3 cells with its distance field stretched 3x: after redistancing the
+    field is a distance again, the sub-cell volume is unchanged and no cell changes side."""
+    n, d = 32, GRID_SPACING_M
+    bv = BoundingRegion("main_body", (0.0, -(n // 2) * d, 0.0), (n, n, n))
+    i = np.indices((n, n, n)).astype(np.float64)
+    c = np.array([15.5, n // 2, 15.7])[:, None, None, None]
+    r = np.sqrt(((i - c) ** 2).sum(0))
+    sdf = (r - 9.3) * d
+    z = np.zeros((n, n, n), bool)
+    phi = PhiGrid("main_body", bv, (3.0 * sdf).astype(np.float32), z, z.copy())
+
+    def vol(g):
+        return float(np.clip(0.5 - g.astype(np.float64) / d, 0.0, 1.0).sum())
+
+    v0, s0 = vol(sdf), sdf < 0
+    reinitialise_sdf(phi)
+    band = np.abs(sdf) < 2.0 * d
+    assert np.abs(phi.grid[band] - sdf[band]).max() < 0.25 * d, "not a distance again near the surface"
+    assert ((phi.grid < 0) == s0).all(), "a cell changed side"
+    assert abs(vol(phi.grid) - v0) / v0 < 0.002, (vol(phi.grid), v0)
+    reinitialise_sdf(phi)                         # and again: nothing moves
+    assert ((phi.grid < 0) == s0).all() and abs(vol(phi.grid) - v0) / v0 < 0.002

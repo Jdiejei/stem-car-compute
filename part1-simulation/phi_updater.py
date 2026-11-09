@@ -182,10 +182,33 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
     # to 0 AT the interface, where it should not push at all. |grad phi| -> 1
     # just as before; the surface simply stops moving while it happens.
     eps = GRID_SPACING_M
+    # SUBCELL FIX (Russo & Smereka 2000), 2026-11-09. Even smoothed, the sign term let the
+    # surface creep: one pass took 0.22 g off a 1 mm carved body (8 cells flipped) and every
+    # further pass took more, so the coarse grid's body came out lighter than the fine one
+    # (the grid study's 0.3-0.6 %). The cells next to the surface -- those with a neighbour
+    # of the other sign -- are now driven to D = phi0 / |grad phi0|, their own distance to
+    # the drawn surface, which fixes the crossing where it is; the rest move as before.
+    phi0 = grid_f64.copy()
+    s0 = np.sign(phi0)
+    pad = np.pad(phi0, 1, mode="edge")
+    near = phi0 == 0.0
+    g2 = np.zeros_like(phi0)
+    for ax in range(3):
+        sl = [slice(1, -1)] * 3
+        lo, hi = list(sl), list(sl)
+        lo[ax], hi[ax] = slice(0, -2), slice(2, None)
+        fm, fp = pad[tuple(lo)], pad[tuple(hi)]
+        near |= (np.sign(fm) != s0) | (np.sign(fp) != s0)
+        g = np.maximum.reduce([np.abs(fp - fm) / 2.0, np.abs(fp - phi0), np.abs(phi0 - fm)])
+        g2 += g * g
+    grad0 = np.sqrt(g2) / GRID_SPACING_M
+    D = np.where(grad0 > 1e-12, phi0 / np.maximum(grad0, 1e-12), phi0)
     for _ in range(n_steps):
         grad_mag = _grad_magnitude(grid_f64)
         sign_phi = grid_f64 / np.sqrt(grid_f64 * grid_f64 + eps * eps)
-        grid_f64 = grid_f64 - dt_reinit * sign_phi * (grad_mag - 1.0)
+        far = grid_f64 - dt_reinit * sign_phi * (grad_mag - 1.0)
+        fix = grid_f64 - (dt_reinit / GRID_SPACING_M) * (s0 * np.abs(grid_f64) - D)
+        grid_f64 = np.where(near, fix, far)
 
         # Clamp to prevent runaway in cells far from the zero level set.
         # SDF values should never exceed the grid diagonal in metres.

@@ -274,6 +274,11 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         from scipy.ndimage import label
         g = copy.deepcopy(base)
         field = phi0 - offset_mm if not bp.ft_h else phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm, skin_mm=offset_mm)
+        # The skin grows the body, not its length: re-cut at Ref A and the rear face after it.
+        # Cut before, the front face moved forward with the skin, 4 mm into the printed nose at
+        # a 4 mm skin, and at exactly 4.00 a whole slab ahead of Ref A turned solid at once
+        # (Part 2: +0.17 g, halo drag -35 %, between skins 3.99 and 4.00, 2026-11-09).
+        field = np.maximum(field, np.maximum(x_ref_a - X, X - x_rear_mm))
         if bar_to is not None:
             g.phi.hard_mask_solid |= stub & (X >= x_ref_a) & (X <= bar_to)
         if bridges is not None:
@@ -492,7 +497,14 @@ def _shave_to(g, target_kg: float, mass, spacing_m: float, XYZ, tol_kg: float = 
 
     def shaved(delta_mm):
         h = copy.deepcopy(g)
-        h.phi.grid = (h.phi.grid + np.float32(delta_mm * 1e-3)).astype(np.float32)
+        # The body continued past its end faces, shaved, then cut again at Ref A and the rear
+        # face: the shave thins the body but must not shorten it (same reason as in make()).
+        X = XYZ[0]
+        xa, xr = h.landmarks["ref_plane_A_m"] * 1e3, h.landmarks["rear_face_m"] * 1e3
+        f = h.phi.grid.astype(np.float64) * 1e3
+        ext = np.minimum(f, np.minimum(X - xa, xr - X))
+        f = np.maximum(ext + delta_mm, np.maximum(xa - X, X - xr))
+        h.phi.grid = (f / 1e3).astype(np.float32)
         h.phi.apply_hard_constraints()
         up.enforce_symmetry(h)
         _drop_islands(h)
