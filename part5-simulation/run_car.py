@@ -399,6 +399,8 @@ def main(argv=None):
         if "file" in part:
             part.update(mesh_fairing.remesh_file(part["file"], 0.6 if name == "machined_body" else 0.4))
     S["manufactured"] = asm["joints"]["manufactured"]
+    import assembly as p4                # mass_report.json for Part 2 (Part 4 writes it)
+    S["mass_report"] = p4.write_mass_report(asm, out / "mass_report.json")
     if a.ballast_g:
         import ballast as _b
         S["mass"].update(ballast_g=a.ballast_g, capacity_g=_b.capacity_kg("lead") * 1e3)

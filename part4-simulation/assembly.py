@@ -266,6 +266,49 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, body_half_stl: str,
     return result
 
 
+def write_mass_report(asm: dict, path) -> dict:
+    """mass_report.json: the car as it is made. Every manufactured file's own volume x its
+    material at its own centre of mass, the wheels with their bearings on their axles, the
+    halo and helmet, any ballast in its container; then the cartridge. Masses in g, centres
+    in mm (x from the nose, z up from the track; y = 0, the car is symmetric)."""
+    import json
+    import trimesh
+    rows = {}
+    for k, v in asm["joints"]["manufactured"].items():
+        if "file" not in v:
+            continue
+        m = trimesh.load(v["file"], force="mesh")
+        c = m.center_mass if m.is_volume else m.bounds.mean(axis=0)
+        rows[k] = (float(v["g"]), [float(c[0]), 0.0, float(c[2])])
+    wd, fhk = asm["wheel_design"], asm["fixed_hardware_kwargs"]
+    for tag, x in (("front", asm["x_front_mm"]), ("rear", asm["x_front_mm"] + asm["W_mm"])):
+        R = wd[tag]["R_mm"]
+        rows[f"wheels_{tag}_x2"] = (2.0 * wd[tag]["mass_g"], [x, 0.0, R - SINK_MM])
+    hc = fhk["halo_com"]
+    rows["halo_and_helmet"] = (fhk["halo_mass_kg"] * 1e3, [hc[0] * 1e3, 0.0, hc[2] * 1e3])
+    if asm.get("ballast_g"):
+        rows["ballast"] = (float(asm["ballast_g"]), rows["halo_and_helmet"][1])
+    car_g = sum(g for g, _c in rows.values())
+    com = [sum(g * c[i] for g, c in rows.values()) / car_g for i in range(3)]
+    cart_g = fhk["co2_cartridge_mass_kg"] * 1e3
+    cc_ = [v * 1e3 for v in fhk["co2_cartridge_com"]]
+    tot = car_g + cart_g
+    com_w = [(car_g * com[i] + cart_g * cc_[i]) / tot for i in range(3)]
+    report = {
+        "mass_g_without_cartridge": car_g,                # T3.6, the scrutineer's scale
+        "com_mm_without_cartridge": com,
+        "cartridge_g": cart_g,
+        "mass_g_with_cartridge": tot,
+        "car_weight_kg": tot * 1e-3,                       # what the race model moves
+        "com_mm": com_w,
+        "wheel_moi_kg_m2": asm["wheel_moi_kg_m2"],         # one wheel; the race model takes 4
+        "parts": {k: {"g": g, "com_mm": c} for k, (g, c) in rows.items()},
+        "placeholders": "densities of the printed parts and the wheel masses are not yet weighed",
+    }
+    Path(path).write_text(json.dumps(report, indent=1))
+    return report
+
+
 def extra_surfaces_from(assembly_json: str) -> tuple:
     """Load the Part 2 extra_surfaces tuple back from assembly.json."""
     d = json.loads(Path(assembly_json).read_text())
