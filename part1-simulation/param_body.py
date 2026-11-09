@@ -319,6 +319,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
                         bar |= ((X - pa[0] - t * v[0]) ** 2 + (Ya - pa[1] - t * v[1]) ** 2
                                 + (Z - pa[2] - t * v[2]) ** 2) <= 2.0 ** 2
                     return make(offset_mm, bar_to=bar_to, bridges=bar)
+        rep["bore_cells_stamped"] = _stamp_bore(g, X, Y, Z)
         g.spacing_m = d
         g.build_report = dict(rep, skin_offset_mm=offset_mm)
         return g
@@ -389,7 +390,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     trim_mm, trim_evals = 0.0, 0
     if best[0] >= 5e-5:
         if over is not None:
-            g_t, trim_mm, trim_evals = _shave_to(over[1], target_body_kg, mass, d)
+            g_t, trim_mm, trim_evals = _shave_to(over[1], target_body_kg, mass, d, (X, Y, Z))
             if g_t is not None:
                 g = g_t
     # The mass steps as flat faces cross grid cells, and the closest car can be the one
@@ -406,7 +407,37 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     return g
 
 
-def _shave_to(g, target_kg: float, mass, spacing_m: float, tol_kg: float = 5e-5,
+def _stamp_bore(g, X, Y, Z) -> int:
+    """Put the chamber's wall at the bore's exact radius. The bore is forced air cell by cell,
+    so after milling (whose field is +-1 cell either side of the surface) the wall sat half a
+    cell out: a 19 to 20.1 mm chamber against T5.1's 18.5 mm, on every carved car
+    (2026-11-09); Part 4's exact bore cut can only remove, never put that back. Here the
+    bore and the wall cells next to it get the exact signed distance to the bore (radially,
+    and to its closed inner end), so the surface lands on the drawn 18.15 mm. Only cells
+    already solid next to the bore, or inside it, are touched. The T5.5 wall's outer edge had
+    the same staircase (99.4 to 99.8 % of the 3 mm annulus solid on carved cars), so it is
+    unioned with the exact annulus out to 3.05 mm. Returns cells written.
+    X, Y, Z: cell centres in mm."""
+    cyl = getattr(getattr(g, "fixed_hardware", None), "canister_cylinder", None)
+    if cyl is None:
+        return 0
+    d_mm = (X[1, 0, 0] - X[0, 0, 0]) if X.shape[0] > 1 else 1.0
+    R = cyl.radius_m * 1e3
+    rad = np.hypot(Y - cyl.y_center_m * 1e3, Z - cyl.z_center_m * 1e3)
+    x_end = (cyl.x_center_m - cyl.x_half_width_m) * 1e3            # the closed, inner end
+    in_x = np.abs(X - cyl.x_center_m * 1e3) <= cyl.x_half_width_m * 1e3
+    sd = np.minimum(R - rad, X - x_end)                              # + inside the bore
+    x_rear = (cyl.x_center_m + cyl.x_half_width_m) * 1e3 - d_mm    # the car's rear face
+    R_out = R + 3.05                                                 # T5.5, plus a margin
+    wall = (X >= x_end) & (X <= x_rear) & (rad <= R_out + 1.5 * d_mm) & (rad > R)
+    g.phi.grid[wall] = np.minimum(g.phi.grid[wall], ((rad[wall] - R_out) / 1e3).astype(np.float32))
+    zone = in_x & (rad <= R + 1.5 * d_mm) & ((g.phi.grid < 0) | (sd > 0))
+    g.phi.grid[zone] = (sd[zone] / 1e3).astype(np.float32)
+    g.phi.apply_hard_constraints()
+    return int(zone.sum() + wall.sum())
+
+
+def _shave_to(g, target_kg: float, mass, spacing_m: float, XYZ, tol_kg: float = 5e-5,
               max_mm: float = 1.0, steps: int = 14):
     """(body, shave mm, evaluations): g moved inward uniformly until it weighs between the
     target and target + tol_kg, or (None, 0, n) if no shave up to max_mm gets there.
@@ -426,6 +457,7 @@ def _shave_to(g, target_kg: float, mass, spacing_m: float, tol_kg: float = 5e-5,
         up.drop_thin_strips(h, spacing_m)
         _close_pinches(h, spacing_m)
         up.enforce_symmetry(h)
+        _stamp_bore(h, *XYZ)                   # the shave widened the chamber: put it back
         return h
 
     lo, hi, n = 0.0, max_mm, 1
