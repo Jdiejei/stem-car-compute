@@ -1,0 +1,93 @@
+"""exact_zones: every distance field agrees with the mask it replaces, cell by cell.
+
+Inside a zone by more than a hair -> the mask has the cell. A mask cell is inside the zone,
+or (for masks grown by a cell on purpose: the T7.9 wedges, the T8.5.1 cap) within one cell
+of it. Checked on the right half (y >= 0; the masks are mirrored) at 1.0 and 0.75 mm, the
+second because its cells do not line up with the zones' millimetre faces.
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import numpy as np
+import pytest
+
+LAY = (127.0, 49.0, 41.0)
+EPS = 1e-6
+
+
+def _setup(spacing):
+    import coarse
+    coarse.use_spacing(spacing)
+    import unified_phi as up
+    g = up.build_unified_geometry(*LAY, init_mode="full")
+    r, d = g.region, up.GRID_SPACING_M
+    X, Y, Z = np.meshgrid(*[(r.origin_m[a] + np.arange(r.shape[a]) * d) * 1e3 for a in range(3)], indexing="ij")
+    right = Y >= -1e-9
+    return g, X, Y, Z, right, d * 1e3
+
+
+def _agree(field, mask, right, d_mm, grown=0.0, name=""):
+    inside = (field > EPS) & right
+    assert not (inside & ~mask).any(), f"{name}: {int((inside & ~mask).sum())} cells inside the zone, not in the mask"
+    stray = mask & right & (field < -(grown + EPS))
+    assert not stray.any(), f"{name}: {int(stray.sum())} mask cells outside the zone by > {grown} mm"
+
+
+@pytest.mark.parametrize("spacing", [1.0, 0.75])
+def test_each_zone_field_matches_its_mask(spacing):
+    import exact_zones as ez
+    import halo_pocket as hp
+    import unified_phi as up
+    from bounding_volumes import default_rule_envelope
+    from wheel_visibility_zones import build_t79_forbidden_mask
+    g, X, Y, Z, right, d = _setup(spacing)
+    aY = np.abs(Y)
+    r = g.region
+    border = np.zeros(r.shape, bool)
+    border[[0, -1], :, :] = border[:, [0, -1], :] = border[:, :, [0, -1]] = True
+    ref_A = g.landmarks["ref_plane_A_m"] * 1e3
+
+    _agree(ez.envelope_air(X, aY, Z, g.bv, default_rule_envelope()),
+           (g.labels == up.LABEL_NONE) | border, right, d, name="envelope")
+    _agree(ez.wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm),
+           up.wheel_keepclear_mask(r, g.W_mm, g.x_front_mm), right, d, name="wheel columns")
+    t79 = np.zeros(r.shape, bool)
+    for comp in ("main_body", "sidepod", "rearpod"):
+        m = build_t79_forbidden_mask(comp, r.origin_m, r.shape, g.W_mm, g.x_front_mm)
+        if m is not None:
+            t79 |= m
+    _agree(ez.t79_zones(X, aY, Z, g.W_mm, g.x_front_mm), t79, right, d, grown=d, name="T7.9")
+    pb = (hp.build_halo_pocket_forbidden_mask(r.origin_m, r.shape, ref_A / 1e3, g.d_halo_mm)
+          | hp.build_ballast_container_forbidden_mask(r.origin_m, r.shape, ref_A / 1e3, g.d_halo_mm))
+    _agree(ez.halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm), pb, right, d, name="pocket and ballast")
+    _agree(ez.block_slot(X, aY, Z), up.model_block_slot_mask(r), right, d, name="block slot")
+    cap = up.build_rule_masks(g)[0]
+    _agree(ez.t851_cap(X, aY, Z, ref_A), cap, right, d, grown=d, name="T8.5.1 cap")
+
+
+def test_box_distance_is_exact():
+    import exact_zones as ez
+    p = np.array([0.0, 2.0, 5.0, 13.0])
+    X, Y, Z = p, np.full(4, 0.0), np.full(4, 0.0)
+    sd = ez._box(X, Y, Z, x=(1.0, 10.0), y=(-1.0, 1.0), z=(-1.0, 1.0))
+    assert np.allclose(sd, [-1.0, 1.0, 1.0, -3.0])
+    corner = ez._box(np.array([13.0]), np.array([5.0]), np.array([0.0]), x=(1.0, 10.0), y=(-1.0, 1.0))
+    assert np.isclose(corner[0], -5.0)
+
+
+def test_stamp_puts_a_flat_face_on_the_zone_at_any_grid():
+    """A body grown into the block slot from below: after the stamp the slot's top face is
+    where the mesh says, within a few hundredths of a mm, at 1.0 and 0.75 mm."""
+    import exact_zones as ez
+    from geometry_contract import MODEL_BLOCK_SLOT_TOP_Z_MM as top
+    for spacing in (1.0, 0.75):
+        g, X, Y, Z, right, d = _setup(spacing)
+        g.phi.grid[:] = -1e-3                      # all solid, then stamp
+        ez.stamp(g, X, Y, Z)
+        j = int(np.argmin(np.abs(Y[0, :, 0])))
+        col = g.phi.grid[X.shape[0] // 2, j, :] * 1e3
+        k = np.where((col[:-1] > 0) & (col[1:] <= 0))[0][0]
+        z0 = Z[0, 0, k] + col[k] / (col[k] - col[k + 1]) * (Z[0, 0, k + 1] - Z[0, 0, k])
+        assert abs(z0 - (top + ez.MARGIN_MM)) < 0.02, (spacing, z0)

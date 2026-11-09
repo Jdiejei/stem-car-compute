@@ -26,6 +26,8 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict, fields, replace
 import numpy as np
 
+import exact_zones
+
 
 @dataclass(frozen=True)
 class BodyParams:
@@ -320,6 +322,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
                                 + (Z - pa[2] - t * v[2]) ** 2) <= 2.0 ** 2
                     return make(offset_mm, bar_to=bar_to, bridges=bar)
         rep["bore_cells_stamped"] = _stamp_bore(g, X, Y, Z)
+        rep["zone_cells_stamped"] = exact_zones.stamp(g, X, Y, Z)   # last: the zones' true faces
         g.spacing_m = d
         g.build_report = dict(rep, skin_offset_mm=offset_mm)
         return g
@@ -478,6 +481,7 @@ def _shave_to(g, target_kg: float, mass, spacing_m: float, XYZ, tol_kg: float = 
         _close_pinches(h, spacing_m)
         up.enforce_symmetry(h)
         _stamp_bore(h, *XYZ)                   # the shave widened the chamber: put it back
+        exact_zones.stamp(h, *XYZ)
         return h
 
     lo, hi, n = 0.0, max_mm, 1
