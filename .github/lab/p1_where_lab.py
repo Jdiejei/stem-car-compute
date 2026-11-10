@@ -582,3 +582,49 @@ if what.startswith("wedge"):   # wedge_<mm>_<lofted|layout>: field-in-box quadra
         bad = [k_ for k_, v in ec.items() if v != 2][:6]
         for a_, b_ in bad:
             print(f"LAB wedge {what}:   bad edge {np.round(out.vertices[a_] * 1e3, 4).tolist()} - {np.round(out.vertices[b_] * 1e3, 4).tolist()} used {ec[(a_, b_)]}", flush=True)
+
+
+if what.startswith("diag"):   # diag_<mm>: ed9e488 regressions, step by step on the zone test body
+    import manifold3d as m3
+    import trimesh
+    import exact_zones as ez
+    import unified_phi as up
+    import halo_pocket as hp
+    import coarse
+    coarse.use_spacing(float(what.split("_")[1]))
+    g = up.build_unified_geometry(127.0, 49.0, 41.0, init_mode="full")
+    up.enforce_symmetry(g)
+    d = up.GRID_SPACING_M * 1e3
+    o = np.asarray(g.region.origin_m) * 1e3
+    b = {k: v * 1e3 for k, v in hp.compute_halo_pocket_box_m(g.landmarks["ref_plane_A_m"], g.d_halo_mm).items()}
+    i = int(round((b["x_min_m"] + 8.0 - o[0]) / d)); j = int(round(-o[1] / d))
+    ks = [k for k in range(g.phi.grid.shape[2]) if 20.0 <= o[2] + k * d <= 27.0]
+    print(f"LAB diag {what}: pocket box {b}; column x={o[0] + i * d:.2f}, y={o[1] + j * d:.2f}: "
+          + ", ".join(f"z{o[2] + k * d:.1f}:{g.phi.grid[i, j, k] * 1e3:+.2f}{'S' if g.phi.hard_mask_solid[i, j, k] else ''}{'A' if g.phi.hard_mask_air[i, j, k] else ''}" for k in ks), flush=True)
+    slot = [bx for bx in ez._air_boxes(g)][0]
+    def inside(V, tag):
+        a = ez.air_at_points(g, V * 1e3)
+        w = int(np.argmax(a))
+        print(f"LAB diag {what}: {tag}: volume {2 * abs(trimesh.Trimesh(V, F, process=False).volume) * 1e6:.4f} cm3, "
+              f"{int((a > 1e-3).sum())} vertices in a zone, worst {a.max():.3f} mm at {np.round(V[w] * 1e3, 2).tolist()}", flush=True)
+    import surface_extraction as SE
+    real_po, real_cut = ez.project_out, ez.cut_boxes
+    step = {"n": 0}
+    def po(geom, V, iters=8):
+        global F
+        step["n"] += 1
+        r = real_po(geom, V, iters)
+        print(f"LAB diag {what}: project_out call {step['n']}: moved {r[1]}", flush=True)
+        return r
+    def cb(geom, mesh):
+        global F
+        F = mesh.faces
+        inside(np.asarray(mesh.vertices), "before cut")
+        out = real_cut(geom, mesh)
+        F = out.faces
+        inside(np.asarray(out.vertices), "after cut")
+        return out
+    ez.project_out, ez.cut_boxes = po, cb
+    mesh = up.extract_half_surface(g)
+    F = mesh.faces
+    inside(np.asarray(mesh.vertices), "returned")
