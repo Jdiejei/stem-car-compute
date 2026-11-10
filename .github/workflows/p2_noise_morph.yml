@@ -100,6 +100,17 @@ jobs:
         with:
           name: mesh-${{ inputs.label }}-${{ matrix.skin }}
           path: mq/
+      - name: Force history (for the averaging-window study)
+        if: always()
+        run: |
+          mkdir -p hist; r=$(ls -d part2-simulation/cfd_case_template/runs/*/ 2>/dev/null | head -1)
+          [ -n "$r" ] && cp -r "$r/postProcessing/forces" hist/ 2>/dev/null; true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forces-${{ inputs.label }}-${{ matrix.skin }}
+          path: hist/
+          retention-days: 14
 
   noise:
     needs: car
@@ -115,3 +126,7 @@ jobs:
       - run: |
           args=$(for d in got/noise-*; do s=${d##*-}; [ -f "$d/summary.json" ] && echo "$s=$d/summary.json"; done)
           python part2-simulation/noise_stats.py $args | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@v4
+        with: { pattern: "forces-${{ inputs.label }}-*", path: got }
+      - name: Noise against run length and averaging window
+        run: python part2-simulation/noise_window.py got | tee -a "$GITHUB_STEP_SUMMARY"

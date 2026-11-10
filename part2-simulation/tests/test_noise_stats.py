@@ -42,3 +42,18 @@ def test_car_row_turns_the_drag_error_bar_into_race_time():
          "gradients": {"dT_dD20": 0.37}}
     skin, T, D, conv, s_avg = car_row(3.9, c)
     assert s_avg == pytest.approx(0.005 * 0.42 * 0.37)    # 0.78 ms
+
+
+def test_window_sweep_longer_average_gives_less_noise():
+    """A flat drag plus an independent swing per car: sigma falls as the window grows,
+    and the full run at the default window reproduces the summary's own times."""
+    import noise_window as nw
+    rng = np.random.default_rng(47001)
+    cars = []
+    for i in range(16):
+        fx = 0.3 + 0.01 * rng.standard_normal(2000)
+        text = "# t total\n" + "\n".join(f"{j} ({v} 0 0) (0 0 0) (0 0 0)" for j, v in enumerate(fx))
+        cars.append((3.9 + 0.006 * i, 1.57 + 1e-3 * i, 0.6, 0.5, text))
+    got = {(n, f): s for n, f, s, *_ in nw.sweep(cars, lengths=(1000,), fractions=(0.2, 0.8))}
+    assert got[(2000, 0.2)] == pytest.approx(0, abs=1e-12)      # base window: times unchanged, an exact line
+    assert got[(1000, 0.8)] < got[(1000, 0.2)]
