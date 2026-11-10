@@ -105,12 +105,13 @@ def test_stamp_puts_a_flat_face_on_the_zone_at_any_grid():
         assert abs(z0 - top) < 0.02, (spacing, z0)
 
 
-def test_half_body_mesh_stays_out_of_every_zone():
+@pytest.mark.parametrize("spacing", [1.0, 0.5])   # 0.5: the cut fell back there (2026-11-10)
+def test_half_body_mesh_stays_out_of_every_zone(spacing):
     """After smoothing, no vertex of the half body is inside a rule zone (Part 4 found the
     slot's top corners rounded 0.2 mm into the block slot, 2026-11-09)."""
     import exact_zones as ez
     import unified_phi as up
-    g, *_ = _setup(1.0)
+    g, *_ = _setup(spacing)
     up.enforce_symmetry(g)
     import warnings
     with warnings.catch_warnings():  # the box cut falling back left the slot uncut (2026-11-10)

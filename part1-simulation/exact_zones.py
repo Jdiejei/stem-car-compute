@@ -216,9 +216,13 @@ def stamp(g, X, Y, Z) -> int:
     g.phi.grid[near] = new
     # The halo's view zones and the loft ceiling also overrule forced solid: the loft skin
     # and halo deck are forced cell by cell and poked up to 2.5 mm above the exact ceiling
+    # (2026-11-10). So do the box zones the mesh is cut by: forced solid inside the halo
+    # pocket box (230 mm3 at 1 mm) was counted in the weight and then cut off the mesh
     # (2026-11-10). Elsewhere forced solid stands (the cargo may share the ballast slot).
     b = halo_zones(X, np.abs(Y), Z, g.landmarks["ref_plane_A_m"] * 1e3, g.d_halo_mm, _canister(g),
                    part="shadows") + MARGIN_MM
+    aY = np.abs(Y)
+    b = np.maximum.reduce([b] + [_box(X, aY, Z, x=bx[0], y=bx[1], z=bx[2]) for bx in _air_boxes(g)])
     over = (b > -2.0 * d_mm) & g.phi.hard_mask_solid
     new = np.maximum(g.phi.grid[over], (b[over] / 1e3).astype(np.float32))
     changed += int((new != g.phi.grid[over]).sum())
@@ -379,27 +383,26 @@ def cut_boxes(g, mesh):
         return mesh
     if body.is_empty():
         return mesh
-    cut = None
-    # Each box 1 um past its face: the stamp and the projection put the body's surface
-    # exactly on those faces, and a boolean of coincident faces leaves zero-width slivers
-    # whose corners an STL's float32 merges, after which the mesh is not a volume (2026-11-10).
-    e = 1e-3
-    for box in _air_boxes(g):
-        lo = [(b[0] - e) if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
-        hi = [(b[1] + e) if b[1] is not None else 500.0 for b in box]
-        c = m3.Manifold.cube([(h - l) / 1e3 for l, h in zip(lo, hi)]).translate([l / 1e3 for l in lo])
-        cut = c if cut is None else cut + c
-    o = (body - cut).to_mesh()
-    # Cleaned as an STL reload would clean it (merged vertices, no degenerate faces): a
-    # result that is a volume only before that reload broke Part 4's booleans (2026-11-10).
-    # Checked as delivered: through an STL and back (a result that is a volume only before
-    # that reload broke Part 4's booleans, 2026-11-10).
     import io
-    raw = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
-                          process=False)
-    out = trimesh.load(io.BytesIO(raw.export(file_type="stl")), file_type="stl", force="mesh")
-    if not out.is_volume:
-        import warnings
-        warnings.warn("cut_boxes: the boolean did not give a volume; mesh left uncut", RuntimeWarning, stacklevel=2)
-        return mesh
-    return out
+    # Each box a hair past its face: the stamp and the projection put the body's surface on
+    # (3 um past) those faces, and a boolean of coincident faces leaves zero-width slivers
+    # whose corners an STL's float32 merges, after which the mesh is not a volume (2026-11-10).
+    # Checked as delivered, through an STL and back. A second and third offset when that
+    # reload welds cut vertices 0.1 um apart where several boxes' edges meet (16 bad edges at
+    # x 180.68, y 11.85 on the 0.5 mm test body, 2026-11-10): a different offset moves them.
+    for e in (1e-3, 1.7e-3, 0.6e-3):
+        cut = None
+        for box in _air_boxes(g):
+            lo = [(b[0] - e) if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
+            hi = [(b[1] + e) if b[1] is not None else 500.0 for b in box]
+            c = m3.Manifold.cube([(h - l) / 1e3 for l, h in zip(lo, hi)]).translate([l / 1e3 for l in lo])
+            cut = c if cut is None else cut + c
+        o = (body - cut).to_mesh()
+        raw = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
+                              process=False)
+        out = trimesh.load(io.BytesIO(raw.export(file_type="stl")), file_type="stl", force="mesh")
+        if out.is_volume:
+            return out
+    import warnings
+    warnings.warn("cut_boxes: the boolean did not give a volume; mesh left uncut", RuntimeWarning, stacklevel=2)
+    return mesh

@@ -3,6 +3,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -140,12 +141,13 @@ def test_param_body_is_one_legal_piece():
         use_spacing(0.3)
 
 
-def test_body_mass_is_the_mass_of_the_mesh_that_gets_milled():
+@pytest.mark.parametrize("spacing", [1.0, 0.5])   # 0.5 mm: the production grid (2026-11-10)
+def test_body_mass_is_the_mass_of_the_mesh_that_gets_milled(spacing):
     """The car is sized to 0.2 g above the T3.6 floor, and what is milled is
     the exported mesh. The mass must follow that mesh, not a whole-cell count
     (0.12-0.28 g heavier on three 1 mm bodies, 2026-09-30)."""
     from coarse import use_spacing
-    use_spacing(1.0)
+    use_spacing(spacing)
     try:
         import param_body as pb
         import unified_phi as up
@@ -153,8 +155,9 @@ def test_body_mass_is_the_mass_of_the_mesh_that_gets_milled():
         foam = [c for c in up.compute_mass_com(g) if c.name != "nose"]
         nose_cells = g.component_mask("nose") & (g.phi.grid < 0)
         mesh_cm3 = 2 * abs(up.extract_half_surface(g).volume) * 1e6
-        field_cm3 = sum(c.mass_kg for c in foam) / 163.0 * 1e6 + nose_cells.sum() * 1e-3
-        cells_cm3 = (g.phi.grid < 0).sum() * 1e-3
+        cell = spacing ** 3 * 1e-3                                 # one cell, cm3
+        field_cm3 = sum(c.mass_kg for c in foam) / 163.0 * 1e6 + nose_cells.sum() * cell
+        cells_cm3 = (g.phi.grid < 0).sum() * cell
         assert abs(field_cm3 - mesh_cm3) * 0.163 < 0.10, (field_cm3, mesh_cm3)
         assert abs(field_cm3 - mesh_cm3) < 0.5 * abs(cells_cm3 - mesh_cm3)
     finally:
