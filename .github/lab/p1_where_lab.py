@@ -334,3 +334,74 @@ if what.startswith("zonevol"):   # zonevol_<mm>: body inside each cut box, field
         B = m3.Manifold.cube(np.subtract(hi, lo).tolist()).translate(lo)
         print(f"LAB zonevol {what}:   box {i} {box}: field {vf:.2f}, mesh before cut {2 * (Mpre ^ B).volume():.2f}, after {2 * (Mpost ^ B).volume():.2f} mm3", flush=True)
     print(f"LAB zonevol {what}: field in all boxes {tot:.2f} mm3", flush=True)
+
+
+if what.startswith("fix"):   # fix_<mm>_<lofted|layout>: candidate fixes for the slivers and the field's in-zone volume
+    import time
+    import manifold3d as m3
+    import pymeshlab as ml
+    import trimesh
+    import exact_zones as ez
+    import unified_phi as up
+    sys.path.insert(0, str(ROOT / "part4-simulation"))
+    import mesh_fairing
+    _, mm, body = what.split("_")
+    from coarse import use_spacing
+    use_spacing(float(mm))
+    if body == "lofted":
+        import param_body as pb
+        g = pb.build(120.3, 46.0, 43.72, pb.BodyParams(), skin_offset_mm=1.0)
+    else:
+        g = up.build_unified_geometry(127.0, 49.0, 41.0, init_mode="full")
+        up.enforce_symmetry(g)
+    dx = up.GRID_SPACING_M
+    dmm = dx * 1e3
+    fill = up.fill_fraction(g.phi.grid, dx)
+    # field trimmed by the zones: min(fill, ramp of the zone distance) on cells near the surface
+    t0 = time.time()
+    nx, ny, nz = fill.shape
+    o = np.asarray(g.region.origin_m) * 1e3
+    idx = np.nonzero(fill > 0.0)
+    P = np.stack([o[a] + idx[a] * dmm for a in range(3)], axis=1)
+    a = ez.air_at_points(g, P)
+    legal = np.clip(0.5 - a / dmm, 0.0, 1.0)
+    eff = fill.copy()
+    eff[idx] = np.minimum(fill[idx], legal)
+    print(f"LAB fix {what}: field {fill.sum() * dmm ** 3 / 1e3:.4f}, trimmed {eff.sum() * dmm ** 3 / 1e3:.4f} cm3 "
+          f"({len(P)} cells, {time.time() - t0:.1f} s); cells with centre in a zone and fill>0: {int((a > 0).sum())}", flush=True)
+    seen = {}
+    real_cut = ez.cut_boxes
+    ez.cut_boxes = lambda geom, mesh: (seen.setdefault("pre", mesh.copy()), real_cut(geom, mesh))[1]
+    mesh = up.extract_half_surface(g)
+    print(f"LAB fix {what}: mesh before cut {2 * abs(seen['pre'].volume) * 1e6:.4f}, after {2 * abs(mesh.volume) * 1e6:.4f} cm3", flush=True)
+    boxes = []
+    for box in ez._air_boxes(g):
+        lo = [b[0] if b[0] is not None else (-1.0 if k == 1 else -500.0) for k, b in enumerate(box)]
+        hi = [b[1] if b[1] is not None else 500.0 for b in box]
+        boxes.append(m3.Manifold.cube(np.subtract(hi, lo).tolist()).translate(lo))
+    def report(name, m):     # m in mm
+        M = m3.Manifold(m3.Mesh(vert_properties=np.asarray(m.vertices, np.float32), tri_verts=np.asarray(m.faces, np.uint32)))
+        inz = sum(2 * (M ^ B).volume() for B in boxes)
+        ang = np.degrees(m.face_angles.min(1))
+        aw = ez.air_at_points(g, np.asarray(m.vertices))
+        print(f"LAB fix {what}:   {name}: {100 * (ang < 5).mean():.2f} % under 5 deg of {len(m.faces)}, volume {m.is_volume}, "
+              f"{2 * abs(m.volume) / 1e3:.4f} cm3, in boxes {inz:.2f} mm3, worst vertex {aw.max():+.4f} mm", flush=True)
+    base = trimesh.Trimesh(np.asarray(mesh.vertices) * 1e3, mesh.faces, process=False)
+    for eps in (0.0, 0.005, 0.01, 0.02, 0.05):
+        m = base.copy()
+        if eps:
+            ms = ml.MeshSet()
+            ms.add_mesh(ml.Mesh(m.vertices, m.faces))
+            ms.apply_filter("meshing_merge_close_vertices", threshold=ml.PureValue(eps * dmm))
+            ms.apply_filter("meshing_remove_null_faces")
+            ms.apply_filter("meshing_remove_duplicate_faces")
+            ms.apply_filter("meshing_remove_unreferenced_vertices")
+            q = ms.current_mesh()
+            m = trimesh.Trimesh(q.vertex_matrix(), q.face_matrix(), process=False)
+        report(f"merge {eps} dx", m)
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "b.stl"
+            m.export(str(f))
+            r = mesh_fairing.remesh_file(f, 0.6 if float(mm) >= 0.5 else 0.6)
+            r2 = trimesh.load(str(f), force="mesh")
+        report(f"merge {eps} dx, then Part 4 remesh (remeshed {r['remeshed']})", r2)
