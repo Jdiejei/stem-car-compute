@@ -80,7 +80,7 @@ def test_forbidden_mask_clear_outside_pocket_z():
     _pass("test_forbidden_mask_clear_outside_pocket_z")
 
 
-def test_floor_layer_leaves_the_z24_cells_solid_but_not_the_ballast_slot():
+def test_floor_layer_keeps_the_z24_cells_solid_over_the_ballast_slot_too():
     from halo_pocket import pocket_floor_layer_mask, build_ballast_container_forbidden_mask
     ref_A_m = 0.05
     origin = (ref_A_m, -0.03, 0.0)
@@ -91,8 +91,11 @@ def test_floor_layer_leaves_the_z24_cells_solid_but_not_the_ballast_slot():
     z24, z25 = round(0.024 / GRID_SPACING_M), round(0.025 / GRID_SPACING_M)
     assert layer[xi, yi, z24], "the floor's own cells stay solid"
     assert not layer[xi, yi, z25], "the cells above it are the pocket"
-    assert not (layer & slot).any(), "the ballast slot stays open through the floor"
-    _pass("test_floor_layer_leaves_the_z24_cells_solid_but_not_the_ballast_slot")
+    # the slot is cut exactly, not drawn: a gap here sagged the floor beside it (2026-11-10);
+    # that the milled slot is open is checked on the mesh (test_exact_zones)
+    foot = slot.any(axis=2)
+    assert foot.any() and layer[:, :, z24][foot].all(), "the floor layer runs over the slot"
+    _pass("test_floor_layer_keeps_the_z24_cells_solid_over_the_ballast_slot_too")
 
 
 def test_exact_capsule_matches_the_ballast_volume_and_the_grid_slot_stays_inside_it():

@@ -188,13 +188,19 @@ def test_pocket_floor_stays_full_height_up_to_the_ballast_slot(spacing):
     top = np.full(len(o), -np.inf)
     np.maximum.at(top, ray, loc[:, 2])
     assert (top >= vc.CARGO_TOP_Z_MM - 1e-3).all(), list(zip(o[:, 1].round(2), top.round(3)))
+    # and the slot itself is open: cut exactly, not drawn in the field (2026-11-10)
+    cap = hp.ballast_capsule_mesh_m(g.landmarks["ref_plane_A_m"], g.d_halo_mm, above_floor_mm=0.0)
+    cap.apply_scale(1e3)
+    inside = m.intersection(cap, engine="manifold").volume
+    assert inside < 0.5, f"{inside:.2f} mm3 of body inside the ballast slot"
 
 
 @pytest.mark.parametrize("spacing", [1.0, 0.5])
 def test_half_body_keeps_the_cargo_inside_it(spacing):
     """No vertex of the half body inside the T4.2 cargo through its sides, ends or bottom: a
     carved car's slanted side walls sat 6-13 um inside it (5.8-10.7 mm3 of cargo outside the
-    body, Part 4, 2026-11-10). The top is the pocket floor (the rim test above)."""
+    body, Part 4, 2026-11-10). The top is the pocket floor (the rim test above); the ballast
+    slot's walls are not checked (T4.2: the cargo may coincide with the ballast container)."""
     import exact_zones as ez
     import unified_phi as up
     g, *_ = _setup(spacing)
@@ -203,5 +209,7 @@ def test_half_body_keeps_the_cargo_inside_it(spacing):
     N, c = ez.cargo_faces(g)
     P = np.asarray(mesh.vertices) * 1e3
     s = P @ N.T - c
-    bad = (s.max(axis=1) < 0) & (s.argmax(axis=1) != 5) & (P[:, 1] > 1e-6)
+    slot = ez.halo_pocket_and_ballast(P[:, 0], np.abs(P[:, 1]), P[:, 2], g.landmarks["ref_plane_A_m"] * 1e3,
+                                      g.d_halo_mm, 0) > -1e-3
+    bad = (s.max(axis=1) < 0) & (s.argmax(axis=1) != 5) & (P[:, 1] > 1e-6) & ~slot
     assert not bad.any(), f"{int(bad.sum())} vertices inside the cargo, worst {-s.max(axis=1)[bad].max() * 1e3:.2f} um"

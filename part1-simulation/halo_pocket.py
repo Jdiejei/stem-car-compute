@@ -94,12 +94,14 @@ def build_halo_pocket_forbidden_mask(
 
 def pocket_floor_layer_mask(origin_m: tuple, shape: tuple, ref_plane_A_m: float,
                             d_halo_mm: float) -> np.ndarray:
-    """The cells at the pocket floor's height under the halo, the ballast slot excepted.
+    """The cells at the pocket floor's height under the halo, over the ballast slot too.
 
     A surface falls halfway between the last solid cell and the first air cell, so with
     these cells air the floor was drawn half a cell low: 23.5 mm on the 1 mm grid, with
     the halo hovering over it. They stay solid; Part 4 cuts the exact pocket into the
-    machined file, the same way it cuts the exact bore."""
+    machined file, the same way it cuts the exact bore. Over the slot as well: the slot is
+    cut exactly, not drawn, and leaving these cells air there sagged the floor beside it
+    0.15 mm on the 1 mm grid (0.007 mm under the T4.2 cargo top after the cut, 2026-11-10)."""
     box = compute_halo_pocket_box_m(ref_plane_A_m, d_halo_mm)
     ox, oy, oz = origin_m
     nx, ny, nz = shape
@@ -111,7 +113,7 @@ def pocket_floor_layer_mask(origin_m: tuple, shape: tuple, ref_plane_A_m: float,
     in_y = (ys >= box["y_min_m"] - dx) & (ys <= box["y_max_m"] + dx)
     in_z = (zs >= box["z_min_m"] - 1e-9) & (zs < box["z_min_m"] + 0.5 * dx)
     layer = in_x[:, None, None] & in_y[None, :, None] & in_z[None, None, :]
-    return layer & ~build_ballast_container_forbidden_mask(origin_m, shape, ref_plane_A_m, d_halo_mm)
+    return layer
 
 
 def build_ballast_container_forbidden_mask(
