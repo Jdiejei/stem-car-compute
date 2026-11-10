@@ -158,17 +158,19 @@ def build_ballast_container_forbidden_mask(
     return in_xy[:, :, None] & in_z[None, None, :]
 
 
-def ballast_capsule_mesh_m(ref_plane_A_m: float, d_halo_mm: float, above_floor_mm: float = 1.0):
+def ballast_capsule_mesh_m(ref_plane_A_m: float, d_halo_mm: float, above_floor_mm: float = 1.0,
+                           grow_mm: float = 0.0):
     """The exact ballast slot as a solid, metres; `above_floor_mm` over the pocket floor
-    so that cutting it leaves the slot open to the pocket."""
+    so that cutting it leaves the slot open to the pocket. grow_mm: sides and bottom moved
+    out that far (Part 1's own cut, so Part 4's exact cut meets no coincident face)."""
     import trimesh
     from shapely.geometry import LineString
     box = compute_halo_pocket_box_m(ref_plane_A_m, d_halo_mm)
     cx = box["x_min_m"] * 1e3 + BALLAST_CENTRE_FROM_POCKET_FRONT_MM
     half = (BALLAST_SLOT_LENGTH_MM - BALLAST_SLOT_WIDTH_MM) / 2.0
     m = trimesh.creation.extrude_polygon(
-        LineString([(cx - half, 0.0), (cx + half, 0.0)]).buffer(BALLAST_SLOT_WIDTH_MM / 2.0, 32),
-        BALLAST_DEPTH_MM + above_floor_mm)
-    m.apply_translation([0.0, 0.0, box["z_min_m"] * 1e3 - BALLAST_DEPTH_MM])
+        LineString([(cx - half, 0.0), (cx + half, 0.0)]).buffer(BALLAST_SLOT_WIDTH_MM / 2.0 + grow_mm, 32),
+        BALLAST_DEPTH_MM + grow_mm + above_floor_mm)
+    m.apply_translation([0.0, 0.0, box["z_min_m"] * 1e3 - BALLAST_DEPTH_MM - grow_mm])
     m.apply_scale(1e-3)
     return m

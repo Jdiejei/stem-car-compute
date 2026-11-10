@@ -496,14 +496,11 @@ def build_unified_geometry(
         region.origin_m, region.shape, bv.ref_plane_A_m, d_halo_mm,
     )
 
-    # Legal ballast container (Appendix ix): a mandatory empty slot under the
-    # halo aperture, always present. Sits directly below the pocket floor so it
-    # merges with the pocket recess (open to the top, no sealed cavity). Drawn 4 cells
-    # small: the rounding of its rim reaches ~3 cells and took the floor under the T4.2
-    # cargo 0.025 mm low at 2 (2026-11-10); Part 4 cuts the exact slot.
-    hard_air |= build_ballast_container_forbidden_mask(
-        region.origin_m, region.shape, bv.ref_plane_A_m, d_halo_mm, inset_cells=4,
-    )
+    # Legal ballast container (Appendix ix): a mandatory empty slot under the halo aperture,
+    # open to the pocket. Not drawn here: the rounding of a drawn slot's rim took the pocket
+    # floor up to 0.025 mm under the T4.2 cargo top, even drawn 4 cells small (2026-11-10).
+    # extract_half_surface cuts it exactly (exact_zones.cut_boxes), as Part 4 does, and
+    # compute_mass_com takes it off the count.
 
     # Fixed hardware voids: axle holes, wheel discs, cartridge bore, halo.
     # place_fixed_hardware rasterises onto whatever grid it is handed, so the
@@ -1087,13 +1084,20 @@ def extract_half_surface(geom: UnifiedGeometry):
         # Only that: it is a microns-thick move, so anything larger is not this and is not
         # given back (an uncapped give-back here pushed 13 cm3 through a few faces, 9 mm into
         # the zones, on the block-start test body, 2026-11-10).
-        dv = abs(mesh.volume) - abs(cut.volume)
+        # The ballast slot the cut also takes out is not drawn in the field (and so is in the
+        # target) and is not given back: its own volume in the body, exactly, comes off dv.
+        import halo_pocket as hp
+        ref_A, dh = geom.landmarks["ref_plane_A_m"], geom.d_halo_mm
+        slot = hp.ballast_capsule_mesh_m(ref_A, dh, above_floor_mm=0.0)
+        dv = abs(mesh.volume) - abs(cut.volume) - abs(mesh.intersection(slot, engine="manifold").volume)
         mesh = cut
         if dv > 0:
             V = np.asarray(mesh.vertices)
             P = V * 1e3
             box_d = np.maximum.reduce([exact_zones._box(P[:, 0], np.abs(P[:, 1]), P[:, 2], x=b[0], y=b[1], z=b[2])
-                                       for b in exact_zones._air_boxes(geom)])
+                                       for b in exact_zones._air_boxes(geom)]
+                                      + [exact_zones.halo_pocket_and_ballast(P[:, 0], np.abs(P[:, 1]), P[:, 2],
+                                                                             ref_A * 1e3, dh, 0)])
             free = (V[:, 1] > 1e-9) & (exact_zones.air_at_points(geom, P) < -0.2) & (box_d < -0.2)
             area = float(mesh.area_faces[free[mesh.faces].all(axis=1)].sum())
             step = dv / area if area > 0 else np.inf
@@ -1309,6 +1313,24 @@ def compute_mass_com(geom: UnifiedGeometry) -> list:
             com_y_m=oy + float(w.sum(axis=(0, 2)) @ iy) / n * dx,
             com_z_m=oz + float(w.sum(axis=(0, 1)) @ iz) / n * dx,
         ))
+    # The ballast slot: cut exactly from the milled body but not drawn in the field. Off
+    # the count at its exact volume and centre, times the field's fill there (1 when solid).
+    try:
+        ref_A, dh = geom.landmarks["ref_plane_A_m"], geom.d_halo_mm
+    except (AttributeError, KeyError):  # a bare test geometry without layout
+        return out
+    slot = build_ballast_container_forbidden_mask(geom.region.origin_m, geom.region.shape, ref_A, dh)
+    cap = __import__("halo_pocket").ballast_capsule_mesh_m(ref_A, dh, above_floor_mm=0.0)
+    for i, c in enumerate(out):
+        inside = slot & geom.component_mask(c.name)
+        if not inside.any():
+            continue
+        ms = abs(cap.volume) * float(fill[slot].mean()) * get_density(c.name) * inside.sum() / slot.sum()
+        cs = cap.center_mass
+        m = c.mass_kg - ms
+        out[i] = ComponentMassCOM(name=c.name, mass_kg=m, com_x_m=(c.mass_kg * c.com_x_m - ms * cs[0]) / m,
+                                  com_y_m=(c.mass_kg * c.com_y_m - ms * cs[1]) / m,
+                                  com_z_m=(c.mass_kg * c.com_z_m - ms * cs[2]) / m)
     return out
 
 

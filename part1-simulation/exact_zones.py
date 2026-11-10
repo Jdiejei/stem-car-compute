@@ -371,6 +371,7 @@ def cut_boxes(g, mesh):
     come out sharp, where marching cubes cut across them (the block slot's top corners, 5.5
     mm3 inside the slot, Part 4, 2026-11-09). Snapping vertices onto the edges instead broke
     the mesh (not a volume). Returns the mesh unchanged if the boolean does not give a volume."""
+    import halo_pocket as hp
     import manifold3d as m3
     import trimesh
     try:
@@ -395,6 +396,11 @@ def cut_boxes(g, mesh):
             hi = [(b[1] + e) if b[1] is not None else 500.0 for b in box]
             c = m3.Manifold.cube([(h - l) / 1e3 for l, h in zip(lo, hi)]).translate([l / 1e3 for l in lo])
             cut = c if cut is None else cut + c
+        # The ballast slot, exact (the field draws none: the rounding of a drawn slot's rim
+        # took the pocket floor up to 0.025 mm under the T4.2 cargo top, 2026-11-10)
+        cap = hp.ballast_capsule_mesh_m(g.landmarks["ref_plane_A_m"], g.d_halo_mm, grow_mm=e)
+        cut = cut + m3.Manifold(m3.Mesh(vert_properties=np.asarray(cap.vertices, np.float32),
+                                        tri_verts=np.asarray(cap.faces, np.uint32)))
         o = (body - cut).simplify(2e-7).to_mesh()
         raw = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
                               process=False)
