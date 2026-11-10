@@ -66,6 +66,21 @@ interval and the part explained by each car's own averaging error
 | fresh mesh + warm start | 6.88 (4.93–11.35) | 0.44 | shawshanker18 42804234820 |
 | reshaped mesh (first method, one face folded) | 4.09 (2.96–6.59) | 0.57 | blackwingftc-lang 42654555331 |
 | **reshaped mesh + warm start, 1000 it** | **0.78 (0.56–1.25)** | 0.62 | shawshanker18 42830660133 |
+| reshaped mesh + warm start, 3000 it (ref 3.945) | 0.71 (0.52–1.12) | 0.34 | shawshanker18 42855557668, stats 42915302504 |
+| reshaped mesh only, 1000 it (ref 3.945) | 0.57 (0.41–0.89) | 0.54 | shawshanker18 42896269550, stats 42915322488 |
+
+- **3000 iterations do shrink the averaging part**, from 0.62 to 0.34 ms. That is about
+  1/√3, as expected for three times more averaged steps.
+- **Both 2026-11-10 ladders show the same drag step** between skins 3.966 and 3.972 mm:
+  about 3.7 mN lower, worth about 2 ms. Per part at 3.966 → 3.972 (reshaped only), body
+  −2.2 mN and rear wheels −1.5 mN; every other part changes by less than 0.15 mN. A
+  straight line fitted through a step leaves most of the residual SD.
+- Inside the 12 cars below the step (3.900–3.966), the SD about their mean is about
+  0.26 ms reshaped only and 0.33 ms reshaped plus warm start. This is for information
+  only, not a pass: the test is the full ladder.
+- Next: is the step the shape or the mesh? The same ladder is reshaped from a reference
+  on the other side of the step, 3.978 (run 42915580709). If the step stays at 3.97 mm,
+  it comes from the car's shape. If it moves, it comes from the reshape.
 
 - Fresh meshes put near-identical cars on different drag levels (up to 12 % apart:
   body and rear-wheel drag switch together). A time-accurate run (pimpleFoam, 0.12 s,
