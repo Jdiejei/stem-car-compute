@@ -246,12 +246,51 @@ def air_at_points(g, P):
     ])
 
 
+def cargo_faces(g):
+    """The T4.2 cargo wedge's faces as unit normals N (6, 3) and offsets c (mm): inside where
+    N @ p < c on every face. Order: front, rear, +y side, -y side, bottom, top. None without
+    a cargo."""
+    import virtual_cargo as vc
+    p = (getattr(g, "landmarks", None) or {}).get("cargo_placement")
+    if not p:
+        return None
+    x0 = p["x_start_m"] * 1e3
+    x1 = x0 + vc.CARGO_LENGTH_MM
+    zb = max(p["z_base_m"], g.region.origin_m[2]) * 1e3      # as the field builds it
+    w0, w1 = vc.CARGO_WIDE_WIDTH_MM / 2.0, vc.CARGO_NARROW_WIDTH_MM / 2.0
+    if p.get("flip", False):
+        w0, w1 = w1, w0
+    k = (w1 - w0) / vc.CARGO_LENGTH_MM                     # |y| <= w0 + k (x - x0)
+    s = np.hypot(1.0, k)
+    N = np.array([[-1, 0, 0], [1, 0, 0], [-k / s, 1 / s, 0], [-k / s, -1 / s, 0], [0, 0, -1], [0, 0, 1]], float)
+    c = np.array([-x0, x1, (w0 - k * x0) / s, (w0 - k * x0) / s, -zb, zb + vc.CARGO_HEIGHT_MM])
+    return N, c
+
+
+def out_of_cargo(g, P_mm):
+    """Surface vertices (mm) inside the T4.2 cargo moved out through its nearest face, 0.9 um
+    clear: the cargo is forced solid a cell past its faces, but marching cubes and smoothing
+    left a carved car's slanted side walls 6-13 um inside it (5.8-10.7 mm3, 2 of 20 carved
+    cars, Part 4, 2026-11-10). Not through the top (it is the pocket floor, the air side's)
+    nor the y = 0 cap; the zones' projection runs after this and wins where they overlap."""
+    f = cargo_faces(g)
+    if f is None:
+        return P_mm
+    N, c = f
+    s = P_mm @ N.T - c                                       # < 0 inside, per face
+    j = s.argmax(axis=1)                                     # the nearest face
+    m = (s.max(axis=1) < 7e-4) & (j != 5) & (P_mm[:, 1] > 1e-6)
+    P = P_mm.copy()
+    P[m] += (9e-4 - s[m, j[m]])[:, None] * N[j[m]]
+    return P
+
+
 def project_out(g, V_m, iters: int = 16):
     """Mesh vertices (metres) that smoothing pushed into a zone moved back onto its face.
     Taubin smoothing rounds every sharp edge a little; where the edge is a zone's (the block
     slot's top corners, the block's faces) the rounding put body inside the zone: 5.4 mm3 in
     the slot on Part 4's start car, 2026-11-09. Returns the vertices and how many moved."""
-    P = np.asarray(V_m, dtype=np.float64) * 1e3
+    P = out_of_cargo(g, np.asarray(V_m, dtype=np.float64) * 1e3)
     moved = np.zeros(len(P), bool)
     h = 1e-3
     for _ in range(iters):
