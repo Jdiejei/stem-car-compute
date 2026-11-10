@@ -250,3 +250,46 @@ if what == "mass":   # test_body_mass_is_the_mass_of_the_mesh_that_gets_milled: 
     ez.cut_boxes = lambda geom, mesh: (print(f"LAB mass:   before cut {2 * abs(mesh.volume) * 1e6:.4f}", flush=True), real_cut(geom, mesh))[1]
     mesh = up.extract_half_surface(g)
     print(f"LAB mass: mesh {2 * abs(mesh.volume) * 1e6:.4f}, volume {mesh.is_volume}", flush=True)
+
+
+if what.startswith("sliver"):   # sliver_<mm>: where the box cut leaves faces under 5 deg (fine03 4.4 %)
+    import exact_zones as ez
+    import unified_phi as up
+    import coarse; coarse.use_spacing(float(what.split("_")[1]))
+    g = up.build_unified_geometry(127.0, 49.0, 41.0, init_mode="full")
+    up.enforce_symmetry(g)
+    seen = {}
+    real_cut = ez.cut_boxes
+    ez.cut_boxes = lambda geom, mesh: (seen.setdefault("pre", mesh.copy()), real_cut(geom, mesh))[1]
+    mesh = up.extract_half_surface(g)
+    pre = seen["pre"]
+
+    def bad(m):
+        return np.degrees(m.face_angles.min(1)) < 5.0
+    print(f"LAB sliver {what}: before cut {100 * bad(pre).mean():.2f} % of {len(pre.faces)}, after {100 * bad(mesh).mean():.2f} % of {len(mesh.faces)}, volume {mesh.is_volume}", flush=True)
+    V = np.asarray(mesh.vertices) * 1e3
+    planes = []
+    for box in ez._air_boxes(g):
+        for a, (lo, hi) in enumerate(box):
+            for p in (lo, hi):
+                if p is not None:
+                    planes.append((a, p))
+    def dplane(P):   # distance to the nearest box plane (any extent)
+        return np.min([np.abs(np.abs(P[:, a]) - p) if a == 1 else np.abs(P[:, a] - p) for a, p in planes], axis=0)
+    old = {tuple(np.round(v, 6)) for v in np.asarray(pre.vertices) * 1e3}
+    new = np.array([tuple(np.round(v, 6)) not in old for v in V])
+    b = bad(mesh)
+    F = mesh.faces[b]
+    edges = np.asarray(mesh.edges_unique_length)[...] if False else None
+    L = np.linalg.norm(V[F] - V[np.roll(F, 1, axis=1)], axis=2)
+    dmin = dplane(V[F].reshape(-1, 3)).reshape(-1, 3).min(1)
+    print(f"LAB sliver {what}: {int(b.sum())} slivers; with a new (cut) vertex {int(new[F].any(1).sum())}; "
+          f"a vertex within 0.01 mm of a box plane {int((dmin < 0.01).sum())}, within 0.1 mm {int((dmin < 0.1).sum())}", flush=True)
+    print(f"LAB sliver {what}: shortest edge pct 10/50/90 {np.round(np.percentile(L.min(1), [10, 50, 90]), 5).tolist()} mm, "
+          f"longest {np.round(np.percentile(L.max(1), [10, 50, 90]), 4).tolist()} mm", flush=True)
+    ang = np.degrees(mesh.face_angles.min(1))
+    print(f"LAB sliver {what}: slivers by min angle <0.5/<2/<5 deg: {int((ang < 0.5).sum())}/{int((ang < 2).sum())}/{int((ang < 5).sum())}", flush=True)
+    pb_ = bad(pre)
+    Vp = np.asarray(pre.vertices) * 1e3
+    dpre = dplane(Vp[pre.faces[pb_]].reshape(-1, 3)).reshape(-1, 3).min(1) if pb_.any() else np.array([])
+    print(f"LAB sliver {what}: before cut, slivers within 0.1 mm of a box plane {int((dpre < 0.1).sum())}", flush=True)
