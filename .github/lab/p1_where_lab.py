@@ -336,7 +336,7 @@ if what.startswith("zonevol"):   # zonevol_<mm>: body inside each cut box, field
     print(f"LAB zonevol {what}: field in all boxes {tot:.2f} mm3", flush=True)
 
 
-if what.startswith("fix"):   # fix_<mm>_<lofted|layout>: candidate fixes for the slivers and the field's in-zone volume
+if what.startswith("fix_"):   # fix_<mm>_<lofted|layout>: candidate fixes for the slivers and the field's in-zone volume
     import time
     import manifold3d as m3
     import pymeshlab as ml
