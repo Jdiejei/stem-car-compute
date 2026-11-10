@@ -188,7 +188,10 @@ def report(d: Path):
         slopes = {}
         for a in sorted({abs(x) for x in m}):
             if a in m and -a in m:
-                s = (m[a]["D20_N"] - m[-a]["D20_N"]) / (2 * a)
+                if m[a]["morph_fallback"] or m[-a]["morph_fallback"]:
+                    line.append(f"{a:g} mm: LEFT OUT (one side fell back to a fresh mesh, not comparable)")
+                    continue
+                s =(m[a]["D20_N"] - m[-a]["D20_N"]) / (2 * a)
                 curv = (m[a]["D20_N"] + m[-a]["D20_N"] - 2 * b["D20_N"]) / a ** 2
                 slopes[a] = s
                 line.append(f"{a:g} mm: slope {s:+.3e} N/mm, bend {curv:+.2e} N/mm2")
