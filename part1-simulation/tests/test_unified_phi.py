@@ -417,3 +417,20 @@ def test_drop_thin_strips_removes_sub_cell_strips_only():
     assert S[5:8, 6, 1:8].all(), "the plate was eaten"
     assert S[6, 2, 1:8].all(), "forced solid was removed"
     assert drop_thin_strips(g, 1e-3) == 0
+
+
+def test_fill_fraction_weighs_a_curved_surface_right():
+    """The cells' solid fractions sum to the body's true volume on a curved surface: the
+    straight ramp alone read a sphere of radius 9.3 cells 0.29 % heavy (2026-11-10)."""
+    import numpy as np
+    from unified_phi import fill_fraction
+    n, d = 32, 1e-3
+    i = np.indices((n, n, n)).astype(np.float64)
+    for R in (5.3, 9.3, 12.1):
+        c = np.array([15.5, 16.0, 15.7])[:, None, None, None]
+        sdf = (np.sqrt(((i - c) ** 2).sum(0)) - R) * d
+        true = 4.0 / 3.0 * np.pi * R ** 3
+        got = float(fill_fraction(sdf, d).sum())
+        ramp = float(np.clip(0.5 - sdf / d, 0.0, 1.0).sum())
+        assert abs(got - true) < 0.2 * abs(ramp - true), (R, got, ramp, true)   # bias gone
+        assert abs(got - true) / true < 1e-3, (R, got, true)

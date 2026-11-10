@@ -1261,7 +1261,7 @@ def compute_mass_com(geom: UnifiedGeometry) -> list:
     # more than the 0.2 g the car is sized above the 48.0 g T3.6 floor. The
     # fraction agrees with the mesh to 0.04 g. Where phi is not a distance
     # (|phi| >= dx/2 everywhere) this is exactly the old cell count.
-    fill = np.clip(0.5 - geom.phi.grid.astype(np.float64) / dx, 0.0, 1.0)
+    fill = fill_fraction(geom.phi.grid, dx)
 
     for name in ("nose", "sidepod", "rearpod", "main_body"):
         w = np.where(geom.component_mask(name), fill, 0.0)
@@ -1279,3 +1279,26 @@ def compute_mass_com(geom: UnifiedGeometry) -> list:
             com_z_m=oz + float(w.sum(axis=(0, 1)) @ iz) / n * dx,
         ))
     return out
+
+
+def fill_fraction(phi, dx: float) -> np.ndarray:
+    """Each cell's solid fraction from a distance field phi (negative inside)."""
+    phi = np.asarray(phi, dtype=np.float64)
+    fill = np.clip(0.5 - phi / dx, 0.0, 1.0)
+    # CURVATURE (2026-11-10). The straight ramp over the half-cell band counts a curved
+    # surface heavy by dx^2 (k1 + k2) / 24 per unit area -- the band cells outside a convex
+    # surface sit on more area than those inside -- so a cell's fraction is dx (k1 + k2) / 24
+    # high. A sphere of radius 9.3 cells read +9.7 cells (+0.29 %); once redistancing made
+    # the field a true distance, the carved body's field read 0.10 cm3 over its mesh.
+    # k1 + k2 = div(grad phi / |grad phi|), central differences; held to a radius of at
+    # least one cell, below which the band has no smooth surface to correct for.
+    band = (fill > 0.0) & (fill < 1.0)
+    if band.any():
+        g = np.gradient(phi, dx)
+        mag = np.sqrt(sum(c * c for c in g))
+        n = [c / np.maximum(mag, 1e-12) for c in g]
+        kappa = sum(np.gradient(n[a], dx, axis=a) for a in range(3))
+        kappa = np.clip(kappa, -2.0 / dx, 2.0 / dx)
+        fill = np.where(band, np.clip(fill - dx * kappa / 24.0, 0.0, 1.0), fill)
+
+    return fill
