@@ -628,3 +628,44 @@ if what.startswith("diag"):   # diag_<mm>: ed9e488 regressions, step by step on 
     mesh = up.extract_half_surface(g)
     F = mesh.faces
     inside(np.asarray(mesh.vertices), "returned")
+
+
+if what.startswith("rim"):   # rim_<mm>: the pocket floor next to the ballast slot, stage by stage
+    import trimesh
+    import exact_zones as ez
+    import unified_phi as up
+    import halo_pocket as hp
+    import coarse
+    coarse.use_spacing(float(what.split("_")[1]))
+    g = up.build_unified_geometry(127.0, 49.0, 41.0, init_mode="full")
+    up.enforce_symmetry(g)
+    b = {k: v * 1e3 for k, v in hp.compute_halo_pocket_box_m(g.landmarks["ref_plane_A_m"], g.d_halo_mm).items()}
+    cx = b["x_min_m"] + hp.BALLAST_CENTRE_FROM_POCKET_FRONT_MM
+    r = hp.BALLAST_SLOT_WIDTH_MM / 2.0
+    o = np.array([(cx + dxx, r + dy, b["z_min_m"] + 1.0) for dxx in (-2.0, 0.0, 2.0) for dy in (0.1, 0.45, 0.85)])
+    print(f"LAB rim {what}: pocket box {b}, slot cx {cx:.3f} r {r}", flush=True)
+    def show(V, F, tag):
+        m = trimesh.Trimesh(np.asarray(V) * 1e3, F, process=False)
+        loc, ray, tri = m.ray.intersects_location(o, np.tile([0.0, 0.0, -1.0], (len(o), 1)), multiple_hits=False)
+        print(f"LAB rim {what}: {tag}: hits " + ", ".join(f"({o[k,0]-cx:+.0f},{o[k,1]:.2f})->{z:.4f}" for k, z in zip(ray, loc[:, 2])), flush=True)
+        for k, t in zip(ray, tri):
+            if loc[list(ray).index(k), 2] < 23.999:
+                print(f"LAB rim {what}:   tri at ray {k}: " + "; ".join(str(np.round(m.vertices[v], 4).tolist()) for v in m.faces[t]), flush=True)
+        P = m.vertices
+        sel = (np.abs(P[:, 0] - cx) < 6) & (P[:, 1] > 5.5) & (P[:, 1] < 8.5) & (P[:, 2] > 22.5) & (P[:, 2] < 24.0)
+        lo = np.argsort(P[sel, 2])[:8]
+        print(f"LAB rim {what}:   lowest near-floor vertices: " + "; ".join(str(np.round(P[sel][i], 4).tolist()) for i in lo), flush=True)
+    real_po, real_cut = ez.project_out, ez.cut_boxes
+    step = {"n": 0}
+    def po(geom, V, iters=16):
+        r_ = real_po(geom, V, iters)
+        step["n"] += 1
+        return r_
+    def cb(geom, mesh):
+        show(mesh.vertices, mesh.faces, "before cut")
+        out = real_cut(geom, mesh)
+        show(out.vertices, out.faces, "after cut")
+        return out
+    ez.project_out, ez.cut_boxes = po, cb
+    mesh = up.extract_half_surface(g)
+    show(mesh.vertices, mesh.faces, "returned")
