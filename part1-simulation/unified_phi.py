@@ -500,7 +500,7 @@ def build_unified_geometry(
     # halo aperture, always present. Sits directly below the pocket floor so it
     # merges with the pocket recess (open to the top, no sealed cavity).
     hard_air |= build_ballast_container_forbidden_mask(
-        region.origin_m, region.shape, bv.ref_plane_A_m, d_halo_mm, inset_cells=1,
+        region.origin_m, region.shape, bv.ref_plane_A_m, d_halo_mm, inset_cells=2,
     )
 
     # Fixed hardware voids: axle holes, wheel discs, cartridge bore, halo.
@@ -1056,32 +1056,53 @@ def extract_half_surface(geom: UnifiedGeometry):
         v, _n = exact_zones.project_out(geom, mesh.vertices)
         v[v[:, 1] < 0.0, 1] = 0.0
         mesh.vertices = v
-        # The exact box cut after the projection: projecting after it pushed vertices off one
-        # zone onto the seam with the next (the halo's side shadow and the air above it).
-        mesh = exact_zones.cut_boxes(geom, mesh)
         # The repair gave back the smoothing's lost volume by an even outward move, on the
-        # zone faces too, and the projection and cut took that back off them: the mesh came
-        # out 0.47 cm3 under the field (2026-11-10). Give it back through the faces clear of
-        # every zone, after the cut: given back before it, the cut then took the chords that
-        # marching cubes lays across the body's inside corners round the boxes (47 mm3 in
-        # the block slot at 1 mm, never in the field) off a mesh already at the field's
-        # volume (2026-11-10). The moves are microns, far from any zone; the cap stays on y = 0.
-        boxes = exact_zones._air_boxes(geom)
+        # zone faces too, and the steps above took that back off them: the mesh came out
+        # 0.47 cm3 under the field (2026-11-10). Give it back again through the faces that
+        # are clear of every zone; the symmetry cap stays on y = 0.
         for _ in range(3):
             dv = target - abs(mesh.volume)
             if abs(dv) <= 1e-12:
                 break
             V = np.asarray(mesh.vertices)
-            P = V * 1e3
-            near_box = np.maximum.reduce([exact_zones._box(P[:, 0], np.abs(P[:, 1]), P[:, 2], x=b[0], y=b[1], z=b[2])
-                                          for b in boxes])
-            free = (V[:, 1] > 1e-9) & (exact_zones.air_at_points(geom, P) < -0.2) & (near_box < -0.2)
+            free = (V[:, 1] > 1e-9) & (exact_zones.air_at_points(geom, V * 1e3) < -0.2)
             area = float(mesh.area_faces[free[mesh.faces].all(axis=1)].sum())
             if area <= 0:
                 break
             v = V.copy()
             v[free] += (dv / area) * mesh.vertex_normals[free]
             mesh.vertices = v
+        v, _n = exact_zones.project_out(geom, mesh.vertices)
+        v[v[:, 1] < 0.0, 1] = 0.0
+        mesh.vertices = v
+        # The exact box cut last: projecting after it pushed vertices off one zone onto the
+        # seam with the next (the halo's side shadow and the air above it, 2026-11-10).
+        cut = exact_zones.cut_boxes(geom, mesh)
+        # The cut takes off the chords marching cubes lays across the body's inside corners
+        # round the boxes (47 mm3 in the block slot, 99 in the halo pocket box at 1 mm), from a
+        # mesh already at the field's volume, so the milled body weighed 0.024 g under its
+        # count (2026-11-10). Give that back through faces 0.2 mm clear of every zone and box.
+        # Only that: it is a microns-thick move, so anything larger is not this and is not
+        # given back (an uncapped give-back here pushed 13 cm3 through a few faces, 9 mm into
+        # the zones, on the block-start test body, 2026-11-10).
+        dv = abs(mesh.volume) - abs(cut.volume)
+        mesh = cut
+        if dv > 0:
+            V = np.asarray(mesh.vertices)
+            P = V * 1e3
+            box_d = np.maximum.reduce([exact_zones._box(P[:, 0], np.abs(P[:, 1]), P[:, 2], x=b[0], y=b[1], z=b[2])
+                                       for b in exact_zones._air_boxes(geom)])
+            free = (V[:, 1] > 1e-9) & (exact_zones.air_at_points(geom, P) < -0.2) & (box_d < -0.2)
+            area = float(mesh.area_faces[free[mesh.faces].all(axis=1)].sum())
+            step = dv / area if area > 0 else np.inf
+            if step <= 2e-5:                       # 0.02 mm
+                v = V.copy()
+                v[free] += step * mesh.vertex_normals[free]
+                mesh.vertices = v
+            else:
+                import warnings
+                warnings.warn(f"extract_half_surface: the cut's {dv * 1e9:.1f} mm3 not given back "
+                              f"({step * 1e3:.3f} mm move)", RuntimeWarning, stacklevel=2)
     except AttributeError:          # a bare test geometry without layout
         pass
     return mesh

@@ -166,7 +166,8 @@ def test_slot_corners_are_sharp_in_the_half_body():
     assert ahead < 0.5, f"{ahead:.2f} mm3 of body in the halo's front view (T4.4.2)"
 
 
-def test_pocket_floor_stays_full_height_up_to_the_ballast_slot():
+@pytest.mark.parametrize("spacing", [1.0, 0.5])
+def test_pocket_floor_stays_full_height_up_to_the_ballast_slot(spacing):
     """The T4.2 cargo shares the ballast slot and Part 4 cuts the slot exactly, so the body
     must stand up to the cargo top right to the slot's exact outline. The stamp drew the
     capsule at its exact size and the rim's rounding took the floor down to 23.71 mm at
@@ -175,7 +176,7 @@ def test_pocket_floor_stays_full_height_up_to_the_ballast_slot():
     import trimesh
     import unified_phi as up
     import virtual_cargo as vc
-    g, *_ = _setup(1.0)
+    g, *_ = _setup(spacing)
     up.enforce_symmetry(g)
     mesh = up.extract_half_surface(g)
     m = trimesh.Trimesh(np.asarray(mesh.vertices) * 1e3, mesh.faces, process=False)

@@ -216,13 +216,9 @@ def stamp(g, X, Y, Z) -> int:
     g.phi.grid[near] = new
     # The halo's view zones and the loft ceiling also overrule forced solid: the loft skin
     # and halo deck are forced cell by cell and poked up to 2.5 mm above the exact ceiling
-    # (2026-11-10). So do the box zones the mesh is cut by: forced solid inside the halo
-    # pocket box (230 mm3 at 1 mm) was counted in the weight and then cut off the mesh
     # (2026-11-10). Elsewhere forced solid stands (the cargo may share the ballast slot).
     b = halo_zones(X, np.abs(Y), Z, g.landmarks["ref_plane_A_m"] * 1e3, g.d_halo_mm, _canister(g),
                    part="shadows") + MARGIN_MM
-    aY = np.abs(Y)
-    b = np.maximum.reduce([b] + [_box(X, aY, Z, x=bx[0], y=bx[1], z=bx[2]) for bx in _air_boxes(g)])
     over = (b > -2.0 * d_mm) & g.phi.hard_mask_solid
     new = np.maximum(g.phi.grid[over], (b[over] / 1e3).astype(np.float32))
     changed += int((new != g.phi.grid[over]).sum())
