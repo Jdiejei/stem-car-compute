@@ -81,3 +81,7 @@ blackwingstem-wq 42696426214 (575 cars, seeds 43700) and blackwinglinkedin-crypt
 ## Reference cars on Part 1 19e1a36 (shawshanker18 42754131299, print minimum 0.7 mm)
 
 start, round2 and parts: **162 checks, 0 failed** on each. The block-slot corner strip (block_body_inside_official_block, 5-7 mm3) is gone with Part 1's fix. Sent to Part 1 for its frozen tag.
+
+## Reference cars on Part 1 08ff3dd (shawshanker18 42763411580): the strip is back
+
+start, round2 and parts each fail only block_body_inside_official_block: 34.7, 32.3 and 28.2 mm3, at the block slot's top corners (x 53-159, y ±2.4-2.9, z 7.3-7.9). The only Part 1 change since the 162/162 pass on 19e1a36 is f95173b ("projection lands 1 um past the zone face"). Correction sent to Part 1: don't freeze on f95173b. The same strip appears on lofted trial cars on ef1911e (15-36 mm3, Codespace on blackwinglinkedin-crypto).
