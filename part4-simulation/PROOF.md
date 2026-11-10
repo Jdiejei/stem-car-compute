@@ -85,3 +85,7 @@ start, round2 and parts: **162 checks, 0 failed** on each. The block-slot corner
 ## Reference cars on Part 1 08ff3dd (shawshanker18 42763411580): the strip is back
 
 start, round2 and parts each fail only block_body_inside_official_block: 34.7, 32.3 and 28.2 mm3, at the block slot's top corners (x 53-159, y ±2.4-2.9, z 7.3-7.9). The only Part 1 change since the 162/162 pass on 19e1a36 is f95173b ("projection lands 1 um past the zone face"). Correction sent to Part 1: don't freeze on f95173b. The same strip appears on lofted trial cars on ef1911e (15-36 mm3, Codespace on blackwinglinkedin-crypto).
+
+## Reference cars on Part 1 fef4130 (shawshanker18 42768594296)
+
+start, round2 and parts: **162 checks, 0 failed** each, with no box-cut fallback in the logs. Cause of the f95173b strip (Part 1): its surface moved exactly onto the zone-box faces, the box boolean failed and the cut was skipped; fef4130 keeps the surface clear and its zone test fails if the cut ever falls back. Sent to Part 1.
