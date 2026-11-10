@@ -1,7 +1,7 @@
 """
 component_contract.py -- every regulation number Part 4 uses, in one place.
 
-Source: STEM Racing UAE Professional Class Technical Regulations 2025-26.
+Source: STEM Racing UAE Professional Class Technical Regulations 2026-27.
 All lengths mm unless the name ends in _M. Coordinates match Parts 1-3:
 x nose->tail (nose tip x=0), y centreline->right, z up from the track.
 """

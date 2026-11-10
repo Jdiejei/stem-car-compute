@@ -2,7 +2,7 @@
 
 > Everything on the car except the body.
 
-> **Status 2026-11-10:** the plan is carving from the block. Results and run links: [`PROOF.md`](PROOF.md). How to build and test this part is in the private repo. Old work is kept read-only as `archive/*` tags.
+> **Status 2026-11-10:** the plan is carving from the block. Results and run links: [`PROOF.md`](PROOF.md). How to build and test this part, with its rules and pass marks: [`BUILD_SPEC.md`](BUILD_SPEC.md). Old work is kept read-only as `archive/*` tags.
 
 | | |
 |---|---|
