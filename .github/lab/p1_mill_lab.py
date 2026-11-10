@@ -65,6 +65,23 @@ def traced_mm(geom, *a, **k):          # the 0.5 mm car mills on its own grid: t
     return rep
 
 
+
+def _wrap(name):
+    f = getattr(pb, name)
+
+    def w(geom, *a, **k):
+        d = up.GRID_SPACING_M
+        vol(name + "_in", geom, d)
+        out = f(geom, *a, **k)
+        vol(name + "_out", geom, d)
+        print(f"LAB {name} returned {out} mass_g {sum(c.mass_kg for c in up.compute_mass_com(geom)) * 1e3:.4f}", flush=True)
+        return out
+    setattr(pb, name, w)
+
+
+_wrap("_drop_islands")
+_wrap("_close_pinches")
+
 pb._mill_on = traced
 machining.make_machinable = traced_mm
 runpy.run_path(str(ROOT / ".github" / "lab" / "p1_grid_lab.py"), run_name="__main__")
