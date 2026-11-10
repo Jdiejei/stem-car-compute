@@ -474,3 +474,111 @@ if what.startswith("fix2"):   # fix2_<mm>_<lofted|layout>: box-only field trim; 
                 report(f"simplify {tol} mm, then Part 4 remesh (remeshed {r['remeshed']})", trimesh.load(str(f), force="mesh"))
         except Exception as e:  # noqa: BLE001
             print(f"LAB fix2 {what}:   remesh raised {type(e).__name__}: {str(e)[:100]}", flush=True)
+
+
+def field_in_boxes(g, boxes, k=8):
+    """Solid volume (mm3) of the field inside each box, as marching cubes sees it: each cube
+    between grid nodes sampled k^3 times by trilinear phi, the samples inside the box and
+    phi < 0 counted. boxes: ((x lo, hi), (|y| lo, hi), (z lo, hi)) in mm, None = open."""
+    phi = np.asarray(g.phi.grid, np.float64)
+    d = g.phi.bv.voxel_size_m * 1e3 if hasattr(g.phi.bv, "voxel_size_m") else None
+    import unified_phi as up
+    d = up.GRID_SPACING_M * 1e3
+    o = np.asarray(g.region.origin_m) * 1e3
+    n = np.array(phi.shape)
+    s = (np.arange(k) + 0.5) / k
+    out = []
+    for box in boxes:
+        (x0, x1), (y0, y1), (z0, z1) = box
+        yh = 1e9 if y1 is None else y1
+        signed = [(-yh, yh)] if y0 is None else [(y0, yh), (-yh, -y0)]
+        tot = 0.0
+        for ys in signed:
+            lim = [(-1e9 if x0 is None else x0, 1e9 if x1 is None else x1), ys,
+                   (-1e9 if z0 is None else z0, 1e9 if z1 is None else z1)]
+            lo = [max(int(np.floor((lim[a][0] - o[a]) / d)) - 1, 0) for a in range(3)]
+            hi = [min(int(np.ceil((lim[a][1] - o[a]) / d)) + 1, n[a] - 1) for a in range(3)]
+            if any(h <= l for l, h in zip(lo, hi)):
+                continue
+            blk = phi[lo[0]:hi[0] + 1, lo[1]:hi[1] + 1, lo[2]:hi[2] + 1]
+            cmin = np.minimum.reduce([blk[i:blk.shape[0] - 1 + i, j:blk.shape[1] - 1 + j, kk:blk.shape[2] - 1 + kk]
+                                      for i in (0, 1) for j in (0, 1) for kk in (0, 1)])
+            ci = np.argwhere(cmin < 0)
+            if not len(ci):
+                continue
+            for ch in np.array_split(ci, max(1, len(ci) // 20000)):
+                # sample points of each cube (local coords u in [0,1]^3)
+                U = np.stack(np.meshgrid(s, s, s, indexing="ij"), -1).reshape(-1, 3)
+                c = ch[:, None, :] + U[None]                        # block index coords
+                P = o + (np.array(lo) + c) * d                      # mm
+                inside = np.all([(P[..., a] >= lim[a][0]) & (P[..., a] <= lim[a][1]) for a in range(3)], axis=0)
+                i0 = np.floor(c).astype(int)
+                f = c - i0
+                val = np.zeros(c.shape[:2])
+                for di in (0, 1):
+                    for dj in (0, 1):
+                        for dk in (0, 1):
+                            w = (f[..., 0] if di else 1 - f[..., 0]) * (f[..., 1] if dj else 1 - f[..., 1]) * (f[..., 2] if dk else 1 - f[..., 2])
+                            val += w * blk[np.minimum(i0[..., 0] + di, blk.shape[0] - 1), np.minimum(i0[..., 1] + dj, blk.shape[1] - 1), np.minimum(i0[..., 2] + dk, blk.shape[2] - 1)]
+                tot += float((inside & (val < 0)).sum()) * (d / k) ** 3
+        out.append(tot)
+    return out
+
+
+if what.startswith("wedge"):   # wedge_<mm>_<lofted|layout>: field-in-box quadrature vs the mesh; the 0.5 mm cut fallback
+    import io
+    import manifold3d as m3
+    import trimesh
+    import exact_zones as ez
+    import unified_phi as up
+    _, mm, body = what.split("_")
+    from coarse import use_spacing
+    use_spacing(float(mm))
+    if body == "lofted":
+        import param_body as pb
+        g = pb.build(120.3, 46.0, 43.72, pb.BodyParams(), skin_offset_mm=1.0)
+    else:
+        g = up.build_unified_geometry(127.0, 49.0, 41.0, init_mode="full")
+        up.enforce_symmetry(g)
+    boxes = ez._air_boxes(g)
+    for k in (4, 8):
+        vb = field_in_boxes(g, boxes, k)
+        print(f"LAB wedge {what}: field in boxes (k={k}): {[round(v, 2) for v in vb]} total {sum(vb):.2f} mm3", flush=True)
+    seen = {}
+    real_cut = ez.cut_boxes
+    ez.cut_boxes = lambda geom, mesh: (seen.setdefault("pre", mesh.copy()), real_cut(geom, mesh))[1]
+    mesh = up.extract_half_surface(g)
+    pre = seen["pre"]
+    Mpre = m3.Manifold(m3.Mesh(vert_properties=np.asarray(pre.vertices * 1e3, np.float32), tri_verts=np.asarray(pre.faces, np.uint32)))
+    mb = []
+    for box in boxes:
+        lo = [b[0] if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
+        hi = [b[1] if b[1] is not None else 500.0 for b in box]
+        mb.append(2 * (Mpre ^ m3.Manifold.cube(np.subtract(hi, lo).tolist()).translate(lo)).volume())
+    print(f"LAB wedge {what}: mesh in boxes before cut: {[round(v, 2) for v in mb]} total {sum(mb):.2f}; cut took {2 * (abs(pre.volume) - abs(mesh.volume)) * 1e9:.2f} mm3", flush=True)
+    # the fallback, step by step
+    body_m = m3.Manifold(m3.Mesh(vert_properties=np.asarray(pre.vertices, np.float32), tri_verts=np.asarray(pre.faces, np.uint32)))
+    cut = None
+    e = 1e-3
+    for box in boxes:
+        lo = [(b[0] - e) if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
+        hi = [(b[1] + e) if b[1] is not None else 500.0 for b in box]
+        c = m3.Manifold.cube([(h - l) / 1e3 for l, h in zip(lo, hi)]).translate([l / 1e3 for l in lo])
+        cut = c if cut is None else cut + c
+    r = body_m - cut
+    o_ = r.to_mesh()
+    raw = trimesh.Trimesh(np.asarray(o_.vert_properties)[:, :3].astype(np.float64), np.asarray(o_.tri_verts), process=False)
+    out = trimesh.load(io.BytesIO(raw.export(file_type="stl")), file_type="stl", force="mesh")
+    def stats(m):
+        from collections import Counter
+        ec = Counter(map(tuple, np.sort(m.edges, axis=1).tolist()))
+        return (f"volume {m.is_volume}, watertight {m.is_watertight}, winding {m.is_winding_consistent}, "
+                f"faces {len(m.faces)}, degenerate {int((m.area_faces < 1e-18).sum())}, edges used !=2 times {sum(1 for v in ec.values() if v != 2)}")
+    print(f"LAB wedge {what}: boolean status {r.status()}, raw: {stats(raw)}", flush=True)
+    print(f"LAB wedge {what}: after STL reload: {stats(out)}", flush=True)
+    if not out.is_volume:
+        from collections import Counter
+        ec = Counter(map(tuple, np.sort(out.edges, axis=1).tolist()))
+        bad = [k_ for k_, v in ec.items() if v != 2][:6]
+        for a_, b_ in bad:
+            print(f"LAB wedge {what}:   bad edge {np.round(out.vertices[a_] * 1e3, 4).tolist()} - {np.round(out.vertices[b_] * 1e3, 4).tolist()} used {ec[(a_, b_)]}", flush=True)
