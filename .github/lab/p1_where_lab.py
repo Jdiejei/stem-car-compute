@@ -293,3 +293,44 @@ if what.startswith("sliver"):   # sliver_<mm>: where the box cut leaves faces un
     Vp = np.asarray(pre.vertices) * 1e3
     dpre = dplane(Vp[pre.faces[pb_]].reshape(-1, 3)).reshape(-1, 3).min(1) if pb_.any() else np.array([])
     print(f"LAB sliver {what}: before cut, slivers within 0.1 mm of a box plane {int((dpre < 0.1).sum())}", flush=True)
+
+
+if what.startswith("zonevol"):   # zonevol_<mm>: body inside each cut box, field vs mesh (the cut took 0.1465 cm3)
+    import manifold3d as m3
+    import exact_zones as ez
+    import unified_phi as up
+    from coarse import use_spacing
+    use_spacing(float(what.split("_")[1]))
+    import param_body as pb
+    g = pb.build(120.3, 46.0, 43.72, pb.BodyParams(), skin_offset_mm=1.0)
+    dmm = up.GRID_SPACING_M * 1e3
+    fill = up.fill_fraction(g.phi.grid, up.GRID_SPACING_M)
+    nx, ny, nz = fill.shape
+    o = np.asarray(g.region.origin_m) * 1e3
+    cx, cy, cz = (o[a] + np.arange(n) * dmm for a, n in enumerate(fill.shape))   # cell centres
+    print(f"LAB zonevol {what}: origin {o.tolist()}, shape {fill.shape}, field {fill.sum() * dmm ** 3 / 1e3:.4f} cm3", flush=True)
+    seen = {}
+    real_cut = ez.cut_boxes
+    ez.cut_boxes = lambda geom, mesh: (seen.setdefault("pre", mesh.copy()), real_cut(geom, mesh))[1]
+    mesh = up.extract_half_surface(g)
+    pre = seen["pre"]
+    def man(m):
+        return m3.Manifold(m3.Mesh(vert_properties=np.asarray(m.vertices * 1e3, np.float32), tri_verts=np.asarray(m.faces, np.uint32)))
+    Mpre, Mpost = man(pre), man(mesh)
+    print(f"LAB zonevol {what}: mesh before cut {2 * Mpre.volume() / 1e3:.4f}, after {2 * Mpost.volume() / 1e3:.4f} cm3", flush=True)
+    def ov(c, lo, hi):   # overlap of each cell [c - d/2, c + d/2] with [lo, hi], as a fraction
+        lo = -1e9 if lo is None else lo
+        hi = 1e9 if hi is None else hi
+        return np.clip(np.minimum(c + dmm / 2, hi) - np.maximum(c - dmm / 2, lo), 0, dmm) / dmm
+    tot = 0.0
+    for i, box in enumerate(ez._air_boxes(g)):
+        (x0, x1), (y0, y1), (z0, z1) = box
+        yh = 1e9 if y1 is None else y1
+        fy = ov(cy, -yh, yh) if y0 is None else ov(cy, y0, yh) + ov(cy, -yh, -y0)
+        vf = float(np.einsum("ijk,i,j,k->", fill, ov(cx, x0, x1), fy, ov(cz, z0, z1))) * dmm ** 3
+        tot += vf
+        lo = [b[0] if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
+        hi = [b[1] if b[1] is not None else 500.0 for b in box]
+        B = m3.Manifold.cube(np.subtract(hi, lo).tolist()).translate(lo)
+        print(f"LAB zonevol {what}:   box {i} {box}: field {vf:.2f}, mesh before cut {2 * (Mpre ^ B).volume():.2f}, after {2 * (Mpost ^ B).volume():.2f} mm3", flush=True)
+    print(f"LAB zonevol {what}: field in all boxes {tot:.2f} mm3", flush=True)
