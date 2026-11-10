@@ -52,6 +52,30 @@ run 42804229269, `cut_cars.py`, `p2_reshape_cuts.yml`):
   over 0.5 mm removed the point-to-point jumps at sharp edges. A reference mesh
   reshaped onto itself (zero move) gives the identical drag (+0.04 mN, run 42767113050).
 
+## Timing noise (Step 2, in progress; pass mark 0.3 ms)
+
+Residual SD of race time about a fitted line, ≥ 15 converged cars at skins
+0.006–0.01 mm apart, search mesh (medium, no layers), with the 95 % chi-square
+interval and the part explained by each car's own averaging error
+(`noise_stats.py`). All after the SIMPLE early stop was removed.
+
+| set-up | sigma ms (95 %) | averaging part ms | run |
+| --- | --- | --- | --- |
+| fresh mesh per car, 1000 it | 8.65 (6.27–13.93) | 0.61 | blackwingftc-lang 42654416947 |
+| fresh mesh, 3000 it | 5.02 (3.68–7.92) | 0.28 | mxnviir 42670749731 |
+| fresh mesh + warm start | 6.88 (4.93–11.35) | 0.44 | shawshanker18 42804234820 |
+| reshaped mesh (first method, one face folded) | 4.09 (2.96–6.59) | 0.57 | blackwingftc-lang 42654555331 |
+| **reshaped mesh + warm start, 1000 it** | **0.78 (0.56–1.25)** | 0.62 | shawshanker18 42830660133 |
+
+- Fresh meshes put near-identical cars on different drag levels (up to 12 % apart:
+  body and rear-wheel drag switch together). A time-accurate run (pimpleFoam, 0.12 s,
+  about 11 flow-throughs, shawshanker18 42760508026) kept each car on its own level.
+- With one reshaped mesh and a warm start, all 16 cars sit on one branch and drag
+  falls smoothly with skin. What remains is mostly each car's averaging error. A
+  3000-iteration run of that set-up is next.
+- The skins 4.00–4.05 mm of the first runs also carried a Part 1 body step (fixed in
+  Part 1 55696e3), so the later ladders stop at 3.99 mm.
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
