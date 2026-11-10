@@ -405,3 +405,72 @@ if what.startswith("fix"):   # fix_<mm>_<lofted|layout>: candidate fixes for the
             r = mesh_fairing.remesh_file(f, 0.6 if float(mm) >= 0.5 else 0.6)
             r2 = trimesh.load(str(f), force="mesh")
         report(f"merge {eps} dx, then Part 4 remesh (remeshed {r['remeshed']})", r2)
+
+
+if what.startswith("fix2"):   # fix2_<mm>_<lofted|layout>: box-only field trim; manifold simplify; why a cut falls back
+    import warnings
+    import manifold3d as m3
+    import trimesh
+    import exact_zones as ez
+    import unified_phi as up
+    sys.path.insert(0, str(ROOT / "part4-simulation"))
+    import mesh_fairing
+    _, mm, body = what.split("_")
+    from coarse import use_spacing
+    use_spacing(float(mm))
+    if body == "lofted":
+        import param_body as pb
+        g = pb.build(120.3, 46.0, 43.72, pb.BodyParams(), skin_offset_mm=1.0)
+    else:
+        g = up.build_unified_geometry(127.0, 49.0, 41.0, init_mode="full")
+        up.enforce_symmetry(g)
+    dx = up.GRID_SPACING_M
+    dmm = dx * 1e3
+    fill = up.fill_fraction(g.phi.grid, dx)
+    o = np.asarray(g.region.origin_m) * 1e3
+    idx = np.nonzero(fill > 0.0)
+    X, Y, Z = (o[a] + idx[a] * dmm for a in range(3))
+    db = np.maximum.reduce([ez._box(X, np.abs(Y), Z, x=b[0], y=b[1], z=b[2]) for b in ez._air_boxes(g)])
+    for name, legal in (("box ramp", np.clip(0.5 - db / dmm, 0.0, 1.0)),):
+        eff = fill.copy()
+        eff[idx] = np.minimum(fill[idx], legal)
+        print(f"LAB fix2 {what}: field {fill.sum() * dmm ** 3 / 1e3:.4f}, {name} trimmed {eff.sum() * dmm ** 3 / 1e3:.4f} cm3", flush=True)
+    seen = {}
+    real_cut = ez.cut_boxes
+    ez.cut_boxes = lambda geom, mesh: (seen.setdefault("pre", mesh.copy()), real_cut(geom, mesh))[1]
+    with warnings.catch_warnings(record=True) as ws:
+        warnings.simplefilter("always")
+        mesh = up.extract_half_surface(g)
+    pre = seen["pre"]
+    print(f"LAB fix2 {what}: mesh before cut {2 * abs(pre.volume) * 1e6:.4f}, after {2 * abs(mesh.volume) * 1e6:.4f} cm3; "
+          f"warnings {[str(w.message)[:70] for w in ws if 'cut_boxes' in str(w.message)]}", flush=True)
+    M = m3.Manifold(m3.Mesh(vert_properties=np.asarray(pre.vertices, np.float32), tri_verts=np.asarray(pre.faces, np.uint32)))
+    print(f"LAB fix2 {what}: pre-cut mesh: watertight {pre.is_watertight}, volume {pre.is_volume}, manifold status {M.status()}, empty {M.is_empty()}", flush=True)
+    boxes = []
+    for box in ez._air_boxes(g):
+        lo = [b[0] if b[0] is not None else (-1.0 if k == 1 else -500.0) for k, b in enumerate(box)]
+        hi = [b[1] if b[1] is not None else 500.0 for b in box]
+        boxes.append(m3.Manifold.cube(np.subtract(hi, lo).tolist()).translate(lo))
+    def report(name, m):     # m in mm
+        Mm = m3.Manifold(m3.Mesh(vert_properties=np.asarray(m.vertices, np.float32), tri_verts=np.asarray(m.faces, np.uint32)))
+        inz = sum(2 * (Mm ^ B).volume() for B in boxes)
+        ang = np.degrees(m.face_angles.min(1))
+        print(f"LAB fix2 {what}:   {name}: {100 * (ang < 5).mean():.2f} % under 5 deg of {len(m.faces)}, volume {m.is_volume}, "
+              f"{2 * abs(m.volume) / 1e3:.4f} cm3, in boxes {inz:.2f} mm3", flush=True)
+    base = trimesh.Trimesh(np.asarray(mesh.vertices) * 1e3, mesh.faces, process=False)
+    for tol in (0.0, 0.002, 0.005, 0.01, 0.02):
+        m = base
+        if tol:
+            q = m3.Manifold(m3.Mesh(vert_properties=np.asarray(base.vertices, np.float32),
+                                    tri_verts=np.asarray(base.faces, np.uint32))).simplify(tol).to_mesh()
+            m = trimesh.Trimesh(np.asarray(q.vert_properties)[:, :3], np.asarray(q.tri_verts), process=False)
+            m.merge_vertices()
+        report(f"simplify {tol} mm", m)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                f = Path(d) / "b.stl"
+                m.export(str(f))
+                r = mesh_fairing.remesh_file(f, 0.6)
+                report(f"simplify {tol} mm, then Part 4 remesh (remeshed {r['remeshed']})", trimesh.load(str(f), force="mesh"))
+        except Exception as e:  # noqa: BLE001
+            print(f"LAB fix2 {what}:   remesh raised {type(e).__name__}: {str(e)[:100]}", flush=True)
