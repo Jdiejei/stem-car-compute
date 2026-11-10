@@ -498,9 +498,11 @@ def build_unified_geometry(
 
     # Legal ballast container (Appendix ix): a mandatory empty slot under the
     # halo aperture, always present. Sits directly below the pocket floor so it
-    # merges with the pocket recess (open to the top, no sealed cavity).
+    # merges with the pocket recess (open to the top, no sealed cavity). Drawn 4 cells
+    # small: the rounding of its rim reaches ~3 cells and took the floor under the T4.2
+    # cargo 0.025 mm low at 2 (2026-11-10); Part 4 cuts the exact slot.
     hard_air |= build_ballast_container_forbidden_mask(
-        region.origin_m, region.shape, bv.ref_plane_A_m, d_halo_mm, inset_cells=2,
+        region.origin_m, region.shape, bv.ref_plane_A_m, d_halo_mm, inset_cells=4,
     )
 
     # Fixed hardware voids: axle holes, wheel discs, cartridge bore, halo.

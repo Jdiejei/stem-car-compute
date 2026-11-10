@@ -246,7 +246,7 @@ def air_at_points(g, P):
     ])
 
 
-def project_out(g, V_m, iters: int = 8):
+def project_out(g, V_m, iters: int = 16):
     """Mesh vertices (metres) that smoothing pushed into a zone moved back onto its face.
     Taubin smoothing rounds every sharp edge a little; where the edge is a zone's (the block
     slot's top corners, the block's faces) the rounding put body inside the zone: 5.4 mm3 in
@@ -256,7 +256,7 @@ def project_out(g, V_m, iters: int = 8):
     h = 1e-3
     for _ in range(iters):
         a = air_at_points(g, P)
-        m = a > 0.0
+        m = a > -7e-4                 # at least 0.7 um clear of every face
         if not m.any():
             break
         moved |= m
@@ -266,11 +266,12 @@ def project_out(g, V_m, iters: int = 8):
         # A step only where the field has a slope: on a ridge between two zones the central
         # difference is near zero and a/|grad|^2 threw a vertex 1,000 mm out (2026-11-10).
         g2 = (grad ** 2).sum(1)
-        # 3 um past the face: landing exactly on it left Newton a hair short on curved faces
-        # (3 vertices 0.002 mm in, 2026-11-10). Not 1 um: cut_boxes grows its boxes 1 um, and
-        # vertices on those faces made the boolean fail, so the slot went uncut (28-35 mm3,
-        # Part 4, 2026-11-10).
-        P[m] = Q - np.where(g2 > 0.25, (a[m] + 3e-3) / np.maximum(g2, 1e-12), 0.0)[:, None] * grad
+        # 0.9 um past the face, repeated until every vertex is 0.7 um clear: landing exactly on
+        # it left Newton a hair short on curved faces (3 vertices 0.002 mm in, 2026-11-10). Not
+        # 3 um: the pocket floor stood 3 um under the T4.2 cargo top (2026-11-10). cut_boxes grows
+        # its boxes 0.1-0.3 um, so no vertex sits on a box face (that made the boolean fail and
+        # the slot went uncut, 28-35 mm3, Part 4, 2026-11-10).
+        P[m] = Q - np.where(g2 > 0.25, (a[m] + 9e-4) / np.maximum(g2, 1e-12), 0.0)[:, None] * grad
     return P / 1e3, int(moved.sum())
 
 
@@ -380,20 +381,21 @@ def cut_boxes(g, mesh):
     if body.is_empty():
         return mesh
     import io
-    # Each box a hair past its face: the stamp and the projection put the body's surface on
-    # (3 um past) those faces, and a boolean of coincident faces leaves zero-width slivers
+    # Each box a hair (0.1-0.3 um) past its face: project_out leaves every vertex at least
+    # 0.7 um clear of the faces, and a boolean of coincident faces leaves zero-width slivers
     # whose corners an STL's float32 merges, after which the mesh is not a volume (2026-11-10).
-    # Checked as delivered, through an STL and back. A second and third offset when that
-    # reload welds cut vertices 0.1 um apart where several boxes' edges meet (16 bad edges at
-    # x 180.68, y 11.85 on the 0.5 mm test body, 2026-11-10): a different offset moves them.
-    for e in (1e-3, 1.7e-3, 0.6e-3):
+    # The hair stays under 1 um so the pocket floor stays on the T4.2 cargo top. Edges shorter
+    # than 0.2 um (where several boxes' edges meet: 16 bad edges at x 180.68, y 11.85 on the
+    # 0.5 mm body, 2026-11-10) are collapsed before the STL. Checked as delivered, through an
+    # STL and back; other offsets tried if that reload still is not a volume.
+    for e in (2e-4, 3e-4, 1e-4):
         cut = None
         for box in _air_boxes(g):
             lo = [(b[0] - e) if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
             hi = [(b[1] + e) if b[1] is not None else 500.0 for b in box]
             c = m3.Manifold.cube([(h - l) / 1e3 for l, h in zip(lo, hi)]).translate([l / 1e3 for l in lo])
             cut = c if cut is None else cut + c
-        o = (body - cut).to_mesh()
+        o = (body - cut).simplify(2e-7).to_mesh()
         raw = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
                               process=False)
         out = trimesh.load(io.BytesIO(raw.export(file_type="stl")), file_type="stl", force="mesh")
