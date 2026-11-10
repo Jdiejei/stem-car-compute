@@ -102,6 +102,11 @@ def clean(mesh, max_move: float = 0.1):
     return out
 
 
+def _sliver_pct(mesh) -> float:
+    """% of faces whose smallest angle is under 5 deg."""
+    return float(100 * (np.degrees(mesh.face_angles).min(axis=1) < 5).mean())
+
+
 def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05, max_edge_mm: float = 8.0) -> dict:
     """Rewrite a manufacturing STL (mm) with even triangles, keeping its creases.
     Boolean output is closed but full of long slivers (edges up to 106 mm, 25 % of
@@ -158,6 +163,12 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05, max_edge
                 and len(split.split(only_watertight=False)) == len(before.split(only_watertight=False)))
         if same:
             after = split
+    # The remesh can make slivers out of a body that had few: sharp cut creases on a fine
+    # body (Part 1, 2026-11-10: 0.88 % in, 12.4 % out at 0.3 mm). A closed input with no
+    # long edge is a candidate too; the file keeps whichever has fewer.
+    if (same and before.is_volume and before.edges_unique_length.max() <= max_edge_mm
+            and _sliver_pct(before) <= _sliver_pct(after)):
+        same = False
     if same:
         after.export(str(path))
         # 32-bit floats can weld what the remesher kept apart (1 car in 1200).
@@ -165,9 +176,8 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05, max_edge
         if not same:
             before.export(str(path))
     final = after if same else before
-    angles = np.degrees(final.face_angles).min(axis=1)
     return {"remeshed": bool(same), "faces": len(final.faces),
             "max_edge_mm": float(final.edges_unique_length.max()),
-            "faces_under_5deg_pct": float(100 * (angles < 5).mean()),
+            "faces_under_5deg_pct": _sliver_pct(final),
             "file_cm3": abs(float(final.volume)) / 1e3, "closed": bool(final.is_watertight),
             "pieces": len(final.split(only_watertight=False))}

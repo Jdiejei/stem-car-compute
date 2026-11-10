@@ -75,3 +75,19 @@ def test_a_sealed_void_is_filled_into_one_solid():
     assert full.is_volume and abs(full.volume - 1000.0) < 1e-6
     assert len(full.split(only_watertight=False)) == 1
     assert joints._fill_voids(box(0.0, 1.0)).volume == 1.0
+
+
+def test_the_remesh_never_leaves_more_slivers_than_a_clean_input(tmp_path):
+    import mesh_fairing
+    # An even, closed, short-edged solid with a sharp crease (a cut body's case): the file
+    # must come back with no more thin triangles than it went in with.
+    body = trimesh.boolean.difference([trimesh.creation.icosphere(subdivisions=5, radius=10.0),
+                                       trimesh.creation.box(bounds=[[-20, -20, 4], [20, 20, 20]])],
+                                      engine="manifold")
+    p = tmp_path / "cut.stl"
+    body.export(str(p))
+    before = mesh_fairing._sliver_pct(trimesh.load(str(p), force="mesh"))
+    rep = mesh_fairing.remesh_file(p, 0.6)
+    out = trimesh.load(str(p), force="mesh")
+    assert out.is_volume and rep["faces_under_5deg_pct"] <= before + 1e-9
+    assert abs(rep["faces_under_5deg_pct"] - mesh_fairing._sliver_pct(out)) < 1e-9
