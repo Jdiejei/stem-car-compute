@@ -76,6 +76,22 @@ interval and the part explained by each car's own averaging error
 - The skins 4.00–4.05 mm of the first runs also carried a Part 1 body step (fixed in
   Part 1 55696e3), so the later ladders stop at 3.99 mm.
 
+## Repeatability (1 car x 6 machines; pass mark spread ≤ 0.1 ms): FAIL so far
+
+Start car at skin 3.95 mm, fresh search mesh, 1000 iterations, six GitHub machines
+(shawshanker18/stem-racing-car run 42864304133): T_at_target 1.57259, 1.57293,
+1.57265, 1.57200, 1.57234, 1.57199 s, all converged; **spread 0.94 ms**.
+
+- The earlier 0.28 ms (2026-11) was measured with the SIMPLE early stop, which ended
+  every solve at about 170 iterations.
+- Run to its full length, the wake keeps moving, so small machine-to-machine
+  arithmetic differences change each run's average. The spread is the size of one
+  car's averaging error (rms about 0.6 ms on the noise ladders), so the same fix
+  applies: longer averaging (3000 iterations running).
+- At 0.6 ms per 200 averaged steps, reaching 0.1 ms by averaging alone would need
+  about 36 times longer. If longer runs don't get there, this pass mark needs the
+  team lead's decision, with this evidence.
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
