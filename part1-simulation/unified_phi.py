@@ -1048,7 +1048,11 @@ def extract_half_surface(geom: UnifiedGeometry):
     # Smoothing rounds zone edges into the zones (the block slot's corners): put them back.
     try:
         import exact_zones
-        target = abs(mesh.volume)
+        # The target is the field's own volume (curvature-corrected cell fractions; half of it,
+        # by symmetry). Marching cubes cuts chords across every curve and the repair only gave
+        # back to its volume: spheres and an ellipsoid came out 0.4-2.1 % light at 1 mm, the
+        # field 0.01-0.06 % (2026-11-10). What is milled is this mesh.
+        target = 0.5 * float(fill_fraction(geom.phi.grid, GRID_SPACING_M).sum()) * GRID_SPACING_M ** 3
         v, _n = exact_zones.project_out(geom, mesh.vertices)
         v[v[:, 1] < 0.0, 1] = 0.0
         mesh.vertices = v
@@ -1058,7 +1062,7 @@ def extract_half_surface(geom: UnifiedGeometry):
         # are clear of every zone; the symmetry cap stays on y = 0.
         for _ in range(3):
             dv = target - abs(mesh.volume)
-            if dv <= 1e-12:
+            if abs(dv) <= 1e-12:
                 break
             V = np.asarray(mesh.vertices)
             free = (V[:, 1] > 1e-9) & (exact_zones.air_at_points(geom, V * 1e3) < -0.2)

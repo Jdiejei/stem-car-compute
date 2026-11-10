@@ -421,16 +421,22 @@ def test_drop_thin_strips_removes_sub_cell_strips_only():
 
 def test_fill_fraction_weighs_a_curved_surface_right():
     """The cells' solid fractions sum to the body's true volume on a curved surface: the
-    straight ramp alone read a sphere of radius 9.3 cells 0.29 % heavy (2026-11-10)."""
+    straight ramp alone read a sphere of radius 9.3 cells 0.29 % heavy (2026-11-10). Each
+    radius over 8 centres: one placement also carries lattice noise (+0.16 % at 5.3 cells,
+    -0.02 % at 9.3), which changes sign with the placement; the bias does not."""
     import numpy as np
     from unified_phi import fill_fraction
     n, d = 32, 1e-3
     i = np.indices((n, n, n)).astype(np.float64)
+    rng = np.random.default_rng(0)
     for R in (5.3, 9.3, 12.1):
-        c = np.array([15.5, 16.0, 15.7])[:, None, None, None]
-        sdf = (np.sqrt(((i - c) ** 2).sum(0)) - R) * d
         true = 4.0 / 3.0 * np.pi * R ** 3
-        got = float(fill_fraction(sdf, d).sum())
-        ramp = float(np.clip(0.5 - sdf / d, 0.0, 1.0).sum())
-        assert abs(got - true) < 0.2 * abs(ramp - true), (R, got, ramp, true)   # bias gone
-        assert abs(got - true) / true < 1e-3, (R, got, true)
+        got, ramp = [], []
+        for _ in range(8):
+            c = (15.5 + rng.random(3))[:, None, None, None]
+            sdf = (np.sqrt(((i - c) ** 2).sum(0)) - R) * d
+            got.append(float(fill_fraction(sdf, d).sum()) - true)
+            ramp.append(float(np.clip(0.5 - sdf / d, 0.0, 1.0).sum()) - true)
+        bias, rbias = np.mean(got), np.mean(ramp)
+        assert abs(bias) < 0.2 * abs(rbias), (R, bias, rbias)       # the ramp's bias gone
+        assert abs(bias) / true < 1e-3, (R, bias / true)
