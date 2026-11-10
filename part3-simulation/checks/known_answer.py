@@ -317,10 +317,11 @@ def morph(mesh: dict, move_wall: np.ndarray) -> np.ndarray:
     return mesh["P"] + disp
 
 
-def run_bump(k: int, amp: float, out: Path) -> None:
-    case = Path(f"ka_bump_{k}_{amp:+g}")
+def run_moved(case: Path, move) -> tuple:
+    """Primal drag of the wing with its wall moved outward by move(mesh) (chords).
+    Returns (J, spread, mesh ok, mesh)."""
     mesh = case_setup(case, 1, VARIANTS["sa_min" if SETUP == "sa" else "car"])
-    P = morph(mesh, amp * bump(mesh, k))
+    P = morph(mesh, move(mesh))
     body = "\n".join(f"({x:.16e} {y:.16e} {z:.16e})" for x, y, z in P)
     head = read(case / "constant/polyMesh/points").split(f"\n{len(P)}\n(")[0]
     (case / "constant/polyMesh/points").write_text(f"{head}\n{len(P)}\n(\n{body}\n)\n")
@@ -328,9 +329,56 @@ def run_bump(k: int, amp: float, out: Path) -> None:
     ok = "Mesh OK" in (case / "log.checkMesh").read_text()
     foam(case, "adjointOptimisationFoam", "log.run")
     J, spread = objective(case)
+    return J, spread, ok, mesh
+
+
+def run_bump(k: int, amp: float, out: Path) -> None:
+    J, spread, ok, _ = run_moved(Path(f"ka_bump_{k}_{amp:+g}"), lambda mesh: amp * bump(mesh, k))
     print(f"LAB bump {k} amp {amp:+g}: J {J:.10e} spread {spread:.2e} mesh ok {ok}", flush=True)
     out.mkdir(parents=True, exist_ok=True)
     (out / f"bump_{k}_{amp:+g}.json").write_text(json.dumps(dict(k=k, amp=amp, J=J, spread=spread, mesh_ok=ok)))
+
+
+def map_density(mesh: dict, c) -> np.ndarray:
+    """The measured map (per unit area, + = growing adds drag) from mode slopes c (12.7)."""
+    Phi = np.array([bump(mesh, k) for k in range(N_TEST, HARD0)])
+    A = mesh["area"]
+    return Phi.T @ np.linalg.solve((Phi * A) @ Phi.T, np.asarray(c))
+
+
+def run_step(result_json: Path, size: float, out: Path) -> None:
+    """Step 6 dry run on the wing: one step DOWN the measured map, with the area-mean taken off
+    (the wing keeps its size, as the car keeps its mass), largest move = size x BUMP_A x chord.
+    Predicted change sum(m d A) against the measured change from the unmoved wing."""
+    c = json.loads(result_json.read_text())["measured_map"]["modes"]
+    assert len(c) == HARD0 - N_TEST, f"result has {len(c)} modes, this run is set for {HARD0 - N_TEST}"
+    saved = {}
+
+    def move(mesh):
+        m = map_density(mesh, c)
+        A = mesh["area"]
+        d = -(m - np.sum(m * A) / np.sum(A))
+        d *= size * BUMP_A * mesh["chord"] / np.max(np.abs(d)) if size else 0.0
+        saved.update(pred=float(np.sum(m * d * A)), d_max=float(np.max(np.abs(d))))
+        return d
+
+    J, spread, ok, _ = run_moved(Path(f"ka_step_{size:g}"), move)
+    print(f"LAB step size {size:g}: J {J:.10e} predicted change {saved['pred']:+.5f} spread {spread:.1e} mesh ok {ok}",
+          flush=True)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"step_{size:g}.json").write_text(json.dumps(dict(size=size, J=J, spread=spread, mesh_ok=ok, **saved)))
+
+
+def step_report(src: Path) -> None:
+    rows = sorted((json.loads(f.read_text()) for f in src.rglob("step_*.json")), key=lambda r: r["size"])
+    base = next(r for r in rows if r["size"] == 0)
+    for r in rows:
+        if r["size"]:
+            dJ = r["J"] - base["J"]
+            print(f"LAB step {r['size']:g} x bump height: drag change measured {dJ:+.5f} predicted {r['pred']:+.5f}"
+                  f" ({dJ / base['J'] * 100:+.3f} %), noise {max(r['spread'], base['spread']):.1e},"
+                  f" {'FASTER (lower drag)' if dJ < -3 * max(r['spread'], base['spread']) else 'NOT clearly lower'}",
+                  flush=True)
 
 
 def stats(pred: np.ndarray, meas: np.ndarray) -> dict:
@@ -359,7 +407,7 @@ def measured_map(src: Path, runs: dict, meas, singles, sign_set, result: dict, k
     off = stats(pred[singles], meas[singles])
     sg = float(np.mean(np.sign(pred[sign_set]) == np.sign(meas[sign_set])))
     result["measured_map"] = dict(official=off, sign_set=sg, pred=pred.tolist(), modes=c.tolist())
-    print(f"LAB measured map (40 modes, 80 runs): official r {off['r']:+.3f} slope {off['slope']:+.3g} | "
+    print(f"LAB measured map ({len(idx)} modes, {2 * len(idx)} runs): official r {off['r']:+.3f} slope {off['slope']:+.3g} | "
           f"signs incl. pairs {sg:.2f} ({len(sign_set)}); share of each test shape outside the modes' span "
           f"p50 {np.median(resid):.2f} max {resid.max():.2f}", flush=True)
     print(f"LAB measured map VERDICT (sign >= 90% of singles and pairs, r >= 0.9 on the 10 official singles): "
@@ -458,5 +506,9 @@ if __name__ == "__main__":
         run_base(sys.argv[2], Path(sys.argv[3]))
     elif cmd == "bump":
         run_bump(int(sys.argv[2]), float(sys.argv[3]), Path(sys.argv[4]))
+    elif cmd == "step":
+        run_step(Path(sys.argv[2]), float(sys.argv[3]), Path(sys.argv[4]))
+    elif cmd == "step_report":
+        step_report(Path(sys.argv[2]))
     else:
         sys.exit(judge(Path(sys.argv[2])))

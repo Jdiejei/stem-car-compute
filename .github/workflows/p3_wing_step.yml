@@ -1,0 +1,46 @@
+name: p3_wing_step
+run-name: "Part 3: one step down the measured map on the wing (map from run ${{ inputs.run_id }})"
+
+# Step 6 dry run on the known-answer wing: does a step along the measured map really lower
+# drag, and by about the predicted amount, at several step sizes?
+on:
+  workflow_dispatch:
+    inputs:
+      run_id: { required: true }
+      nmodes: { default: "80" }
+      mode_r: { default: "0.025" }
+      sizes: { default: "1 2 4 8" }
+
+permissions: { contents: read, actions: read }
+
+env:
+  P3_NMODES: ${{ inputs.nmodes }}
+  P3_MODE_R: ${{ inputs.mode_r }}
+
+jobs:
+  step:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 30
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          for i in 1 2 3 4 5; do
+            (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break
+            sleep 30
+          done
+          test -d /usr/lib/openfoam/openfoam2412/tutorials || { echo "OpenFOAM did not install"; exit 1; }
+          pip install numpy==2.4.6 scipy==1.17.1
+      - uses: actions/download-artifact@v4
+        with: { name: result, path: src, run-id: "${{ inputs.run_id }}", github-token: "${{ github.token }}" }
+      - shell: bash
+        run: |
+          pids=""; for s in 0 ${{ inputs.sizes }}; do
+            python -u part3-simulation/checks/known_answer.py step src/known_answer_result.json $s out > step_$s.txt 2>&1 & pids="$pids $!"
+          done
+          bad=0; for p in $pids; do wait $p || bad=1; done
+          cat step_*.txt | grep -E "^LAB|Error|Traceback"; exit $bad
+      - run: python -u part3-simulation/checks/known_answer.py step_report out
