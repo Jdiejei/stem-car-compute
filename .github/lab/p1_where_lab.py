@@ -183,3 +183,40 @@ if what == "sphere3":
         e = (phi.grid - sdf)[band] / d
         print(f"LAB where sphere3 pass {k + 1}: volume {vol(phi.grid):.2f} vs {v0:.2f} ({(vol(phi.grid) - v0) / v0 * 100:+.3f} %), "
               f"band error mean {e.mean():+.4f} max {np.abs(e).max():.3f} cells", flush=True)
+
+if what == "est":
+    # Which weight is right? Shapes of known volume (cells): the straight ramp, the
+    # curvature-corrected fractions, the whole-cell count, raw marching cubes, and the
+    # repaired (smoothed, volume-restored) mesh the car ships.
+    import surface_extraction as SE
+    from bounding_volumes import BoundingRegion
+    from phi_grid import PhiGrid
+    from unified_phi import fill_fraction
+    d = 1e-3
+    n = 40
+    i = np.indices((n, n, n)).astype(np.float64)
+    c = np.array([19.5, 20.0, 19.7])[:, None, None, None]
+    shapes = {}
+    for R in (5.3, 9.3, 12.1):
+        shapes[f"sphere {R}"] = ((np.sqrt(((i - c) ** 2).sum(0)) - R), 4 / 3 * np.pi * R ** 3)
+    a, b, cc = 14.0, 8.0, 6.0     # ellipsoid: a near-distance field (scaled), true volume known
+    q = np.sqrt(((i[0] - c[0]) / a) ** 2 + ((i[1] - c[1]) / b) ** 2 + ((i[2] - c[2]) / cc) ** 2)
+    shapes["ellipsoid 14x8x6"] = ((q - 1.0) * min(a, b, cc), 4 / 3 * np.pi * a * b * cc)
+    bv = BoundingRegion("main_body", (0.0, -(n // 2) * d, 0.0), (n, n, n))
+    import phi_updater as pu
+    for name, (f, true) in shapes.items():
+        z = np.zeros((n, n, n), bool)
+        ph = PhiGrid("main_body", bv, (f * d).astype(np.float32), z, z.copy())
+        if name.startswith("ellipsoid"):
+            pu.reinitialise_sdf(ph)
+        g = ph.grid.astype(np.float64)
+        ramp = float(np.clip(0.5 - g / d, 0, 1).sum())
+        corr = float(fill_fraction(g, d).sum())
+        cells = float((g < 0).sum())
+        mc = SE._marching_cubes(ph, 0.0)
+        mcv = abs(mc.volume) / d ** 3
+        rep = SE._repair_mesh(mc.copy())
+        rv = abs(rep.volume) / d ** 3
+        pct = lambda v: f"{v:.2f} ({(v - true) / true * 100:+.3f} %)"
+        print(f"LAB where est {name}: true {true:.2f}; ramp {pct(ramp)}; corrected {pct(corr)}; cells {pct(cells)}; "
+              f"marching cubes {pct(mcv)}; shipped mesh {pct(rv)}", flush=True)
