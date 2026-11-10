@@ -222,3 +222,31 @@ if what == "est":
         pct = lambda v: f"{v:.2f} ({(v - true) / true * 100:+.3f} %)"
         print(f"LAB where est {name}: true {true:.2f}; ramp {pct(ramp)}; corrected {pct(corr)}; cells {pct(cells)}; "
               f"marching cubes {pct(mcv)}; shipped mesh {pct(rv)}", flush=True)
+
+
+if what == "mass":   # test_body_mass_is_the_mass_of_the_mesh_that_gets_milled: where the 0.15 cm3 is
+    import unified_phi as up
+    from mass_com_calculator import get_density
+    g = lofted()
+    dx = up.GRID_SPACING_M
+    fill = up.fill_fraction(g.phi.grid, dx)
+    cm3 = dx ** 3 * 1e6
+    print(f"LAB mass: whole-grid fill {fill.sum() * cm3:.4f}, cells phi<0 {(g.phi.grid < 0).sum() * cm3:.4f}", flush=True)
+    union = np.zeros(fill.shape, bool)
+    count = np.zeros(fill.shape, int)
+    for name in ("nose", "sidepod", "rearpod", "main_body"):
+        m = g.component_mask(name)
+        union |= m
+        count += m
+        print(f"LAB mass:   {name}: fill {fill[m].sum() * cm3:.4f}, cells {(m & (g.phi.grid < 0)).sum() * cm3:.4f}, density {get_density(name)}", flush=True)
+    print(f"LAB mass: fill outside every mask {fill[~union].sum() * cm3:.4f}, in 2+ masks {fill[count > 1].sum() * cm3:.4f}", flush=True)
+    for c in up.compute_mass_com(g):
+        print(f"LAB mass:   compute_mass_com {c.name}: {c.mass_kg * 1e3:.4f} g = {c.mass_kg / get_density(c.name) * 1e6:.4f} cm3", flush=True)
+    up.enforce_symmetry(g)
+    fill = up.fill_fraction(g.phi.grid, dx)
+    print(f"LAB mass: after symmetry: whole-grid fill {fill.sum() * cm3:.4f}", flush=True)
+    import exact_zones as ez
+    real_cut = ez.cut_boxes
+    ez.cut_boxes = lambda geom, mesh: (print(f"LAB mass:   before cut {2 * abs(mesh.volume) * 1e6:.4f}", flush=True), real_cut(geom, mesh))[1]
+    mesh = up.extract_half_surface(g)
+    print(f"LAB mass: mesh {2 * abs(mesh.volume) * 1e6:.4f}, volume {mesh.is_volume}", flush=True)
