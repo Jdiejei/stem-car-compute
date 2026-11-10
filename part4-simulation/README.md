@@ -2,7 +2,7 @@
 
 > Everything on the car except the body.
 
-> **Status 2026-11-09:** the plan is carving from the block. How to build and test this part, with its rules and pass marks: `BUILD_SPEC.md` (in the private repo). Old work is kept read-only as `archive/*` tags.
+> **Status 2026-11-10:** the plan is carving from the block. Results and run links: [`PROOF.md`](PROOF.md). How to build and test this part is in the private repo. Old work is kept read-only as `archive/*` tags.
 
 | | |
 |---|---|
@@ -68,3 +68,43 @@ car's drag. Front wing at +6 deg with an 8 mm flap at 30 deg; minimum-section re
 wing. The v2 rear wheel-support CAD bottoms out at 1.40 mm, 0.10 mm under T3.7, and
 its 12.7 mm disc blocks the T7.13 hang-test claw; the parametric beam support uses a
 12.0 mm disc.
+
+## Other outputs per car
+
+| file | what | who reads it |
+|---|---|---|
+| `manufacture/parts_list.csv` | every made file with its material and process (foam = CNC mill, 1.01 g/cm3 = PA12 SLS, 1.24 g/cm3 = PLA FDM) and mass; the team wheels are listed but are the team's own files | the team |
+| `mass_report.json` (`assembly.write_mass_report`) | `car_weight_kg` (car plus the empty cartridge shell, no CO2), centre of mass, wheel inertia, the cartridge's rear centre and axis height, the tether line height, per-part masses, and which masses are placeholders | Part 2's race model |
+
+## Print minimum
+
+One number, `component_contract.MIN_WALL_MM` (default 0.7 mm; the `P4_MIN_WALL_MM`
+environment variable overrides it, and the `p4_cars` / `p4_lab` workflows take it as
+`min_wall`). It sets the support and hubcap walls, the nose shell, and a blunt wing
+trailing edge of that width. Reference cars at 0.7, 1.0 and 1.2 mm are all legal
+(PROOF.md). Set it to the team printer's figure when it is known.
+
+## The referee (`part5-simulation/legality.py`)
+
+Part 4 owns the independent rule check. It measures the finished car from its files,
+like a scrutineer with plug gauges, and shares no code or numbers with Part 1's cutter:
+
+- `rules_constants.py`: every rule number, typed from the regulation pages.
+- `RULES_MAP.md`: each rule, the check that judges it, or the reason it can't be
+  checked from geometry (113 rows, no gaps).
+- `tests/test_rules_edges.py`: for every numeric rule, a car just inside passes and a
+  car just outside fails on that rule's id.
+- `tests/test_independence.py`: no imports from Part 1, and Part 1's numbers
+  cross-checked against the referee's own.
+
+Each check gives a margin (≥ 0 passes) and a note that says where it failed.
+
+## Running it (GitHub only)
+
+| workflow | what |
+|---|---|
+| `p4_tests` | Part 4 and Part 5 unit tests |
+| `p4_cars` | the reference cars through the referee, at a chosen print minimum |
+| `p4_assembly` | a batch of carved or lofted cars, built and judged, plus a summary job (`label` = canary or official) |
+| `p4_summary` | re-summarise a finished batch |
+| `p4_lab` | one experiment script from `.github/lab/` |
