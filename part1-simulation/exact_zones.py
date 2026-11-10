@@ -241,7 +241,7 @@ def air_at_points(g, P):
     ])
 
 
-def project_out(g, V_m, iters: int = 4):
+def project_out(g, V_m, iters: int = 8):
     """Mesh vertices (metres) that smoothing pushed into a zone moved back onto its face.
     Taubin smoothing rounds every sharp edge a little; where the edge is a zone's (the block
     slot's top corners, the block's faces) the rounding put body inside the zone: 5.4 mm3 in
@@ -261,7 +261,9 @@ def project_out(g, V_m, iters: int = 4):
         # A step only where the field has a slope: on a ridge between two zones the central
         # difference is near zero and a/|grad|^2 threw a vertex 1,000 mm out (2026-11-10).
         g2 = (grad ** 2).sum(1)
-        P[m] = Q - np.where(g2 > 0.25, a[m] / np.maximum(g2, 1e-12), 0.0)[:, None] * grad
+        # 1 um past the face, as the box cut: landing exactly on it left Newton a hair short
+        # on curved faces (3 vertices 0.002 mm in, 2026-11-10).
+        P[m] = Q - np.where(g2 > 0.25, (a[m] + 1e-3) / np.maximum(g2, 1e-12), 0.0)[:, None] * grad
     return P / 1e3, int(moved.sum())
 
 
