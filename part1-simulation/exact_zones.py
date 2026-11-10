@@ -261,9 +261,11 @@ def project_out(g, V_m, iters: int = 8):
         # A step only where the field has a slope: on a ridge between two zones the central
         # difference is near zero and a/|grad|^2 threw a vertex 1,000 mm out (2026-11-10).
         g2 = (grad ** 2).sum(1)
-        # 1 um past the face, as the box cut: landing exactly on it left Newton a hair short
-        # on curved faces (3 vertices 0.002 mm in, 2026-11-10).
-        P[m] = Q - np.where(g2 > 0.25, (a[m] + 1e-3) / np.maximum(g2, 1e-12), 0.0)[:, None] * grad
+        # 3 um past the face: landing exactly on it left Newton a hair short on curved faces
+        # (3 vertices 0.002 mm in, 2026-11-10). Not 1 um: cut_boxes grows its boxes 1 um, and
+        # vertices on those faces made the boolean fail, so the slot went uncut (28-35 mm3,
+        # Part 4, 2026-11-10).
+        P[m] = Q - np.where(g2 > 0.25, (a[m] + 3e-3) / np.maximum(g2, 1e-12), 0.0)[:, None] * grad
     return P / 1e3, int(moved.sum())
 
 
