@@ -225,7 +225,7 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
     pad = np.pad(phi0, 1, mode="edge")
     pad2 = np.pad(phi0, 2, mode="edge")
     near = phi0 == 0.0
-    inv2 = np.zeros_like(phi0)
+    grad2 = np.zeros_like(phi0)          # |grad|^2 at each cell, in phi units per cell
 
     def at(ax, k):                         # phi0 shifted k cells along ax
         idx = [slice(2, -2)] * 3
@@ -265,8 +265,9 @@ def reinitialise_sdf(phi: PhiGrid, n_steps: int = 50, dt_reinit: float = None) -
         lo_, hi_ = [slice(1, -1)] * 3, [slice(1, -1)] * 3
         lo_[ax], hi_[ax] = slice(0, -2), slice(2, None)
         g = 0.5 * np.abs(pad[tuple(hi_)] - pad[tuple(lo_)])
-        inv2 += (np.where(np.isfinite(best), slope, g) / np.maximum(np.abs(phi0), 1e-300)) ** 2
-    D = np.where(inv2 > 0, s0 / np.sqrt(np.maximum(inv2, 1e-300)), 0.0) * GRID_SPACING_M
+        grad2 += np.where(np.isfinite(best), slope, g) ** 2
+    # D = phi0 / |grad|, never 1 / phi0^2: that overflowed where phi0 is ~0 (0.3 mm car, 2026-11-10)
+    D = np.where(grad2 > 0, s0 * np.abs(phi0) / np.sqrt(np.maximum(grad2, 1e-300)), 0.0) * GRID_SPACING_M
     for _ in range(n_steps):
         sign_phi = grid_f64 / np.sqrt(grid_f64 * grid_f64 + eps * eps)
         grad_mag = _eno2_grad_magnitude(grid_f64, sign_phi)

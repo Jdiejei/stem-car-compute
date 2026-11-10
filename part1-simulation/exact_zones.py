@@ -118,7 +118,7 @@ def t79_zones(X, aY, Z, W_mm, x_front_mm):
     return np.maximum.reduce([rect_f, rect_r, w_f, w_r])
 
 
-def halo_pocket_and_ballast(X, aY, Z, ref_A_mm, d_halo_mm, d_mm=1.0):
+def halo_pocket_and_ballast(X, aY, Z, ref_A_mm, d_halo_mm, d_mm=1.0, ballast=True):
     """halo_pocket.build_halo_pocket_forbidden_mask and build_ballast_container_forbidden_mask
     (the capsule at its true size; the mask's one-cell inset is not needed here)."""
     import halo_pocket as hp
@@ -132,6 +132,8 @@ def halo_pocket_and_ballast(X, aY, Z, ref_A_mm, d_halo_mm, d_mm=1.0):
     z_top, z_bot = b["z_min_m"], b["z_min_m"] - hp.BALLAST_DEPTH_MM
     plan = r - np.hypot(np.maximum(np.abs(X - cx) - hs, 0.0), aY)
     capsule = np.minimum(plan, np.minimum(Z - z_bot, z_top - Z))
+    if not ballast:
+        return pocket
     return union([pocket, capsule], d_mm) if d_mm else np.maximum(pocket, capsule)
 
 
@@ -191,7 +193,10 @@ def air_field_mm(g, X, Y, Z) -> np.ndarray:
         wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm) + MARGIN_MM,
         t79_zones(X, aY, Z, g.W_mm, g.x_front_mm) + MARGIN_MM,
         t851_cap(X, aY, Z, ref_A) + MARGIN_MM,
-        halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm, d) + exact,
+        # The pocket only. Stamping the ballast capsule at its exact size let the rounding of
+        # its top rim eat the pocket floor up to 0.85 mm beyond it, under the T4.2 cargo (6-20
+        # mm3, Part 4, 2026-11-10). The mask draws it a cell small; Part 4 cuts it exactly.
+        halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm, d, ballast=False) + exact,
         block_slot(X, aY, Z) + exact,
         halo_zones(X, aY, Z, ref_A, g.d_halo_mm, part="above") + exact,
         halo_zones(X, aY, Z, ref_A, g.d_halo_mm, _canister(g), part="shadows") + MARGIN_MM,

@@ -163,3 +163,26 @@ def test_slot_corners_are_sharp_in_the_half_body():
                                          [b["x_min_m"] * 1e3, fh.HALO_CROSS_SECTION_HALF_WIDTH_MM, fh.HALO_CROSS_SECTION_TOP_MM]])
     ahead = h.intersection(front, engine="manifold").volume
     assert ahead < 0.5, f"{ahead:.2f} mm3 of body in the halo's front view (T4.4.2)"
+
+
+def test_pocket_floor_stays_full_height_up_to_the_ballast_slot():
+    """The T4.2 cargo shares the ballast slot and Part 4 cuts the slot exactly, so the body
+    must stand up to the cargo top right to the slot's exact outline. The stamp drew the
+    capsule at its exact size and the rim's rounding took the floor down to 23.71 mm at
+    0.45 mm from it (cargo top 23.9; every carved car, Part 4, 2026-11-10)."""
+    import halo_pocket as hp
+    import trimesh
+    import unified_phi as up
+    import virtual_cargo as vc
+    g, *_ = _setup(1.0)
+    up.enforce_symmetry(g)
+    mesh = up.extract_half_surface(g)
+    m = trimesh.Trimesh(np.asarray(mesh.vertices) * 1e3, mesh.faces, process=False)
+    b = {k: v * 1e3 for k, v in hp.compute_halo_pocket_box_m(g.landmarks["ref_plane_A_m"], g.d_halo_mm).items()}
+    cx = b["x_min_m"] + hp.BALLAST_CENTRE_FROM_POCKET_FRONT_MM
+    r = hp.BALLAST_SLOT_WIDTH_MM / 2.0
+    o = np.array([(cx + dxx, r + dy, b["z_min_m"] + 1.0) for dxx in (-2.0, 0.0, 2.0) for dy in (0.1, 0.45, 0.85)])
+    loc, ray, _ = m.ray.intersects_location(o, np.tile([0.0, 0.0, -1.0], (len(o), 1)))
+    top = np.full(len(o), -np.inf)
+    np.maximum.at(top, ray, loc[:, 2])
+    assert (top >= vc.CARGO_TOP_Z_MM - 1e-3).all(), list(zip(o[:, 1].round(2), top.round(3)))
