@@ -37,6 +37,8 @@ import re
 import shutil
 import subprocess
 import uuid
+
+import numpy as np
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Sequence
@@ -1445,37 +1447,92 @@ def _run(cmd: str, cwd: Path, bashrc: str, log_name: str, timeout: int) -> str:
     return proc.stdout
 
 
-# The move is spread over MORPH_STEPS steps of at most MORPH_STEP_M each, so the
-# Laplacian relaxes the interior between steps (one step left an inverted face on
-# 2 mm local cuts, 2026-11-09). A move beyond MORPH_STEPS * MORPH_STEP_M is not
-# reached and the mesh check below sends the car to a fresh mesh.
-MORPH_STEPS = 20
-MORPH_STEP_M = 2.5e-4
+# --------------------------------------------------------------------------- morph
+# Each `car` patch point of the reference mesh moves by the CHANGE of the surface
+# under it: (nearest point on the new STL) - (nearest point on the reference
+# STL). Where the shape did not change it does not move at all. (OpenFOAM's
+# surfaceDisplacement projected every point straight onto the new surface,
+# which also moved points that snapping had left slightly off the reference
+# surface, and folded one face on every local cut, 2026-11-09.) The interior
+# follows by one displacementLaplacian solve.
+MORPH_STEPS = 1
 
 
-def morph_point_displacement() -> str:
-    """0/pointDisplacement for the morph: `car` points follow the new STL
-    (nearest-point projection), every other boundary stays put."""
-    return (_header("pointVectorField", "pointDisplacement") + """
+def _foam_body(text: str) -> str:
+    """The data part of an ASCII OpenFOAM file: header and comments removed."""
+    i = text.find("FoamFile")
+    if i >= 0:
+        text = text[text.index("}", i) + 1:]
+    return re.sub(r"//[^\n]*", "", text)
+
+
+def read_ascii_points(text: str) -> np.ndarray:
+    num = r"([-+0-9.eE]+)"
+    vals = re.findall(rf"\(\s*{num}\s+{num}\s+{num}\s*\)", _foam_body(text))
+    return np.array(vals, dtype=float).reshape(-1, 3)
+
+
+def read_ascii_faces(text: str) -> list:
+    return [[int(v) for v in m.group(2).split()]
+            for m in re.finditer(r"(\d+)\(([\d\s]*)\)", _foam_body(text))]
+
+
+def patch_range(boundary_text: str, name: str) -> tuple[int, int]:
+    """(startFace, nFaces) of patch `name` in an ASCII polyMesh/boundary file."""
+    m = re.search(rf"\n\s*{re.escape(name)}\s*\n\s*\{{(.*?)\}}", _foam_body(boundary_text), re.S)
+    if not m:
+        raise KeyError(f"no patch {name!r} in boundary")
+    block = m.group(1)
+    return (int(re.search(r"startFace\s+(\d+);", block).group(1)),
+            int(re.search(r"nFaces\s+(\d+);", block).group(1)))
+
+
+def patch_mesh_points(faces: list, start: int, n: int) -> list:
+    """Mesh point labels of a patch in OpenFOAM's order (first appearance walking
+    its faces), which is the order a pointPatchField's values follow."""
+    seen, order = set(), []
+    for f in faces[start:start + n]:
+        for p in f:
+            if p not in seen:
+                seen.add(p)
+                order.append(p)
+    return order
+
+
+def surface_change(points: np.ndarray, ref_stl: str, new_stl: str) -> np.ndarray:
+    """Per point: nearest point on new_stl minus nearest point on ref_stl. Points
+    on the symmetry plane keep y = 0."""
+    import trimesh
+    ref = trimesh.load(ref_stl, force="mesh")
+    new = trimesh.load(new_stl, force="mesh")
+    d = (trimesh.proximity.closest_point(new, points)[0]
+         - trimesh.proximity.closest_point(ref, points)[0])
+    d[np.abs(points[:, 1]) < 1e-9, 1] = 0.0
+    return d
+
+
+def morph_point_displacement(disp: np.ndarray) -> str:
+    """0/pointDisplacement: `car` points move by `disp` (patch point order),
+    every other boundary stays put."""
+    rows = "\n".join(f"({x:.9e} {y:.9e} {z:.9e})" for x, y, z in disp)
+    return (_header("pointVectorField", "pointDisplacement") + f"""
 dimensions      [0 1 0 0 0 0 0];
 internalField   uniform (0 0 0);
 boundaryField
-{
+{{
     car
-    {
-        type            surfaceDisplacement;
-        value           uniform (0 0 0);
-        velocity        ({MORPH_STEP_M} {MORPH_STEP_M} {MORPH_STEP_M});
-        geometry
-        {
-            car.stl { type triSurfaceMesh; name carTarget; }
-        }
-        projectMode     nearest;
-    }
-    symmetry        { type symmetryPlane; }
-    ".*"            { type fixedValue; value uniform (0 0 0); }
-}
-""").replace("{MORPH_STEP_M}", f"{MORPH_STEP_M:g}")
+    {{
+        type            fixedValue;
+        value           nonuniform List<vector> {len(disp)}
+(
+{rows}
+)
+;
+    }}
+    symmetry        {{ type symmetryPlane; }}
+    ".*"            {{ type fixedValue; value uniform (0 0 0); }}
+}}
+""")
 
 
 _MORPH_DYNAMIC_MESH = """
@@ -1485,26 +1542,42 @@ motionSolver        displacementLaplacian;
 displacementLaplacianCoeffs { diffusivity inverseDistance (car); }
 """
 
+
 def _morph(run: Path, cfg: OpenFOAMRunConfig, bashrc: str, timeout_s: int) -> None:
     """Replace snapping by moving the reference mesh onto this car (see morph_from)."""
-    ref = Path(cfg.morph_from) / "constant" / "polyMesh"
-    if not (ref / "points").exists():
-        raise FileNotFoundError(f"morph_from has no mesh: {ref}")
+    ref_case = Path(cfg.morph_from)
+    ref = ref_case / "constant" / "polyMesh"
+    ref_stl = ref_case / "constant" / "triSurface" / "car.stl"
+    if not (ref / "points").exists() or not ref_stl.exists():
+        raise FileNotFoundError(f"morph_from has no mesh or car.stl: {ref_case}")
     dest = run / "constant" / "polyMesh"
     shutil.rmtree(dest, ignore_errors=True)
     shutil.copytree(ref, dest)
     control = (run / "system" / "controlDict").read_text()
     solution = (run / "system" / "fvSolution").read_text()
+    ascii_control = re.sub(r"\nwriteFormat\s+\S+;", "\nwriteFormat     ascii;", control)
     try:
+        # the copied mesh as ASCII, so its car patch points can be read here
+        _write(run / "system" / "controlDict", ascii_control)
+        _run("foamFormatConvert -constant -noFunctionObjects", run, bashrc,
+             "foamFormatConvert.log", timeout_s)
+        start, n = patch_range((dest / "boundary").read_text(), "car")
+        labels = patch_mesh_points(read_ascii_faces((dest / "faces").read_text()), start, n)
+        pts = read_ascii_points((dest / "points").read_text())[labels]
+        disp = surface_change(pts, str(ref_stl), str(run / "constant" / "triSurface" / "car.stl"))
+        (run / "logs").mkdir(exist_ok=True)
+        (run / "logs" / "morph_displacement.txt").write_text(
+            f"points {len(disp)} max {np.abs(disp).max():.3e} m "
+            f"p99 {np.quantile(np.linalg.norm(disp, axis=1), 0.99):.3e} m\n")
         _write(run / "constant" / "dynamicMeshDict",
                _header("dictionary", "dynamicMeshDict") + _MORPH_DYNAMIC_MESH)
-        _write(run / "0" / "pointDisplacement", morph_point_displacement())
+        _write(run / "0" / "pointDisplacement", morph_point_displacement(disp))
         # the motion solver needs its own linear solver, inside the existing block
         _write(run / "system" / "fvSolution",
                solution.replace("solvers\n{", "solvers\n{\n    \"cellDisplacement.*\" "
                                 "{ solver GAMG; smoother GaussSeidel; tolerance 1e-9; relTol 0; }", 1))
         _write(run / "system" / "controlDict",
-               re.sub(r"\nendTime\s+\S+;", f"\nendTime         {MORPH_STEPS};", control)
+               re.sub(r"\nendTime\s+\S+;", f"\nendTime         {MORPH_STEPS};", ascii_control)
                .replace(f"writeInterval   {cfg.max_iterations};", f"writeInterval   {MORPH_STEPS};"))
         _run("moveMesh -noFunctionObjects", run, bashrc, "moveMesh.log", timeout_s)
         moved = run / str(MORPH_STEPS) / "polyMesh" / "points"

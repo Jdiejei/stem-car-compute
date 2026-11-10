@@ -1,65 +1,100 @@
-"""Mesh morphing (noise fix 3) without OpenFOAM: the moveMesh call is faked."""
+"""Mesh morphing (noise fix 3) without OpenFOAM: moveMesh and foamFormatConvert are faked."""
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import openfoam_case as oc
 
+HEAD = "FoamFile\n{\n    version 2.0;\n    format ascii;\n}\n// comment (1 2 3)\n"
 
-def _case(tmp_path, cfg):
+
+def _plate_stl(path, z):
+    v = [(0, 0, z), (1, 0, z), (1, 1, z), (0, 1, z)]
+    tri = [(v[0], v[1], v[2]), (v[0], v[2], v[3])]
+    path.write_text("solid car\n" + "".join(
+        "facet normal 0 0 1\nouter loop\n" + "".join(f"vertex {a} {b} {c}\n" for a, b, c in t)
+        + "endloop\nendfacet\n" for t in tri) + "endsolid car\n")
+
+
+def _ref_case(tmp_path):
+    """A 6-point mesh whose `car` patch is faces 1-2 (points 1,2,3,4,5 in that order)."""
+    ref = tmp_path / "ref"
+    pm = ref / "constant" / "polyMesh"
+    pts = [(9, 9, 9), (0.2, 0.0, 0.0001), (0.4, 0.3, 0), (0.6, 0.6, 0), (0.8, 0.2, 0), (0.5, 0.5, 0)]
+    oc._write(pm / "points", HEAD + f"{len(pts)}\n(\n" + "".join(f"({x} {y} {z})\n" for x, y, z in pts) + ")\n")
+    oc._write(pm / "faces", HEAD + "3\n(\n3(0 1 2)\n4(1 2 3 4)\n3(4 5 1)\n)\n")
+    oc._write(pm / "boundary", HEAD + "2\n(\n    inlet\n    {\n        type patch;\n        nFaces 1;\n"
+              "        startFace 0;\n    }\n    car\n    {\n        type wall;\n        nFaces 2;\n"
+              "        startFace 1;\n    }\n)\n")
+    for f in ("owner", "neighbour"):
+        oc._write(pm / f, HEAD + "0\n(\n)\n")
+    (ref / "constant" / "triSurface").mkdir(parents=True)
+    _plate_stl(ref / "constant" / "triSurface" / "car.stl", 0.0)
+    return ref
+
+
+def test_ascii_readers_and_patch_point_order(tmp_path):
+    ref = _ref_case(tmp_path)
+    pm = ref / "constant" / "polyMesh"
+    pts = oc.read_ascii_points((pm / "points").read_text())
+    faces = oc.read_ascii_faces((pm / "faces").read_text())
+    assert pts.shape == (6, 3) and faces == [[0, 1, 2], [1, 2, 3, 4], [4, 5, 1]]
+    assert oc.patch_range((pm / "boundary").read_text(), "car") == (1, 2)
+    assert oc.patch_mesh_points(faces, 1, 2) == [1, 2, 3, 4, 5]          # first-appearance order
+
+
+def test_points_move_by_the_change_of_the_surface_only(tmp_path):
+    ref = _ref_case(tmp_path)
+    _plate_stl(tmp_path / "same.stl", 0.0)
+    _plate_stl(tmp_path / "up.stl", 0.002)
+    pts = np.array([[0.2, 0.0, 0.0001], [0.5, 0.5, 0.0]])       # one point a little off the surface
+    ref_stl = str(ref / "constant" / "triSurface" / "car.stl")
+    assert np.allclose(oc.surface_change(pts, ref_stl, str(tmp_path / "same.stl")), 0)   # no change: no move
+    d = oc.surface_change(pts, ref_stl, str(tmp_path / "up.stl"))
+    assert np.allclose(d, [[0, 0, 0.002], [0, 0, 0.002]])        # exactly the change, even off-surface
+
+
+def test_morph_writes_the_displacement_and_restores_the_case(tmp_path, monkeypatch):
+    ref = _ref_case(tmp_path)
+    cfg = oc.OpenFOAMRunConfig(max_iterations=1000, morph_from=str(ref))
     run = tmp_path / "run"
     oc._write(run / "system" / "controlDict", oc.build_control_dict(cfg, 1e-3))
     oc._write(run / "system" / "fvSolution", oc._FV_SOLUTION)
-    oc._write(run / "constant" / "polyMesh" / "points", "blockMesh points")
-    ref = tmp_path / "ref"
-    for f in ("points", "faces", "owner", "neighbour", "boundary"):
-        oc._write(ref / "constant" / "polyMesh" / f, f"ref {f}")
-    return run, ref
-
-
-def test_morph_moves_the_reference_mesh_and_restores_the_case(tmp_path, monkeypatch):
-    cfg = oc.OpenFOAMRunConfig(max_iterations=1000, morph_from=str(tmp_path / "ref"))
-    run, _ = _case(tmp_path, cfg)
-    seen = {}
+    (run / "constant" / "triSurface").mkdir(parents=True)
+    _plate_stl(run / "constant" / "triSurface" / "car.stl", 0.001)
+    control0 = (run / "system" / "controlDict").read_text()
+    seen = []
 
     def fake_run(cmd, cwd, bashrc, log, timeout):
-        seen["cmd"] = cmd
-        seen["control"] = (cwd / "system" / "controlDict").read_text()
-        seen["solution"] = (cwd / "system" / "fvSolution").read_text()
-        seen["pd"] = (cwd / "0" / "pointDisplacement").read_text()
-        seen["dyn"] = (cwd / "constant" / "dynamicMeshDict").read_text()
-        seen["mesh_points"] = (cwd / "constant" / "polyMesh" / "points").read_text()
-        oc._write(cwd / str(oc.MORPH_STEPS) / "polyMesh" / "points", "moved points")
+        seen.append((cmd, (cwd / "system" / "controlDict").read_text()))
+        if cmd.startswith("moveMesh"):
+            pd = (cwd / "0" / "pointDisplacement").read_text()
+            seen.append(("pd", pd))
+            oc._write(cwd / str(oc.MORPH_STEPS) / "polyMesh" / "points", "moved points")
         return ""
 
     monkeypatch.setattr(oc, "_run", fake_run)
-    control0 = (run / "system" / "controlDict").read_text()
     oc._morph(run, cfg, "bashrc", 60)
-
-    assert seen["cmd"] == "moveMesh -noFunctionObjects"
-    assert seen["mesh_points"] == "ref points"                 # started from the reference
-    assert f"endTime         {oc.MORPH_STEPS};" in seen["control"]
-    assert f"writeInterval   {oc.MORPH_STEPS};" in seen["control"]
-    assert '"cellDisplacement.*"' in seen["solution"]
-    assert "surfaceDisplacement" in seen["pd"] and "car.stl" in seen["pd"]
-    assert "displacementLaplacian" in seen["dyn"]
-    # result: moved points in place, reference topology, case as it was
+    cmds = [c for c, _ in seen]
+    assert cmds == ["foamFormatConvert -constant -noFunctionObjects", "moveMesh -noFunctionObjects", "pd"]
+    assert "writeFormat     ascii;" in seen[0][1]
+    pd = dict(seen)["pd"]
+    assert "type            fixedValue;" in pd and "nonuniform List<vector> 5" in pd
+    assert pd.count("1.000000000e-03)") == 5                    # every car point up by 1 mm
     assert (run / "constant" / "polyMesh" / "points").read_text() == "moved points"
-    assert (run / "constant" / "polyMesh" / "faces").read_text() == "ref faces"
     assert (run / "system" / "controlDict").read_text() == control0
-    assert '"cellDisplacement.*"' not in (run / "system" / "fvSolution").read_text()
-    assert not (run / str(oc.MORPH_STEPS)).exists()
-    assert not (run / "constant" / "dynamicMeshDict").exists()
-    assert not (run / "0" / "pointDisplacement").exists()
+    assert "points 5" in (run / "logs" / "morph_displacement.txt").read_text()
+    assert not (run / str(oc.MORPH_STEPS)).exists() and not (run / "0" / "pointDisplacement").exists()
 
 
 def test_morph_without_a_reference_mesh_fails_loudly(tmp_path):
     cfg = oc.OpenFOAMRunConfig(morph_from=str(tmp_path / "nowhere"))
-    run, _ = _case(tmp_path, cfg)
     with pytest.raises(FileNotFoundError):
-        oc._morph(run, cfg, "bashrc", 60)
+        oc._morph(tmp_path / "run", cfg, "bashrc", 60)
+
 
 
 def test_snapping_is_unchanged_without_morph(tmp_path, monkeypatch):
@@ -84,11 +119,6 @@ def test_warm_start_without_a_case_fails_loudly(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError):
         oc._mesh(tmp_path, oc.OpenFOAMRunConfig(warm_from=str(tmp_path / "nope")), "bashrc", 60)
 
-
-def test_morph_moves_in_small_steps():
-    pd = oc.morph_point_displacement()
-    assert f"velocity        ({oc.MORPH_STEP_M:g} {oc.MORPH_STEP_M:g} {oc.MORPH_STEP_M:g});" in pd
-    assert oc.MORPH_STEPS * oc.MORPH_STEP_M >= 0.004          # reaches a 4 mm local cut
 
 
 def _mesh_with(tmp_path, monkeypatch, check_text):
