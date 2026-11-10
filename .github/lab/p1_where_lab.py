@@ -185,6 +185,8 @@ if what == "sphere3":
               f"band error mean {e.mean():+.4f} max {np.abs(e).max():.3f} cells", flush=True)
 
 if what == "est":
+    import coarse
+    coarse.use_spacing(1.0)
     # Which weight is right? Shapes of known volume (cells): the straight ramp, the
     # curvature-corrected fractions, the whole-cell count, raw marching cubes, and the
     # repaired (smoothed, volume-restored) mesh the car ships.
