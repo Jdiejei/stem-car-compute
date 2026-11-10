@@ -1,0 +1,91 @@
+name: p3_car_modes
+run-name: "Part 3: measured map on a car (car ${{ inputs.seed }}, ${{ inputs.nmodes }} bumps at ${{ inputs.amps }} mm, ${{ inputs.res }} mesh)"
+
+# Backup measured map on a real car: one base car kept, then each bump re-run on the
+# base car's reshaped mesh, starting from its flow. See part3-simulation/checks/car_modes.py.
+on:
+  workflow_dispatch:
+    inputs:
+      seed: { default: "0" }
+      nmodes: { default: "10" }
+      modes: { default: "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]" }
+      amps: { default: "-1 -0.5 0.5 1" }
+      mode_r_mm: { default: "10" }
+      res: { default: "medium" }
+      iters: { default: "2000" }
+
+permissions: { contents: read }
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+  OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+  OMPI_MCA_rmaps_base_oversubscribe: "1"
+  P3_NMODES: ${{ inputs.nmodes }}
+  P3_MODE_R_MM: ${{ inputs.mode_r_mm }}
+  P3_CFD_RES: ${{ inputs.res }}
+  P3_CFD_ITERS: ${{ inputs.iters }}
+  INSTALL: |
+    (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+    sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+    for i in 1 2 3 4 5; do
+      (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break
+      sleep 30
+    done
+    test -d /usr/lib/openfoam/openfoam2412/tutorials || { echo "OpenFOAM did not install"; exit 1; }
+
+jobs:
+  base:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 30
+        shell: bash
+        run: eval "$INSTALL"; pip install $PY_DEPS
+      - shell: bash
+        working-directory: part5-simulation
+        run: python -W ignore -u ../part3-simulation/checks/car_modes.py base ${{ inputs.seed }} ../out 2>&1 | grep --line-buffered -E '^LAB|Traceback|Error|^  File|failed'; exit ${PIPESTATUS[0]}
+      - run: rm -rf out/build && tar czf base.tgz out
+      - uses: actions/upload-artifact@v4
+        with: { name: base, path: base.tgz }
+
+  mode:
+    needs: base
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        k: ${{ fromJSON(inputs.modes) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 30
+        shell: bash
+        run: eval "$INSTALL"; pip install $PY_DEPS
+      - uses: actions/download-artifact@v4
+        with: { name: base }
+      - run: tar xzf base.tgz
+      - shell: bash
+        working-directory: part5-simulation
+        run: python -W ignore -u ../part3-simulation/checks/car_modes.py mode ../out ${{ matrix.k }} "${{ inputs.amps }}" 2>&1 | grep --line-buffered -E '^LAB|Traceback|Error|^  File|failed'; exit ${PIPESTATUS[0]}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: "mode-${{ matrix.k }}", path: "out/mode_*.json\nout/base.json", if-no-files-found: ignore }
+
+  report:
+    needs: mode
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6
+      - uses: actions/download-artifact@v4
+        with: { path: res, pattern: "mode-*" }
+      - run: python part3-simulation/checks/car_modes.py report res
