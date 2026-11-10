@@ -77,3 +77,7 @@ blackwingstem-wq 42696426214 (575 cars, seeds 43700) and blackwinglinkedin-crypt
 - blackwinglinkedin-crypto 42713843308 (20 lofted cars, seeds 43900, 78badef): 3 legal, 16 illegal, 1 crash (PyMeshLab midpoint subdivision). The "not all meshes are volumes" crash is gone. New rejects: T8.2 nose overhang 13 cars (74.6 mm ahead of Ref A in 10 of them, against 40), mesh_slivers_printed 11 (14-31 %), T4.2 4.
 - The same seeds rebuilt on b863351 (anasssssssss1 42723665776; only Part 1's be43b12/0bb3701 body changes and two legality notes differ; the car settings are identical): 9 legal, 1 illegal (car 43900/0, T4.2 cargo, Part 1's). Every T8.2 and sliver reject cleared, and the masses moved by 0.02-0.06 g. So both came from the 78badef body, not from Part 4's parts (the blunt trailing edge was suspected and is ruled out). The T8.2 and sliver notes now name the part and file.
 - Only 2 of the 4 rebuild machines finished: at about 00:15 UTC GitHub stopped every running job on all four accounts with "repository invocation blocked" (carved canaries 42723347513 and 42723353243, lofted 42723358524, reference cars 42723364126/69288/74253). Not retried, per the lead's rule. Unit tests on b863351 passed before the block (anasssssssss1 42723670829).
+
+## Reference cars on Part 1 19e1a36 (shawshanker18 42754131299, print minimum 0.7 mm)
+
+start, round2 and parts: **162 checks, 0 failed** on each. The block-slot corner strip (block_body_inside_official_block, 5-7 mm3) is gone with Part 1's fix. Sent to Part 1 for its frozen tag.
