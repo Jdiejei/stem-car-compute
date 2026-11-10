@@ -26,6 +26,32 @@ are in the repo named with them. Model times are model times, not track times.
 - Ranked on `T_at_target_s` (each car's race time at the mass target), so the order
   is set by aerodynamics, not by mass differences between the cars.
 
+## Reshaped meshes on carved shapes (remesh limit, in progress)
+
+Six local cuts from Part 1's cutter on the start block (nose, sidepod side, tail
+top; 0.5 and 2 mm deep, Gaussian patch sigma 8 mm), each timed on a mesh reshaped
+from a reference car and on a fresh mesh; reference = the start block through a
+negligible cut, so it shares the cutter's milling (shawshanker18/stem-racing-car
+run 42804229269, `cut_cars.py`, `p2_reshape_cuts.yml`):
+
+| cut | D fresh N | D reshaped N | diff mN | diff ms | reshaped mesh |
+| --- | --- | --- | --- | --- | --- |
+| nose 0.5 mm | 0.5933 | 0.5938 | +0.43 | +0.22 | OK |
+| nose 2 mm | 0.5939 | 0.5937 | -0.23 | -0.12 | OK |
+| rear 0.5 mm | 0.5935 | 0.5949 | +1.36 | +0.70 | OK |
+| rear 2 mm | 0.5936 | 0.5937 | +0.07 | +0.04 | OK |
+| sidepod 0.5 mm | 0.5956 | 0.5917 | -3.85 | -1.99 | OK |
+| sidepod 2 mm | 0.5897 | 0.5896 | -0.11 | -0.05 | OK |
+
+- The same car on two fresh meshes differs by up to 1.8 mN (run 42713902174, where
+  every reshape fell back to a fresh mesh), so 5 of 6 cuts agree within that.
+- The sidepod 0.5 mm case (3.85 mN) is not explained yet.
+- How the reshape got here: plain projection onto the new surface folded one face
+  on every cut. Moving each point by the CHANGE of the surface, read from a
+  16-digit ASCII copy of the reference mesh, fixed most of it. Smoothing that change
+  over 0.5 mm removed the point-to-point jumps at sharp edges. A reference mesh
+  reshaped onto itself (zero move) gives the identical drag (+0.04 mN, run 42767113050).
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
