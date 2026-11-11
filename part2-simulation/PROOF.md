@@ -78,9 +78,21 @@ interval and the part explained by each car's own averaging error
 - Inside the 12 cars below the step (3.900–3.966), the SD about their mean is about
   0.26 ms reshaped only and 0.33 ms reshaped plus warm start. This is for information
   only, not a pass: the test is the full ladder.
-- Next: is the step the shape or the mesh? The same ladder is reshaped from a reference
-  on the other side of the step, 3.978 (run 42915580709). If the step stays at 3.97 mm,
-  it comes from the car's shape. If it moves, it comes from the reshape.
+- **Is the step the shape or the mesh? It's the mesh, through a two-way flow.** The same
+  ladder reshaped from 3.978 instead (shawshanker18 42915580709, stats 42937310306)
+  gives **5.52 ms (4.04–8.70)**, with an averaging part of 0.41 ms. Drag jumps between
+  levels about 0.413, 0.428, 0.442 and 0.454 N, and the step at 3.97 mm is gone.
+- Same car (3.978), two references: 0.447 N reshaped from 3.945, 0.413 N on its own
+  mesh. The difference is all in body drag (0.062 → 0.042 N) and rear wheels (0.116 →
+  0.099 N); every other part is within 0.5 mN. That is the same body-and-rear-wheel
+  switch the fresh meshes showed.
+- So the flow behind the body and rear wheel has more than one steady solution, and
+  the mesh picks which one. Reshaping keeps the mesh the same but doesn't stop the
+  switch. The 3.945 reference happens to sit well inside one solution, so its ladders
+  were quiet; the 3.978 reference sits near the switch.
+- Next: reshape plus warm start from 3.978 (run 42937465031). This tests whether
+  starting every car from one reference flow holds them all on one solution, the low
+  one this time.
 
 - Fresh meshes put near-identical cars on different drag levels (up to 12 % apart:
   body and rear-wheel drag switch together). A time-accurate run (pimpleFoam, 0.12 s,
