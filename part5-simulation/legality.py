@@ -1133,7 +1133,8 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
             ("milled half not watertight before the fuse" if not j["machined_body_watertight"]
              else f"{len(j.get('manufactured', {}))} files"))
     for k, m in assembly.get("gates", {}).items():
-        r[f"P4.{k}"] = _entry(m)
+        r[f"P4.{k}"] = _entry(m, (f"bare beam (no pod fits at this axle): tightest slot corner {m:+.3f} mm against the {3.125} mm ball"
+                                  if k.endswith("slot_corner_radius") else f"margin {m:+.3f}"))
     return r
 
 

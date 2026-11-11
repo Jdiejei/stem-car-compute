@@ -121,11 +121,13 @@ def remesh_file(path, target_edge_mm: float, max_move_mm: float = 0.05, max_edge
     # (1 car in 400), which is a false rejection if only one size is tried.
     # Two more sizes for the rarer part that tears at all three (an 83 mm wing-span edge left
     # in a front assembly, 1 car in 1300).
+    # 15 passes, not 6: on heavy carved bodies 6 left 5.9-7.8 % slivers (worse than the input);
+    # 15 left 0.3-0.5 % (2026-11-11 lab, cars 43101/12 and 43107/15).
     for target in (target_edge_mm, 1.25 * target_edge_mm, 0.8 * target_edge_mm,
                    0.6 * target_edge_mm, 1.6 * target_edge_mm):
         ms = ml.MeshSet()
         ms.add_mesh(ml.Mesh(before.vertices, before.faces))
-        ms.apply_filter("meshing_isotropic_explicit_remeshing", iterations=6,
+        ms.apply_filter("meshing_isotropic_explicit_remeshing", iterations=15,
                         targetlen=ml.PureValue(target), featuredeg=25.0, adaptive=False,
                         checksurfdist=True, maxsurfdist=ml.PureValue(max_move_mm))
         o = ms.current_mesh()
