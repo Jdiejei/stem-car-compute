@@ -90,9 +90,22 @@ interval and the part explained by each car's own averaging error
   the mesh picks which one. Reshaping keeps the mesh the same but doesn't stop the
   switch. The 3.945 reference happens to sit well inside one solution, so its ladders
   were quiet; the 3.978 reference sits near the switch.
-- Next: reshape plus warm start from 3.978 (run 42937465031). This tests whether
-  starting every car from one reference flow holds them all on one solution, the low
-  one this time.
+- Reshape plus warm start from 3.978 (shawshanker18 42937465031, stats 43029712345):
+  **4.95 ms**, with the same levels. Starting from one flow does not hold the cars on
+  one solution on that older code.
+- **On current main the levels are gone for reference 3.945.** Run mw7 (shawshanker18
+  42899718105, both, 3000 it, stats 43029734107) gives **0.362 ms (0.265–0.571)**.
+  The averaging part is only 0.059 ms. All 16 cars sit at 0.408–0.411 N with body drag
+  about 0.034 N, on a different body from the older code.
+- **Part of that 0.36 ms is real shape change.** Part 1's body is built on a grid, so
+  the skin ladder isn't smooth. Six of the 16 cars (3.930, 3.936, 3.972–3.990) carry
+  about 0.035 g less body and about 500 fewer removed cells. Fitting time against skin
+  plus that family gives a family effect of −0.62 ms and a residual of 0.25 ms (13
+  dof). That figure is fitted after looking at the data, so it is evidence, not a pass.
+- Next, a clean test: one car stretched smoothly across its width in 16 steps of about
+  0.01 mm (`body_scale_y`, `p2_noise_morph` input `scales`). Also mw10 (reference
+  3.978 on main, run 43017128788), to check whether the levels are gone for that
+  reference too.
 
 - Fresh meshes put near-identical cars on different drag levels (up to 12 % apart:
   body and rear-wheel drag switch together). A time-accurate run (pimpleFoam, 0.12 s,
