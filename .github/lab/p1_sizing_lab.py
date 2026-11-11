@@ -60,7 +60,7 @@ def one(k):
     mass_g = br["mass_error_g"] + TARGET_KG * 1e3
     return {"seed": seed, "k": k, "layout": lay, "aggressive": aggressive, "cuts": cuts,
             "mass_g": round(mass_g, 4), "mass_error_g": round(br["mass_error_g"], 4),
-            "builds": br["sizing_builds"], "bracketed": br["mass_bracketed"], "unreachable": br.get("mass_unreachable", False),
+            "builds": br["sizing_builds"], "bracketed": br["mass_bracketed"], "unreachable": br.get("mass_unreachable", False), "ballast_needed_g": br.get("ballast_needed_g", 0.0),
             "skin_mm": round(br["skin_offset_mm"], 4), "tried": br.get("sizing_tried"), "t_cut_s": round(t_cut, 1),
             "t_build_s": round(time.time() - t0 - t_cut, 1)}
 
