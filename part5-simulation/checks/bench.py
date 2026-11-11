@@ -80,7 +80,8 @@ def one_run(fname, sigma, kind, seed):
     # ended no worse than it started (true value, within 2 sigma)
     suspect = all(c["status"] == "compass_suspect" or f(c["x"]) <= f0[i] + 2 * sigma
                   for i, c in enumerate(state["chains"]))
-    return ok, suspect
+    gap = (f(best["x"]) - fmin) / sigma
+    return ok, suspect, best["status"], best["round"], gap, sum(h["kept"] for h in best["history"])
 
 
 def false_keep(sigma, trials, seed=0):
@@ -104,6 +105,9 @@ def main(n):
                 res = [one_run(fname, sigma, kind, 10000 * (["bowl", "valley", "peaks"].index(fname) * 4 + ["exact", "noisy", "wrong", "zero"].index(kind)) + s) for s in range(n)]
                 okr = np.mean([r[0] for r in res])
                 sus = np.mean([r[1] for r in res])
+                st = {s: sum(r[2] == s for r in res) for s in {r[2] for r in res}}
+                diag = (f"ends {st}, rounds median {np.median([r[3] for r in res]):.0f}, keeps median"
+                        f" {np.median([r[5] for r in res]):.0f}, gap/sigma p50 {np.median([r[4] for r in res]):.1f} p90 {np.percentile([r[4] for r in res], 90):.1f}")
                 if kind in ("exact", "noisy"):
                     good = okr >= 0.98
                 elif kind == "wrong":
@@ -112,7 +116,7 @@ def main(n):
                     good = True                    # zero gradient: reported only
                 ok_all &= good
                 print(f"LAB sigma {sigma / MS:.1f} ms {fname:6s} {kind:5s}: within 2 sigma {okr:.1%},"
-                      f" no chain walked uphill {sus:.1%} {'PASS' if good else 'FAIL' if kind != 'zero' else ''}",
+                      f" no chain walked uphill {sus:.1%} {"PASS" if good else "FAIL" if kind != "zero" else ""} | {diag}",
                       flush=True)
         fk, rounds = false_keep(sigma, 1000)
         ok_all &= fk <= 0.05
