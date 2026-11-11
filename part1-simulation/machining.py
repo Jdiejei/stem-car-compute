@@ -45,8 +45,9 @@ def _visible(M, axis: int, from_high: bool):
 DIRECTIONS = (("z", 2, True), ("z", 2, False), ("y", 1, True), ("y", 1, False))
 
 
-def reachable_air(A, r):
-    """Air the ball (radius r cells) can clear from the allowed directions.
+def reachable_air(A, r, any_side=False):
+    """Air the ball (radius r cells) can clear from the allowed directions
+    (any_side: wherever the ball fits at all, from any direction).
 
     Valid ball-centre positions are the cells at least r from any solid. A
     centre is usable if the tool can get there along its axis from one of the
@@ -59,8 +60,8 @@ def reachable_air(A, r):
     p = int(np.ceil(r)) + 2
     Ap = np.pad(A, p, constant_values=True)
     C = distance_transform_edt(Ap) > r
-    usable = np.zeros_like(C)
-    for _n, axis, hi in DIRECTIONS:
+    usable = C if any_side else np.zeros_like(C)
+    for _n, axis, hi in (() if any_side else DIRECTIONS):
         usable |= _visible(C, axis, hi)
     reach = _dilate(usable, r) & Ap
     return reach[p:-p, p:-p, p:-p]
@@ -91,7 +92,16 @@ def make_machinable(geom, tool_r_mm: float = TOOL_R_MM, max_iter: int = 4) -> di
         pocket = fh.halo_void_mask.astype(bool)
     Hm = H & ~drilled & ~border & ~pocket
     A = ~S | H
-    grown = 0
+    # The zones' own sharp corners, where no ball fits whatever the body: relieved for every
+    # body. Found from the body alone, the relief was all or nothing: a body flush with a
+    # zone's corner got it, the same body standing 1 mm back from that corner (a coarser
+    # grid's mask) did not, and kept 1,100 mm3 a side behind the front wheel column (the
+    # 0.75 mm body 0.6 g over the 1.0 and 0.5 mm ones, 2026-11-11). Now the relief is the same
+    # place for all of them and a body takes less of it the further back it stands.
+    corner = Hm & ~reachable_air(H, r, any_side=True)
+    add = _dilate(corner, r) & ~phi.hard_mask_solid
+    grown = int((add & ~A).sum())
+    A |= add
     for _ in range(max_iter):
         reach = reachable_air(A, r)
         miss = Hm & ~reach
@@ -109,6 +119,7 @@ def make_machinable(geom, tool_r_mm: float = TOOL_R_MM, max_iter: int = 4) -> di
         "cells_added": int((S2 & ~S).sum()),
         "cells_removed": int((S & ~S2).sum()),
         "zone_cells_grown_for_cutter": grown,
+        "zone_corner_mm3": float(corner.sum() * d_mm ** 3),
         "legal_air_violated": int((S2 & H).sum()),
         # Rule-required air the ball cannot clear without cutting a mandatory
         # solid (e.g. the ballast area's floor edges inside the T4.2 cargo):

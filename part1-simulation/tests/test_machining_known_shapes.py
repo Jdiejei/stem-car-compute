@@ -117,3 +117,25 @@ def test_required_air_with_square_corners_grows_until_the_ball_reaches():
     S, rep = _run(np.zeros_like(pocket), forced=pocket)
     assert rep["legal_air_violated"] == 0 and not S[pocket].any(), "required air left solid"
     assert rep["zone_cells_grown_for_cutter"] > 0 and (~S & ~pocket).any(), "the zone was not grown"
+
+
+def test_a_zone_corner_is_relieved_the_same_for_a_body_flush_with_it_or_just_back_from_it():
+    """A rule zone with a square corner running up the whole height (like a wheel column):
+    required air where i >= 20 and j >= 41. The ball cannot reach into that corner, so the
+    zone is grown there, a ball's radius round the corner. A body flush with the zone and the
+    same body standing 1 mm (2 cells) back from both faces must lose the same relief: cell
+    (16, 37), 5.7 cells from the corner cell (20, 41), is cut on both. Before 2026-11-11 the
+    body 1 mm back kept it (no relief at all) and weighed more than the flush one."""
+    zone = np.zeros((NX, NY, NZ), bool)
+    zone[20:, MID + 1:, :] = True
+    back = np.zeros_like(zone)
+    back[18:, MID - 1:, :] = True
+    back &= ~zone
+    k = NZ // 2
+    S_flush, rep = _run(np.zeros_like(zone), forced=zone)
+    S_back, _ = _run(back, forced=zone)
+    assert rep["zone_corner_mm3"] > 0, "the zone's corner was not found"
+    assert not S_flush[16, 37, k] and not S_back[16, 37, k], "relief missing at the zone's corner"
+    assert S_flush[8, 30, k] and S_back[8, 30, k], "the body far from the corner was cut"
+    assert ((S_flush & ~back) == S_back).mean() > 0.995, "flush and set-back bodies differ beyond the gap"
+
