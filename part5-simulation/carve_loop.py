@@ -33,6 +33,7 @@ CONFIRM = 2
 LOOKS = 5                            # a promising candidate is confirmed with 2, 4, 8, 16, then 32 runs
 MIN_SCALE = 1 / 64
 MAX_ROUNDS = 25
+HARD_ROUNDS = 40                     # a chain still keeping (a keep in its last 5 rounds) may run to 40
 ALPHA = 0.05
 SEED0 = 46000
 RESTARTS = 3                         # fresh starts from the plain compass when trust runs out
@@ -61,6 +62,11 @@ def pooled_sigma(c: dict, prior: float) -> float:
 
 def case(c: dict, tag: str) -> str:
     return f"r{c['round']}_c{c['id']}_{tag}"
+
+
+def cap(c):
+    recent = [h["kept"] for h in c["history"][-5:]]
+    return HARD_ROUNDS if any(recent) else MAX_ROUNDS
 
 
 def needed(state: dict) -> dict:
@@ -179,18 +185,18 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             c["scale"] /= 2                     # nothing better: shrink; a real but unclear gain keeps the size
         c["round"] += 1
         c["phase"], c["cands"] = "search", {}
-        if c["scale"] < MIN_SCALE and c["round"] < MAX_ROUNDS and c.get("restarts", 0) < RESTARTS:
+        if c["scale"] < MIN_SCALE and c["round"] < cap(c) and c.get("restarts", 0) < RESTARTS:
             # restart while rounds are left: forget the learned curvature and step from the plain
             # compass again (a stale curvature model stalls in curved valleys)
             c["scale"], c["mem"], c["g_prev"] = 1.0, [], None
             c["restarts"] = c.get("restarts", 0) + 1
         kept = sum(h["kept"] for h in c["history"])
-        stopping = c["scale"] < MIN_SCALE or c["round"] >= MAX_ROUNDS
+        stopping = c["scale"] < MIN_SCALE or c["round"] >= cap(c)
         if (c["timed"] >= 12 and c["slower"] >= 0.9 * c["timed"]) or (stopping and kept <= 1 and c["slower"] >= 0.75 * c["timed"]):
             c["status"] = "compass_suspect"
         elif c["scale"] < MIN_SCALE:
             c["status"] = "converged"
-        elif c["round"] >= MAX_ROUNDS:
+        elif c["round"] >= cap(c):
             c["status"] = "out_of_rounds"
 
 
