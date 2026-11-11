@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: (for i in 1 2 3 4 5 6; do timeout 300 sudo apt-get update -q -o Acquire::Retries=5 && break; sleep 30; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
       - run: pip install $PY_DEPS
       - run: |
           set -o pipefail
@@ -47,7 +47,7 @@ jobs:
         with: { python-version: "3.11" }
       - timeout-minutes: 25
         run: |
-          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          (for i in 1 2 3 4 5 6; do timeout 300 sudo apt-get update -q -o Acquire::Retries=5 && break; sleep 30; done)
           sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
           curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
           sudo apt-get install -y -q openfoam2412-default
@@ -83,7 +83,7 @@ jobs:
         with: { python-version: "3.11" }
       - timeout-minutes: 25
         run: |
-          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done)
+          (for i in 1 2 3 4 5 6; do timeout 300 sudo apt-get update -q -o Acquire::Retries=5 && break; sleep 30; done)
           sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
           curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
           sudo apt-get install -y -q openfoam2412-default
