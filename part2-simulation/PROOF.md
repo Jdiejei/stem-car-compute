@@ -132,6 +132,8 @@ Start car at skin 3.95 mm, fresh search mesh, 1000 iterations, six GitHub machin
   about 36 times longer. If longer runs don't get there, this pass mark needs the
   team lead's decision, with this evidence.
 
+- Reshaped + warm start, 1000 it, same car (3.945) on 6 machines (blackwingftc-lang/stem-car-compute 43068512344): T 1.55569–1.55599 s, **spread 0.30 ms** (FAIL vs 0.1 ms; was 0.94 ms on fresh meshes). Each run's averaging error is 0.26 ms, so the spread is still that. 3000 it repeat (rp3) running.
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
