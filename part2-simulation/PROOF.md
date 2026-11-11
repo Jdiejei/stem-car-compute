@@ -134,6 +134,8 @@ Start car at skin 3.95 mm, fresh search mesh, 1000 iterations, six GitHub machin
 
 - Reshaped + warm start, 1000 it, same car (3.945) on 6 machines (blackwingftc-lang/stem-car-compute 43068512344): T 1.55569–1.55599 s, **spread 0.30 ms** (FAIL vs 0.1 ms; was 0.94 ms on fresh meshes). Each run's averaging error is 0.26 ms, so the spread is still that. 3000 it repeat (rp3) running.
 
+- Same at 3000 it (blackwingftc-lang/stem-car-compute 43066007386): T 1.55719–1.55748 s, **spread 0.29 ms** (FAIL). Averaging error halved (0.13 ms) but the spread did not: the machines differ by more than the averaging. Drag also still creeps between 1000 and 3000 it (0.413 → 0.416 N), so each run is still settling; next check whether the spread comes from parallel arithmetic order.
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
