@@ -56,6 +56,32 @@ def carve_field(c: dict, path: Path) -> None:
 
 
 sc.carve_field = carve_field
+if "where" in (sys.argv[3] if len(sys.argv) > 3 else ""):   # where: the slivers of each sliver-illegal car, file by file
+    import tempfile as _tf
+    import trimesh as _tm
+    _mk, _dirs = _tf.mkdtemp, []
+    _tf.mkdtemp = lambda *a, **k: (_dirs.append(_mk(*a, **k)) or _dirs[-1])
+    _b1 = sc.build_one
+
+    def _where(c):
+        row = _b1(c)
+        if "mesh_slivers_body" in row.get("failed", []):
+            d = Path(_dirs[-1])
+            for p in sorted(d.rglob("*.stl")):
+                m = _tm.load(p, force="mesh")
+                if len(m.faces) == 0:
+                    continue
+                s = np.degrees(m.face_angles.min(axis=1)) < 5.0
+                cen = m.triangles_center[s] * (1e3 if m.bounds[1][0] < 1.0 else 1.0)
+                bins = {}
+                for q in np.round(cen / 5.0) * 5.0:
+                    k = tuple(q.tolist())
+                    bins[k] = bins.get(k, 0) + 1
+                top = sorted(bins.items(), key=lambda t: -t[1])[:6]
+                print("LAB where", json.dumps({"file": str(p.relative_to(d)), "faces": len(m.faces),
+                                               "sliver_pct": round(100 * float(s.mean()), 2), "top5mm": top}), flush=True)
+        return row
+    sc.build_one = _where
 seed, n = int(sys.argv[1]), int(sys.argv[2])
 MODE = sys.argv[3] if len(sys.argv) > 3 else ""     # nocorner | nobars: switch off one 11-Nov cutter change
 if "nocorner" in MODE:                                # corner relief for every body (6b95197) off
