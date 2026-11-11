@@ -23,19 +23,19 @@ MS = 1e-3
 
 def functions(rng):
     xs = rng.uniform(0.3, 0.7, D)
-    w = np.geomspace(1, 100, D) * 0.02 / 100          # weights spread over 100x
+    w = np.geomspace(1, 100, D) * 0.2 / 100           # weights spread over 100x; start ~10-30 ms above the minimum
     w[D // 2:] *= np.r_[1, np.zeros(D - D // 2 - 1)]   # flat directions: settings with no effect
     th = rng.uniform(0, np.pi)
     Rm = np.eye(D)
     Rm[:2, :2] = [[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]]
-    wells = [(rng.uniform(0.15, 0.85, D), rng.uniform(4, 12) * MS, rng.uniform(0.12, 0.2)) for _ in range(4)]
+    wells = [(rng.uniform(0.15, 0.85, D), rng.uniform(4, 12) * MS, rng.uniform(0.2, 0.3)) for _ in range(4)]
 
     def bowl(x):
         return float(np.sum(w * (x - xs) ** 2))
 
     def valley(x):
         u = Rm @ (x - xs)
-        return float(0.01 * (u[1] - u[0] ** 2) ** 2 + 0.002 * u[0] ** 2 + 0.0005 * np.sum(u[2:] ** 2))
+        return float(0.05 * (u[1] - u[0] ** 2) ** 2 + 0.01 * u[0] ** 2 + 0.0025 * np.sum(u[2:] ** 2))
 
     def peaks(x):
         return float(-sum(dep * np.exp(-np.sum((x - c) ** 2) / (2 * r ** 2)) for c, dep, r in wells))
@@ -73,7 +73,7 @@ def step(x, d, size):
 def one_run(fname, sigma, kind, seed):
     rng = np.random.default_rng(seed)
     f, fmin = functions(rng)[fname]
-    starts = 3 if fname == "peaks" else 1
+    starts = 20 if fname == "peaks" else 1          # the final run plans about 20 starts
     state = {"chains": [cl.new_chain(i, rng.uniform(0, 1, D), 0.2) for i in range(starts)]}
     cl.run_local(state, oracle(kind, f, rng), step, lambda x, _: f(x) + rng.normal(0, sigma), sigma)
     best = min(state["chains"], key=lambda c: f(c["x"]))

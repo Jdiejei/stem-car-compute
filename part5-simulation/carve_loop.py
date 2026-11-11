@@ -11,6 +11,7 @@ A chain is one car being improved. Each round, per chain:
   3. scale:   kept at the largest size -> double the sizes; kept elsewhere -> keep; nothing
               kept -> halve. The chain stops when the scale falls below MIN_SCALE of its start.
 A chain also stops, flagged "compass_suspect", once >= 12 candidates are timed and >= 90 % of
+them were slower, or when it stops having kept at most one step while >= 75 % of its candidates
 them were slower than the car they came from: a compass that points uphill.
 
 Everything is a pure function of the state and the results so far, and every timing has a case
@@ -121,7 +122,9 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             c["scale"] /= 2
         c["round"] += 1
         c["phase"], c["cands"] = "search", {}
-        if c["timed"] >= 12 and c["slower"] >= 0.9 * c["timed"]:
+        kept = sum(h["kept"] for h in c["history"])
+        stopping = c["scale"] < MIN_SCALE * c["scale0"] or c["round"] >= MAX_ROUNDS
+        if (c["timed"] >= 12 and c["slower"] >= 0.9 * c["timed"]) or (stopping and kept <= 1 and c["slower"] >= 0.75 * c["timed"]):
             c["status"] = "compass_suspect"
         elif c["scale"] < MIN_SCALE * c["scale0"]:
             c["status"] = "converged"
