@@ -13,6 +13,7 @@ on:
       res: { default: "medium" }
       iters: { default: "1000" }
       opt: { default: '{"layer_overrides": {"nSurfaceLayers": 0}}' }
+      scales: { default: "", description: "optional smooth ladder: body width factors (body_scale_y) on the ref_skin car; replaces skins" }
       skins: { default: '["3.90","3.91","3.92","3.93","3.94","3.95","3.96","3.97","3.98","3.99","4.00","4.01","4.02","4.03","4.04","4.05"]' }
 
 permissions:
@@ -63,7 +64,7 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        skin: ${{ fromJSON(inputs.skins) }}
+        skin: ${{ fromJSON(inputs.scales != '' && inputs.scales || inputs.skins) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -79,9 +80,10 @@ jobs:
         with: { name: "morphref-${{ inputs.label }}", path: /tmp/refmesh }
       - working-directory: part5-simulation
         run: |
-          opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); m=sys.argv[2]; d.update({'morph_from': '/tmp/refmesh'} if m in ('morph', 'both') else {}); d.update({'warm_from': '/tmp/refmesh'} if m in ('warm', 'both') else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ inputs.mode }}')
+          opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); m=sys.argv[2]; d.update({'morph_from': '/tmp/refmesh'} if m in ('morph', 'both') else {}); d.update({'warm_from': '/tmp/refmesh'} if m in ('warm', 'both') else {}); d.update({'body_scale_y': float(sys.argv[3])} if sys.argv[4] else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ inputs.mode }}' '${{ matrix.skin }}' '${{ inputs.scales }}')
+          skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
           set -o pipefail
-          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm ${{ matrix.skin }} \
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
             --cfd --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np 4 --keep-runs --cfd-json "$opt" 2>&1 | tail -3
       - name: Morph log
         if: always()

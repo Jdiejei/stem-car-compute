@@ -625,3 +625,16 @@ def test_wake_boxes_run_behind_the_car_from_the_track():
     assert near[2] == 3 and far[2] == 2
     assert near[1][1][0] >= 0.25 + 0.25 and far[1][1][0] >= 0.25 + 1.0
     assert near[1][0][2] <= 0.0 and far[1][0][2] <= 0.0
+
+
+def test_scale_stl_y_widens_only_across_the_car():
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "car.stl"
+        p.write_text("solid car\n facet normal 0 0 1\n  outer loop\n"
+                     "   vertex 0.1 0.02 0.03\n   vertex 0.2 0 0.03\n   vertex 0.1 0.04 0.05\n"
+                     "  endloop\n endfacet\nendsolid car\n")
+        oc.scale_stl_y(p, 1.001)
+        v = [list(map(float, l.split()[1:])) for l in p.read_text().splitlines() if l.split()[:1] == ["vertex"]]
+        assert v[0] == [0.1, 0.02 * 1.001, 0.03] and v[1][1] == 0.0 and v[2][1] == 0.04 * 1.001
+        assert p.read_text().startswith("solid car")
+    assert OpenFOAMRunConfig().body_scale_y == 1.0

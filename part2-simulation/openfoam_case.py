@@ -184,6 +184,11 @@ class OpenFOAMRunConfig:
     # car, so remeshing noise is zero by construction. Only for small moves of
     # the same car on the same frame and extra surfaces; None = snap as usual.
     morph_from: Optional[str] = None
+    # Smooth-shape noise ladder (2026-11-11): stretch the body (car.stl only) across
+    # the car by this factor about the symmetry plane. Part 1's skin ladder steps
+    # the shape in grid cells (6 of 16 cars in run mw7 carry ~0.035 g less body),
+    # so it is not a smooth truth; a width stretch is. 1.0 = untouched.
+    body_scale_y: float = 1.0
 
     @property
     def resolved(self) -> bool:
@@ -1120,6 +1125,19 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def scale_stl_y(path: Path, k: float) -> None:
+    """Multiply every vertex y of an ASCII STL by k, in place (y = 0 is the symmetry
+    plane, so the half body widens about it). Facet normals are left as written:
+    OpenFOAM recomputes them from the vertices."""
+    out = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        p = line.split()
+        if len(p) == 4 and p[0] == "vertex":
+            line = f"  vertex {p[1]} {float(p[2]) * k!r} {p[3]}"
+        out.append(line)
+    Path(path).write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
 def _normalise_solid_name(stl_path: str, dest: Path, solid_name: str = "car") -> None:
     """Copy the STL to `dest`, forcing the ASCII 'solid <name>' header so the
     snappy patch is named deterministically ('car')."""
@@ -1267,6 +1285,8 @@ def build_case(run_dir: str, stl_path: str, cfg: OpenFOAMRunConfig) -> dict:
     cell_size = max(ref_len / 12.0, 1e-4)
 
     _normalise_solid_name(stl_path, run / "constant" / "triSurface" / "car.stl")
+    if cfg.body_scale_y != 1.0:
+        scale_stl_y(run / "constant" / "triSurface" / "car.stl", cfg.body_scale_y)
 
     add_layers = True
     refinement = RESOLUTION_REFINEMENT[cfg.resolution]
