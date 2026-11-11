@@ -37,6 +37,7 @@ HARD_ROUNDS = 40                     # a chain still keeping (a keep in its last
 ALPHA = 0.05
 SEED0 = 46000
 RESTARTS = 3                         # fresh starts from the plain compass when trust runs out
+ENDGAME = 1 / 8                       # below this trust, confirm with one look of 32 runs (z over sizes only)
 MEMORY = 5                           # L-BFGS pairs kept per chain
 
 
@@ -193,6 +194,8 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             c["dT"] = dT
             c["best"] = min(dT, key=dT.get)
             c["phase"] = "confirm"
+            if c["scale"] < ENDGAME:
+                c["nconf"], c["endgame"] = CONFIRM * 2 ** (LOOKS - 1), True
             continue
         n = c.get("nconf", CONFIRM)
         conf = [results[case(c, f"conf{r}")] for r in range(n)]
@@ -200,7 +203,7 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
         T0 = sum(cur) / len(cur)
         sig = pooled_sigma(c, prior_sigma)
         # Bonferroni over the k candidates AND the LOOKS confirm looks (2, 4, 8 runs)
-        z = z_bonferroni(len(c["cands"]) * LOOKS)
+        z = z_bonferroni(len(c["cands"]) * (1 if c.get("endgame") else LOOKS))
         gain = T0 - sum(conf) / n
         keep = gain > z * sig * (1 / len(cur) + 1 / n) ** 0.5
         if not keep and gain > 0 and n < CONFIRM * 2 ** (LOOKS - 1):
@@ -208,7 +211,7 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             continue
         c["pairs"] += [(conf[i], conf[i + 1]) for i in range(0, n - 1, 2)]
         c["pairs"] += [(cur[i], cur[i + 1]) for i in range(len(c["times"]), len(cur) - 1, 2)]
-        c["nconf"] = CONFIRM
+        c["nconf"], c["endgame"] = CONFIRM, False
         c["history"].append({"round": c["round"], "scale": c["scale"], "best": float(c["best"]),
                              "dT_search": c["dT"][c["best"]], "gain_confirm": gain, "sigma": sig,
                              "z": z, "confirm_runs": n, "kept": keep})
