@@ -178,6 +178,10 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             c["scale"] /= 2                     # nothing better: shrink; a real but unclear gain keeps the size
         c["round"] += 1
         c["phase"], c["cands"] = "search", {}
+        if c["scale"] < MIN_SCALE and c["round"] < MAX_ROUNDS and not c.get("restarted"):
+            # one restart with rounds left: forget the learned curvature and step from the plain
+            # compass again (a stale curvature model stalls in curved valleys)
+            c["scale"], c["mem"], c["g_prev"], c["restarted"] = 1.0, [], None, True
         kept = sum(h["kept"] for h in c["history"])
         stopping = c["scale"] < MIN_SCALE or c["round"] >= MAX_ROUNDS
         if (c["timed"] >= 12 and c["slower"] >= 0.9 * c["timed"]) or (stopping and kept <= 1 and c["slower"] >= 0.75 * c["timed"]):
