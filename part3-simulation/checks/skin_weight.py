@@ -44,7 +44,8 @@ def at_skin(s):
 
 def sampler(g):
     r = g.region
-    axes = [r.origin_m[i] + np.arange(r.shape[i]) * g.spacing_m for i in range(3)]
+    import geometry_contract
+    axes = [r.origin_m[i] + np.arange(r.shape[i]) * geometry_contract.GRID_SPACING_M for i in range(3)]
     return RegularGridInterpolator(axes, np.asarray(g.phi.grid, float), bounds_error=False, fill_value=None)
 
 

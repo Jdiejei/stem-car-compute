@@ -1,219 +1,241 @@
-"""Measured map on a real car, pilot (the backup map of BUILD_SPEC 7, step 4, on cars).
+"""Measured map on a real carved car, and its test on shapes outside its modes (BUILD_SPEC 7
+step 4, 12.4, 12.7).
 
-One base car is built and run once with its case kept. Each mode is a Gaussian bump of
-radius R on the car's own half-body STL, moved along the outward vertex normal by a few
-amplitudes (+ = grow the solid). Every bumped car reuses the base car's mesh, reshaped onto
-it (Part 2's morph_from), and starts from the base car's flow (warm_from), so remeshing noise
-is zero and every car starts on the same flow branch. Points on the symmetry plane keep
-y = 0 (their y move is dropped), so the closing face never moves.
+Every car here is Part 1's start block (cutter.start_block) at one fixed skin, built and timed by
+Part 5's run_car exactly as Part 2's reshape study does, and timed on the BASE car's mesh
+reshaped onto it (morph_from) from the base car's flow (warm_from): the set-up of Part 2's lowest
+timing noise. So each car differs from the base only by its field:
+  * mode k, +/-: the base field minus/plus a Gaussian of height A_MM and radius R_MM (mirrored
+    in y) centred on the block surface: the surface grows/shrinks by about A_MM there;
+  * cut j: one Part 1 cutter.cut step on the block with a random smooth dT_dn (1 to 3 Gaussian
+    patches of random sign, 6 to 20 mm), its 90th-percentile move capped at CUT_DEPTHS mm.
+The real normal move of every car, b (m, + = grown), is measured at the base car's own
+body_half.stl vertices as the signed distance to that car's body_half.stl, so rule zones, milling
+and anything else the builder holds still are in b as built, not as asked.
 
-The pilot asks: is drag (and lift) linear in the amplitude, and is the +a / -a difference
-well clear of the noise, at amplitudes small enough to stay local? The report gives, per mode,
-the central-difference slope at each amplitude and how far the slopes at a and 2a disagree.
+Map: Phi_k = (b_k+ - b_k-)/2 and c_k = (T_k+ - T_k-)/2 (race time at the mass target, s);
+m = Phi^T (Phi diag(A) Phi^T)^-1 c (12.7), so sum(m b A) predicts any small shape's dT.
+Test: each cut's measured T - T_base against its prediction, scored only on cuts whose change is
+>= 3 x its noise (sigma from Part 2, x sqrt 2 for a difference), with BUILD_SPEC 12.4's marks:
+sign right >= 80 %, Pearson r >= 0.8, >= 25 qualifying, sign not fitted. Drag and lift are
+reported the same way for information.
 
-    python car_modes.py base   <seed> <out>                (run from part5-simulation)
-    python car_modes.py mode   <out> <k> "<amps mm>"
-    python car_modes.py report <dir with mode_*.json>
-Runs on GitHub only (p3_car_modes.yml). Env: P3_NMODES (10), P3_MODE_R_MM (10),
-P3_CFD_RES (medium), P3_CFD_ITERS (2000).
+    python car_modes.py plan              <out>             prints the job matrix (JSON)
+    python car_modes.py run   <ref_dir|-> <out> <items...>  items: base | m<k>+ | m<k>- | c<j>
+    python car_modes.py judge <dir with results>
+(run/plan from part5-simulation; GitHub only: p3_car_modes.yml.)
+Env: P3_NMODES 60, P3_MODE_R_MM 10, P3_MODE_A_MM 1, P3_NCUTS 40, P3_CUT_DEPTHS "1 1.5",
+P3_SKIN_MM 3.95, P3_CFD_ITERS 1000, P3_SIGMA_MS 0.36, P3_CHUNK 8.
 """
 from __future__ import annotations
 
-import copy
 import json
 import os
-import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
 
-NMODES = int(os.environ.get("P3_NMODES", "10"))
+LAYOUT = {"W": 120.3, "x_front": 46.0, "d_halo": 43.72}      # run_car's defaults, as Part 2's cut study
+NMODES = int(os.environ.get("P3_NMODES", "60"))
 R_M = float(os.environ.get("P3_MODE_R_MM", "10")) / 1e3
-RES = os.environ.get("P3_CFD_RES", "medium")
-ITERS = int(os.environ.get("P3_CFD_ITERS", "2000"))
-VERTEX = re.compile(r"^(\s*vertex\s+)(\S+)\s+(\S+)\s+(\S+)\s*$")
+A_M = float(os.environ.get("P3_MODE_A_MM", "1")) / 1e3
+NCUTS = int(os.environ.get("P3_NCUTS", "40"))
+DEPTHS = [float(t) for t in os.environ.get("P3_CUT_DEPTHS", "1 1.5").split()]
+SKIN = os.environ.get("P3_SKIN_MM", "3.95")
+ITERS = os.environ.get("P3_CFD_ITERS", "1000")
+SIGMA_S = float(os.environ.get("P3_SIGMA_MS", "0.36")) / 1e3
+CHUNK = int(os.environ.get("P3_CHUNK", "8"))
 
 
-def stl_vertex_lines(text: str):
-    """(line index, xyz) of every 'vertex' line of an ASCII STL, in file order."""
-    out = []
-    for i, line in enumerate(text.splitlines()):
-        m = VERTEX.match(line)
-        if m:
-            out.append((i, [float(m.group(2)), float(m.group(3)), float(m.group(4))]))
-    return out
+def items():
+    return [f"m{k}{s}" for k in range(NMODES) for s in "+-"] + [f"c{j}" for j in range(NCUTS)]
 
 
-def surface(stl: Path):
-    """Merged vertices, outward unit vertex normals and vertex areas of a watertight half body."""
-    import trimesh
-    m = trimesh.load(str(stl), force="mesh")
-    V = np.asarray(m.vertices, float)
-    A = np.zeros(len(V))
-    np.add.at(A, m.faces.ravel(), np.repeat(m.area_faces / 3.0, 3))
-    N = np.asarray(m.vertex_normals, float)
-    if m.volume < 0:
+def block():
+    import cutter
+    return cutter.start_block(LAYOUT)
+
+
+def surface(g):
+    """Block half surface: vertices and outward unit normals."""
+    import unified_phi as up
+    h = up.extract_half_surface(g)
+    V = np.asarray(h.vertices, float)
+    N = np.asarray(h.vertex_normals, float)
+    if h.volume < 0:
         N = -N
-    return V, N, A
+    return h, V, N
 
 
-def bump_disp(V, N, c, amp_m):
-    """Gaussian bump of radius R at c, along the outward normal; symmetry-plane points keep y = 0."""
-    d = amp_m * np.exp(-np.sum((V - c) ** 2, axis=1) / (2 * R_M ** 2))[:, None] * N
-    d[V[:, 1] < 1e-7, 1] = 0.0
-    return d
-
-
-def write_moved_stl(src: Path, dst: Path, V, D):
-    """The source STL text with every vertex line moved by D of its merged vertex."""
-    from scipy.spatial import cKDTree
-    lines = src.read_text().splitlines()
-    vl = stl_vertex_lines("\n".join(lines))
-    dist, idx = cKDTree(V).query(np.array([p for _, p in vl]))
-    assert dist.max() < 1e-9, f"STL vertex not found among the merged vertices ({dist.max():.2e} m)"
-    for (i, p), j in zip(vl, idx):
-        q = np.asarray(p) + D[j]
-        lines[i] = VERTEX.match(lines[i]).group(1) + " ".join(f"{t:.12e}" for t in q)
-    dst.write_text("\n".join(lines) + "\n")
-
-
-def centres(V, N, n):
-    """n mode centres spread over the body (farthest-point), off the closing face."""
-    ok = np.where(N[:, 1] > -0.9)[0]
-    P = V[ok]
-    pick = [int(np.argmin(P[:, 0]))]                       # start at the nose tip
+def centres(V, N):
+    """NMODES centres spread over the body (farthest point from the nose tip), off the closing face."""
+    P = V[N[:, 1] > -0.9]
+    pick = [int(np.argmin(P[:, 0]))]
     d = np.linalg.norm(P - P[pick[0]], axis=1)
-    while len(pick) < n:
+    while len(pick) < NMODES:
         pick.append(int(np.argmax(d)))
         d = np.minimum(d, np.linalg.norm(P - P[pick[-1]], axis=1))
     return P[pick]
 
 
-def cfd(stl: Path, frame, extra, **kw):
-    import cfd_wrapper as cw
-    import solver
-    q, h = cw.run_half_car_cfd(str(stl), max_iterations=ITERS, resolution=RES, n_subdomains=4,
-                               extra_surfaces=extra, domain_reference_bounds=frame,
-                               layer_overrides=solver.SEARCH_CFD["layer_overrides"], **kw)
-    return {"D20_N": 2 * q.D20, "L_N": 2 * q.L, "converged": bool(h.converged),
-            "residual": h.residual_final, "stderr": h.force_mean_stderr}
+def grid_xyz(g):
+    r = g.region
+    from geometry_contract import GRID_SPACING_M as dx     # set by start_block (1 mm)
+    ax = [r.origin_m[i] + np.arange(r.shape[i]) * dx for i in range(3)]
+    return np.meshgrid(*ax, indexing="ij")
 
 
-def base(seed: int, out: Path):
-    import pattern, solver                             # noqa: F401  (these put the other parts on the path)
-    import run_car as rc
-    import assembly as p4
-    import cfd_wrapper as cw
+def field(item: str) -> np.ndarray:
+    """The carved field (float32 metres, Part 1's save_field format) for one item."""
+    import cutter
+    g = block()
+    if item == "base":
+        return np.asarray(g.phi.grid, np.float32)
+    h, V, N = surface(g)
+    if item[0] == "m":
+        k, s = int(item[1:-1]), (1.0 if item[-1] == "+" else -1.0)
+        c = centres(V, N)[k]
+        X, Y, Z = grid_xyz(g)
+        G = np.exp(-((X - c[0]) ** 2 + (np.abs(Y) - c[1]) ** 2 + (Z - c[2]) ** 2) / (2 * R_M ** 2))
+        return np.asarray(g.phi.grid - s * A_M * G, np.float32)          # phi < 0 inside: minus grows
+    j = int(item[1:])
+    rng = np.random.default_rng(42000 + j)
+    ok = np.where(N[:, 1] > -0.9)[0]
+    s = np.zeros(len(V))
+    for _ in range(int(rng.integers(1, 4))):
+        c = V[rng.choice(ok)]
+        sig = rng.uniform(6e-3, 20e-3)
+        s += rng.choice([-1.0, 1.0]) * np.exp(-np.sum((V - c) ** 2, axis=1) / (2 * sig ** 2))
+    depth = DEPTHS[j % len(DEPTHS)] / 1e3
+    g2, rep = cutter.cut(g, s, h, step_m=1e3, max_substeps=6, trust_radius_m=depth)
+    print(f"LAB cut {j}: depth cap {depth * 1e3:g} mm, status {rep.get('status')} {rep.get('reason', '')},"
+          f" move p90 {1e3 * (rep.get('disp_p90_m') or 0):.3f} mm", flush=True)
+    if rep.get("status") != "ok":
+        raise RuntimeError(f"cut {j} refused: {rep.get('reason')}")
+    return np.asarray(g2.phi.grid, np.float32)
+
+
+def run_car(item: str, ref: str | None, out: Path) -> Path:
+    o = out / item
+    shutil.rmtree(o, ignore_errors=True)
+    o.mkdir(parents=True)
+    np.save(o / "field.npy", field(item))
+    opt = {"layer_overrides": {"nSurfaceLayers": 0}}
+    if ref:
+        opt.update(morph_from=ref, warm_from=ref)
+    runs = Path("../part2-simulation/cfd_case_template/runs")
+    shutil.rmtree(runs, ignore_errors=True)
+    cmd = [sys.executable, "-W", "ignore", "run_car.py", "--out", str(o), "--skin-mm", SKIN, "--support", "beam",
+           "--phi-npy", str(o / "field.npy"), "--cfd", "--cfd-iters", ITERS, "--res", "medium", "--np", "4",
+           "--keep-runs", "--cfd-json", json.dumps(opt)]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode != 0:
+        print(p.stdout[-3000:], p.stderr[-3000:])
+        raise RuntimeError(f"run_car failed on {item}")
+    (o / "field.npy").unlink()
+    run = next(runs.iterdir())
+    if item == "base":
+        dst = out / "refmesh"
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(run, dst, ignore=shutil.ignore_patterns("processor*", "logs", "postProcessing"))
+    S = json.loads((o / "summary.json").read_text())
+    c = S["cfd_initial"]
+    rec = {"item": item, "T_s": c["T_at_target_s"], "D_N": c["D20_N"], "L_N": c["L_N"],
+           "converged": c["converged"], "morph_fallback": (run / "MORPH_FALLBACK").exists(),
+           "parts_D_N": {k: v["D_N"] for k, v in (c.get("parts") or {}).items()}}
+    (o / "result.json").write_text(json.dumps(rec, default=float))
+    shutil.rmtree(runs, ignore_errors=True)
+    print(f"LAB {item}: T {rec['T_s'] * 1e3:.3f} ms, drag {rec['D_N']:.5f} N, lift {rec['L_N']:.5f} N,"
+          f" converged {rec['converged']}, reshape fell back {rec['morph_fallback']}", flush=True)
+    return o
+
+
+def measure_b(base_stl: Path, o: Path):
+    """b at the base body's vertices: signed distance to this car's body, + = this car is bigger there."""
+    import trimesh
+    base = trimesh.load(str(base_stl), force="mesh")
+    car = trimesh.load(str(o / "body_half.stl"), force="mesh")
+    b = trimesh.proximity.ProximityQuery(car).signed_distance(base.vertices)    # + inside the car
+    np.save(o / "b.npy", b.astype(np.float32))
+
+
+def run(ref: str | None, out: Path, its):
     out.mkdir(parents=True, exist_ok=True)
-    car = solver.random_start(seed)
-    work = out / "build"
-    work.mkdir(exist_ok=True)
-    a = rc.parse_args(["--out", str(work), "--body-json", json.dumps(car["params"])])
-    geom, info, asm = rc.build_car(a, work, **rc.part4_kwargs(a))
-    b = rc.make_bindings(a, work, asm, seed_geom=copy.deepcopy(geom))
-    gate = b.run_quality_gates(copy.deepcopy(geom), "initial", str(work / "gates"))
-    if not gate.stl_half_path:
-        raise SystemExit(f"the car failed the CFD gate: {gate.failure_reason}")
-    stl = out / "base.stl"
-    shutil.copy(gate.stl_half_path, stl)
-    extra = []                                          # Part 4's parts, copied next to base.stl
-    for i, s in enumerate(p4.extra_surfaces_from(str(Path(asm["_dir"]) / "assembly.json"))):
-        dst = out / f"part{i}_{Path(s['stl']).name}"
-        shutil.copy(s["stl"], dst)
-        extra.append({**s, "stl": str(dst.resolve())})
-    ref_a, ref_b = a.x_front - 16.0, a.x_front + a.W + 16.0
-    frame = (((ref_a - 41.0) / 1e3, 0.0, 0.0), ((ref_b + 41.0) / 1e3, 0.0435, 0.066))
-    r, case = cfd_kept(stl, frame, extra)
-    shutil.copytree(case, out / "base_case", ignore=shutil.ignore_patterns("processor*"))
-    shutil.rmtree(case)
-    V, N, A = surface(stl)
-    C = centres(V, N, NMODES)
-    np.savez(out / "base.npz", V=V, N=N, A=A, C=C, frame=np.array(frame, dtype=object), seed=seed)
-    (out / "base.json").write_text(json.dumps({"seed": seed, "frame": frame, "extra": extra, **r}, default=str))
-    print(f"LAB base car {seed}: drag {r['D20_N']:.5f} N, lift {r['L_N']:.5f} N, converged {r['converged']},"
-          f" force-mean error {r['stderr']}; {NMODES} mode centres of radius {R_M * 1e3:.1f} mm", flush=True)
+    for it in its:
+        o = run_car(it, None if it == "base" else ref, out)
+        if it == "base":
+            import trimesh
+            m = trimesh.load(str(o / "body_half.stl"), force="mesh")
+            A = np.zeros(len(m.vertices))
+            np.add.at(A, m.faces.ravel(), np.repeat(m.area_faces / 3.0, 3))
+            np.savez(out / "base_surface.npz", V=m.vertices, A=A)
+            shutil.copy(o / "body_half.stl", out / "base_body_half.stl")
+        else:
+            measure_b(Path(ref).parent / "base_body_half.stl", o)
+        for f in o.iterdir():                    # keep only what the judge reads
+            if f.name not in ("result.json", "b.npy", "summary.json"):
+                shutil.rmtree(f) if f.is_dir() else f.unlink()
 
 
-def cfd_kept(stl: Path, frame, extra, **kw):
-    """cfd() with the case kept; returns (result, case dir). The caller removes the case."""
-    import cfd_wrapper as cw
-    runs = Path(cw.__file__).resolve().parent / "cfd_case_template" / "runs"
-    before = set(runs.iterdir()) if runs.exists() else set()
-    r = cfd(stl, frame, extra, keep_run_dir=True, **kw)
-    return r, (set(runs.iterdir()) - before).pop()
-
-
-def mode(out: Path, k: int, amps_mm):
-    import pattern, solver                             # noqa: F401
-    z = np.load(out / "base.npz", allow_pickle=True)
-    meta = json.loads((out / "base.json").read_text())
-    frame = tuple(tuple(t) for t in meta["frame"])
-    V, N, c = z["V"], z["N"], z["C"][k]
-    for amp in amps_mm:
-        D = bump_disp(V, N, c, amp / 1e3)
-        stl = out / f"mode_{k}_{amp:+g}.stl"
-        write_moved_stl(out / "base.stl", stl, V, D)
-        r, case = cfd_kept(stl, frame, meta["extra"], morph_from=str((out / "base_case").resolve()),
-                           warm_from=str((out / "base_case").resolve()))
-        fallback = (case / "MORPH_FALLBACK").exists()
-        shutil.rmtree(case)
-        dV = float(np.sum(np.einsum("ij,ij->i", D, N) * z["A"]))
-        rec = {"k": k, "amp_mm": amp, "centre_mm": (c * 1e3).tolist(), "half_volume_change_m3": dV,
-               "morph_fallback": fallback, **r}
-        (out / f"mode_{k}_{amp:+g}.json").write_text(json.dumps(rec, default=float))
-        print(f"LAB mode {k} at {amp:+g} mm: drag {r['D20_N']:.6f} N ({r['D20_N'] - meta['D20_N']:+.2e}),"
-              f" lift {r['L_N']:.6f} N, converged {r['converged']}", flush=True)
-        stl.unlink()
-
-
-def report(d: Path):
-    recs = [json.loads(p.read_text()) for p in Path(d).rglob("mode_*.json")]
-    bases = [json.loads(p.read_text()) for p in Path(d).rglob("base.json")]
-    if not bases:
-        raise SystemExit("no base.json")
-    b = bases[0]
-    print(f"LAB base drag {b['D20_N']:.5f} N, lift {b['L_N']:.5f} N; {len(recs)} bumped cars")
-    by = {}
-    for r in recs:
-        by.setdefault(r["k"], {})[r["amp_mm"]] = r
-    bad = [r for r in recs if not r["converged"] or r.get("morph_fallback")]
-    if bad:
-        print(f"LAB WARNING: {len(bad)} bumped cars did not converge or fell back to a fresh mesh")
-    disagree = []
-    for k in sorted(by):
-        m = by[k]
-        line = []
-        slopes = {}
-        for a in sorted({abs(x) for x in m}):
-            if a in m and -a in m:
-                if m[a]["morph_fallback"] or m[-a]["morph_fallback"]:
-                    line.append(f"{a:g} mm: LEFT OUT (one side fell back to a fresh mesh, not comparable)")
-                    continue
-                s =(m[a]["D20_N"] - m[-a]["D20_N"]) / (2 * a)
-                curv = (m[a]["D20_N"] + m[-a]["D20_N"] - 2 * b["D20_N"]) / a ** 2
-                slopes[a] = s
-                line.append(f"{a:g} mm: slope {s:+.3e} N/mm, bend {curv:+.2e} N/mm2")
-        if len(slopes) >= 2:
-            lo, hi = min(slopes), max(slopes)
-            rel = abs(slopes[hi] - slopes[lo]) / max(abs(slopes[hi]), 1e-30)
-            disagree.append(rel)
-            line.append(f"slopes at {lo:g} and {hi:g} mm differ by {rel:.0%}")
-        print(f"LAB mode {k}: " + "; ".join(line))
-    if disagree:
-        print(f"LAB linear check: slopes at small and large amplitude differ by median {np.median(disagree):.0%},"
-              f" worst {max(disagree):.0%} over {len(disagree)} modes")
+def judge(d: Path):
+    d = Path(d)
+    R = {json.loads(p.read_text())["item"]: (json.loads(p.read_text()), p.parent) for p in d.rglob("result.json")}
+    A = np.load(next(d.rglob("base_surface.npz")))["A"]
+    base = R["base"][0]
+    bad = sorted(k for k, (r, _) in R.items() if not r["converged"] or r["morph_fallback"])
+    print(f"LAB base: T {base['T_s'] * 1e3:.3f} ms, drag {base['D_N']:.5f} N, lift {base['L_N']:.5f} N; "
+          f"{len(R) - 1} other cars; not converged or fell back to a fresh mesh (left out): {bad}")
+    use = {k: v for k, v in R.items() if k not in bad}
+    b = {k: np.load(p / "b.npy").astype(float) for k, (_, p) in use.items() if k != "base"}
+    modes = [k for k in range(NMODES) if f"m{k}+" in b and f"m{k}-" in b]
+    missing = [k for k in range(NMODES) if k not in modes]
+    print(f"LAB modes usable {len(modes)} of {NMODES}; missing {missing}")
+    Phi = np.array([(b[f"m{k}+"] - b[f"m{k}-"]) / 2 for k in modes])
+    amp = np.abs(Phi).max(axis=1)
+    print(f"LAB mode peak move (mm) p5 p50 p95: {np.round(np.percentile(amp, [5, 50, 95]) * 1e3, 3).tolist()}"
+          f" (asked {A_M * 1e3:g}); +/- asymmetry median"
+          f" {np.median([np.linalg.norm(b[f'm{k}+'] + b[f'm{k}-']) / np.linalg.norm(b[f'm{k}+'] - b[f'm{k}-']) for k in modes]):.2f}")
+    G = (Phi * A) @ Phi.T
+    cuts = sorted((k for k in b if k[0] == "c"), key=lambda s: int(s[1:]))
+    for q, key, unit, sig in (("race time", "T_s", 1e3, SIGMA_S), ("drag", "D_N", 1e3, None), ("lift", "L_N", 1e3, None)):
+        c = np.array([(use[f"m{k}+"][0][key] - use[f"m{k}-"][0][key]) / 2 for k in modes])
+        m = Phi.T @ np.linalg.lstsq(G, c, rcond=1e-10)[0]
+        pred = np.array([np.sum(m * b[j] * A) for j in cuts])
+        meas = np.array([use[j][0][key] - base[key] for j in cuts])
+        if sig is None:
+            r = np.corrcoef(pred, meas)[0, 1] if len(cuts) > 2 else np.nan
+            print(f"LAB {q} (information): {len(cuts)} cuts, r {r:+.3f}, sign right {np.mean(np.sign(pred) == np.sign(meas)):.0%},"
+                  f" slope {np.polyfit(pred, meas, 1)[0]:.2f}")
+            continue
+        se = sig * np.sqrt(2)
+        qual = np.abs(meas) >= 3 * se
+        for j, p_, m_, ok in zip(cuts, pred, meas, qual):
+            print(f"LAB cut {j}: {q} measured {m_ * unit:+.3f} ms, predicted {p_ * unit:+.3f} ms"
+                  f"{'' if ok else '  (below 3 x noise, not scored)'}")
+        n = int(qual.sum())
+        r = np.corrcoef(pred[qual], meas[qual])[0, 1] if n > 2 else np.nan
+        sgn = float(np.mean(np.sign(pred[qual]) == np.sign(meas[qual]))) if n else np.nan
+        ok = n >= 25 and sgn >= 0.8 and r >= 0.8
+        print(f"LAB {q}: {n} of {len(cuts)} cuts clear 3 x noise ({3 * se * 1e3:.2f} ms); sign right {sgn:.0%}"
+              f" (mark 80 %), r {r:+.3f} (mark 0.8), slope {np.polyfit(pred[qual], meas[qual], 1)[0] if n > 1 else np.nan:.2f};"
+              f" {'PASS' if ok else 'FAIL'}" + ("" if n >= 25 else " (fewer than 25 qualify)"))
+        np.save(d / "map_dT_dn.npy", m)
 
 
 if __name__ == "__main__":
     sys.path[:0] = [".", str(Path(__file__).resolve().parent)]
     cmd = sys.argv[1]
-    if cmd == "base":
-        base(int(sys.argv[2]), Path(sys.argv[3]))
-    elif cmd == "mode":
-        mode(Path(sys.argv[2]), int(sys.argv[3]), [float(t) for t in sys.argv[4].split()])
-    elif cmd == "report":
-        report(Path(sys.argv[2]))
+    if cmd == "run":
+        import pattern, solver                          # noqa: E402,F401  (these put the other parts on the path)
+    if cmd == "plan":
+        its = items()
+        print(json.dumps([" ".join(its[i:i + CHUNK]) for i in range(0, len(its), CHUNK)]))
+    elif cmd == "run":
+        run(None if sys.argv[2] == "-" else str(Path(sys.argv[2]).resolve()), Path(sys.argv[3]), sys.argv[4:])
+    elif cmd == "judge":
+        judge(Path(sys.argv[2]))
     else:
         raise SystemExit(__doc__)
