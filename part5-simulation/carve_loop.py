@@ -3,7 +3,8 @@
 A chain is one car being improved. Each round, per chain:
   1. search:  the current car's time (two runs the first time, so noise is known) and one
               candidate per step size along the compass (k candidates);
-  2. confirm: the best candidate re-timed twice on fresh runs; it is KEPT only if the fresh mean
+  2. confirm: the best candidate re-timed on fresh runs (2, then 4, then 8 while it looks better
+              but is not yet clear); it is KEPT only if the fresh mean
               beats the current car's mean by z * sigma * sqrt(1/2 + 1/2), with
               z = Phi^-1(1 - 0.05 / k) (Bonferroni over the k candidates) and sigma pooled over
               every repeat pair the chain has (sigma^2 = mean (a - b)^2 / 2). Selection and the
@@ -29,6 +30,7 @@ from statistics import NormalDist
 
 SIZES = (0.25, 0.5, 1.0, 2.0)        # candidates per round, as fractions of the chain's scale
 CONFIRM = 2
+LOOKS = 3                            # a promising candidate is confirmed with 2, then 4, then 8 runs
 MIN_SCALE = 1 / 16
 MAX_ROUNDS = 25
 ALPHA = 0.05
@@ -72,8 +74,11 @@ def needed(state: dict) -> dict:
             for s, x in c["cands"].items():
                 out[case(c, f"s{s}")] = (x, "candidate")
         else:
-            for r in range(CONFIRM):
+            n = c.get("nconf", CONFIRM)
+            for r in range(n):
                 out[case(c, f"conf{r}")] = (c["cands"][c["best"]], "confirm")
+            for r in range(n - CONFIRM):
+                out[case(c, f"curx{r}")] = (c["x"], "current")
     return out
 
 
@@ -146,16 +151,24 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             c["best"] = min(dT, key=dT.get)
             c["phase"] = "confirm"
             continue
-        conf = [results[case(c, f"conf{r}")] for r in range(CONFIRM)]
-        c["pairs"].append(tuple(conf))
-        T0 = sum(c["times"]) / len(c["times"])
+        n = c.get("nconf", CONFIRM)
+        conf = [results[case(c, f"conf{r}")] for r in range(n)]
+        cur = c["times"] + [results[case(c, f"curx{r}")] for r in range(n - CONFIRM)]
+        T0 = sum(cur) / len(cur)
         sig = pooled_sigma(c, prior_sigma)
-        z = z_bonferroni(len(c["cands"]))
-        gain = T0 - sum(conf) / CONFIRM
-        keep = gain > z * sig * (1 / len(c["times"]) + 1 / CONFIRM) ** 0.5
+        # Bonferroni over the k candidates AND the LOOKS confirm looks (2, 4, 8 runs)
+        z = z_bonferroni(len(c["cands"]) * LOOKS)
+        gain = T0 - sum(conf) / n
+        keep = gain > z * sig * (1 / len(cur) + 1 / n) ** 0.5
+        if not keep and gain > 0 and n < CONFIRM * 2 ** (LOOKS - 1):
+            c["nconf"] = 2 * n                    # promising but not yet clear: time both more
+            continue
+        c["pairs"] += [(conf[i], conf[i + 1]) for i in range(0, n - 1, 2)]
+        c["pairs"] += [(cur[i], cur[i + 1]) for i in range(len(c["times"]), len(cur) - 1, 2)]
+        c["nconf"] = CONFIRM
         c["history"].append({"round": c["round"], "scale": c["scale"], "best": float(c["best"]),
                              "dT_search": c["dT"][c["best"]], "gain_confirm": gain, "sigma": sig,
-                             "z": z, "kept": keep})
+                             "z": z, "confirm_runs": n, "kept": keep})
         if keep:
             c["x_prev"], c["g_prev"] = c["x"], c["g"]
             c["x"], c["times"] = c["cands"][c["best"]], list(conf)
