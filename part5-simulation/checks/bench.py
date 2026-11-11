@@ -116,7 +116,7 @@ def main(n):
                     good = True                    # zero gradient: reported only
                 ok_all &= good
                 print(f"LAB sigma {sigma / MS:.1f} ms {fname:6s} {kind:5s}: within 2 sigma {okr:.1%},"
-                      f" no chain walked uphill {sus:.1%} {"PASS" if good else "FAIL" if kind != "zero" else ""} | {diag}",
+                      f" no chain walked uphill {sus:.1%} {'PASS' if good else 'FAIL' if kind != 'zero' else ''} | {diag}",
                       flush=True)
         fk, rounds = false_keep(sigma, 1000)
         ok_all &= fk <= 0.05
