@@ -107,11 +107,51 @@ def lbfgs(g, mem):
     return q
 
 
+def tr_steps(g, mem, fracs, trust, scale0):
+    """Trust-region steps (displacements) for each candidate size.
+
+    Plane: the compass and the last kept step. Curvature there: the inverse of the L-BFGS H
+    restricted to the plane. Radius = frac x trust x |Newton step| (scale0 before any kept
+    step). For each radius the model g.p + p.B.p/2 is minimised over the disc: the Newton point
+    if inside, else the best of 720 points on the circle, so larger sizes bend round a curved
+    valley instead of running along one line. No kept step or a flat plane: -g scaled."""
+    import numpy as np
+    gn = np.linalg.norm(g)
+    if gn == 0:
+        return [g * 0 for f in fracs]
+    if not mem:
+        return [-g / gn * f * trust * scale0 for f in fracs]
+    q1 = -g / gn
+    s = mem[-1][0]
+    v = s - (s @ q1) * q1
+    d = lbfgs(g, mem)
+    if np.linalg.norm(v) < 1e-6 * np.linalg.norm(s):
+        return [d * f * trust for f in fracs]
+    Q = np.stack([q1, v / np.linalg.norm(v)], 1)
+    H2 = np.stack([Q.T @ -lbfgs(Q[:, j], mem) for j in range(2)], 1)
+    H2 = (H2 + H2.T) / 2
+    g2 = Q.T @ g
+    pN = -H2 @ g2
+    B = np.linalg.inv(H2)
+    U = np.stack([np.cos(t := np.linspace(0, 2 * np.pi, 720, endpoint=False)), np.sin(t)], 1)
+    out = []
+    for f in fracs:
+        r = f * trust * np.linalg.norm(pN)
+        if f * trust >= 1:
+            a = pN * f * trust            # past the Newton point: go further along it
+        else:
+            P = U * r
+            a = P[np.argmin(P @ g2 + 0.5 * np.einsum("ij,jk,ik->i", P, B, P))]
+        out.append(Q @ a)
+    return out
+
+
 def plan(state: dict, direction, step) -> None:
     """Make this round's candidates for chains in search that have none yet.
 
     direction(x) is the compass in the problem's coordinates (+ = slower). The chain learns the
-    curvature from its own kept steps (L-BFGS, MEMORY pairs), so the step is -H g; its natural
+    curvature from its own kept steps (L-BFGS, MEMORY pairs); candidates are trust-region steps
+    in the plane of the compass and the last kept step (tr_steps). The natural
     length is |H g| once there is a pair, else the chain's starting scale. Candidates sit at
     SIZES x trust x that length; trust doubles after a keep at the largest size and halves after
     a round with no keep."""
@@ -127,13 +167,9 @@ def plan(state: dict, direction, step) -> None:
                     del mem[:-MEMORY]
                 c["g_prev"] = None
             c["g"] = g
-            d = lbfgs(g, mem)
-            n = np.linalg.norm(d)
-            if n == 0:
-                c["cands"] = {str(f): c["x"] for f in SIZES}
-                continue
-            length = n if mem else c["scale0"]
-            c["cands"] = {str(f): step(c["x"], d / n, f * c["scale"] * length) for f in SIZES}
+            steps = tr_steps(g, mem, SIZES, c["scale"], c["scale0"])
+            c["cands"] = {str(f): (step(c["x"], p / np.linalg.norm(p), np.linalg.norm(p)) if np.linalg.norm(p) > 0 else c["x"])
+                          for f, p in zip(SIZES, steps)}
 
 
 def advance(state: dict, results: dict, prior_sigma: float) -> None:
