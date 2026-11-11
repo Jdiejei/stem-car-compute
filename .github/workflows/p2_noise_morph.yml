@@ -12,6 +12,7 @@ on:
       ref_skin: { default: "3.975" }
       res: { default: "medium" }
       iters: { default: "1000" }
+      np: { default: "4" }
       opt: { default: '{"layer_overrides": {"nSurfaceLayers": 0}}' }
       scales: { default: "", description: "optional smooth ladder: body width factors (body_scale_y) on the ref_skin car; replaces skins" }
       skins: { default: '["3.90","3.91","3.92","3.93","3.94","3.95","3.96","3.97","3.98","3.99","4.00","4.01","4.02","4.03","4.04","4.05"]' }
@@ -42,7 +43,7 @@ jobs:
       - working-directory: part5-simulation
         run: |
           python -W ignore run_car.py --out ../out/ref --body-json '{}' --skin-mm ${{ inputs.ref_skin }} --cfd \
-            --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np 4 --keep-runs --cfd-json '${{ inputs.opt }}' 2>&1 | tail -3
+            --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np ${{ inputs.np }} --keep-runs --cfd-json '${{ inputs.opt }}' 2>&1 | tail -3
       - run: |
           r=$(ls -d part2-simulation/cfd_case_template/runs/*/ | head -1)
           mkdir -p refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C refmesh
@@ -82,7 +83,7 @@ jobs:
           skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
           set -o pipefail
           python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
-            --cfd --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np 4 --keep-runs --cfd-json "$opt" 2>&1 | tail -3
+            --cfd --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np ${{ inputs.np }} --keep-runs --cfd-json "$opt" 2>&1 | tail -3
       - name: Morph log
         if: always()
         run: tail -30 part2-simulation/cfd_case_template/runs/*/logs/moveMesh.log 2>/dev/null; grep -h -A3 "Mesh OK\|Failed" part2-simulation/cfd_case_template/runs/*/logs/checkMesh.log 2>/dev/null | head -20
