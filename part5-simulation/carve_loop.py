@@ -217,8 +217,13 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             c["x"], c["times"] = c["cands"][c["best"]], list(conf)
             if float(c["best"]) == max(SIZES):
                 c["scale"] *= 2
-        elif gain <= 0 or c["dT"][c["best"]] >= 0:
-            c["scale"] /= 2                     # nothing better: shrink; a real but unclear gain keeps the size
+        if keep:
+            c["stall"] = 0
+        elif gain <= 0 or c["dT"][c["best"]] >= 0 or c.get("stall", 0) >= 1:
+            c["scale"] /= 2                     # nothing better, or a second unclear gain in a row: shrink
+            c["stall"] = 0
+        else:
+            c["stall"] = c.get("stall", 0) + 1  # a real but unclear gain keeps the size once
         c["round"] += 1
         c["phase"], c["cands"] = "search", {}
         if c["scale"] < MIN_SCALE and c["round"] < cap(c) and c.get("restarts", 0) < RESTARTS:
