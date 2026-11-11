@@ -31,7 +31,7 @@ from statistics import NormalDist
 SIZES = (0.25, 0.5, 1.0, 2.0)        # candidates per round, as fractions of the chain's scale
 CONFIRM = 2
 LOOKS = 3                            # a promising candidate is confirmed with 2, then 4, then 8 runs
-MIN_SCALE = 1 / 16
+MIN_SCALE = 1 / 64
 MAX_ROUNDS = 25
 ALPHA = 0.05
 SEED0 = 46000
