@@ -269,9 +269,48 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # carved body gets them too. The stub's section is reused below to join a split front.
     stub = (np.abs(Y) <= 4.0) & (Z >= 9.0) & (Z <= 18.0)
 
-    def make(offset_mm, bar_to=None, bridges=None):
+    def bars_for(g, min_cells):
+        """4 mm bars, mirrored, from each piece off the main body that holds required solid or
+        has at least min_cells cells, to the main body's nearest cell; None if there is none.
+        A piece with no required solid whose bar's centre line would cross required air is
+        left out (a rule zone parts it from the body: it is dropped)."""
+        from scipy.ndimage import distance_transform_edt, label
+        lab, n = label(g.phi.grid < 0)
+        if n <= 1:
+            return None
+        sizes = np.bincount(lab.ravel())
+        sizes[0] = 0
+        main_id = sizes.argmax()
+        must = set(np.unique(lab[g.phi.hard_mask_solid & (lab > 0)]).tolist())
+        cut = [i for i in sorted(must | set(np.flatnonzero(sizes >= min_cells).tolist())) if i != main_id]
+        if not cut:
+            return None
+        _, idx = distance_transform_edt(lab != main_id, return_indices=True)
+        bar = np.zeros(lab.shape, bool)
+        Ya = np.abs(Y)
+        d_mm = d * 1e3
+        for i in cut:
+            cells = np.argwhere(lab == i)
+            near = idx[:, cells[:, 0], cells[:, 1], cells[:, 2]].T
+            k = np.linalg.norm(cells - near, axis=1).argmin()
+            pa = np.array([X[tuple(cells[k])], abs(Y[tuple(cells[k])]), Z[tuple(cells[k])]])
+            pb = np.array([X[tuple(near[k])], abs(Y[tuple(near[k])]), Z[tuple(near[k])]])
+            v = pb - pa
+            t = np.clip(((X - pa[0]) * v[0] + (Ya - pa[1]) * v[1] + (Z - pa[2]) * v[2])
+                        / max(float(v @ v), 1e-9), 0.0, 1.0)
+            r2 = (X - pa[0] - t * v[0]) ** 2 + (Ya - pa[1] - t * v[1]) ** 2 + (Z - pa[2] - t * v[2]) ** 2
+            if i not in must and (g.phi.hard_mask_air & (r2 <= (0.75 * d_mm) ** 2)).any():
+                continue
+            bar |= r2 <= 2.0 ** 2
+        return bar if bar.any() else None
+
+    def make(offset_mm, bar_to=None, bridges=None, tries=0):
         import copy
         from scipy.ndimage import label
+        # A piece hanging on by a neck thinner than a cell is one body on one grid and a loose
+        # island on another. Dropped, the body lost up to 0.9 g on that grid alone (5 of 20
+        # bodies over the 0.5 % grid mark, 2026-11-11). Pieces this big are joined instead.
+        min_cells = int(np.ceil(BRIDGE_MIN_MM3 / (d * 1e3) ** 3))
         g = copy.deepcopy(base)
         field = phi0 - offset_mm if not bp.ft_h else phi_mm(bp, X, Y, Z, x_ref_a, x_rear_mm, skin_mm=offset_mm)
         # The skin grows the body, not its length: re-cut at Ref A and the rear face after it.
@@ -295,7 +334,7 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         else:
             rep = _mill_on(g, mill_base)
         up.enforce_symmetry(g)
-        rep["islands_removed_mm3"] = _drop_islands(g) * (d * 1e3) ** 3
+        rep["islands_removed_mm3"] = _drop_islands(g, min_cells if tries < 1 else 0) * (d * 1e3) ** 3
         rep["pinch_cells_filled"] = _close_pinches(g, d)
         # The stub at Ref A must belong to the main body. Where sculpting, a thin skin or the
         # cutter leaves the front as its own piece, the mesh keeps only the biggest one, and
@@ -314,38 +353,23 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
         # The same for every other piece holding required material (the T5.5 wall round the
         # chamber came out on its own, smaller, piece and was lost: "0 % of the annulus solid",
         # 3 of 280 random cars): a 4 mm bar, mirrored, from its cell nearest the main body.
-        if bridges is None:
-            lab, n = label(g.phi.grid < 0)
-            if n > 1:
-                sizes = np.bincount(lab.ravel())
-                sizes[0] = 0
-                main_id = sizes.argmax()
-                cut = [i for i in np.unique(lab[g.phi.hard_mask_solid & (lab > 0)]) if i != main_id]
-                if cut:
-                    from scipy.ndimage import distance_transform_edt
-                    _, idx = distance_transform_edt(lab != main_id, return_indices=True)
-                    bar = np.zeros(lab.shape, bool)
-                    Ya = np.abs(Y)
-                    for i in cut:
-                        cells = np.argwhere(lab == i)
-                        near = idx[:, cells[:, 0], cells[:, 1], cells[:, 2]].T
-                        k = np.linalg.norm(cells - near, axis=1).argmin()
-                        pa = np.array([X[tuple(cells[k])], abs(Y[tuple(cells[k])]), Z[tuple(cells[k])]])
-                        pb = np.array([X[tuple(near[k])], abs(Y[tuple(near[k])]), Z[tuple(near[k])]])
-                        v = pb - pa
-                        t = np.clip(((X - pa[0]) * v[0] + (Ya - pa[1]) * v[1] + (Z - pa[2]) * v[2])
-                                    / max(float(v @ v), 1e-9), 0.0, 1.0)
-                        bar |= ((X - pa[0] - t * v[0]) ** 2 + (Ya - pa[1] - t * v[1]) ** 2
-                                + (Z - pa[2] - t * v[2]) ** 2) <= 2.0 ** 2
-                    return make(offset_mm, bar_to=bar_to, bridges=bar)
+        # ...and for a piece big enough to matter (see min_cells above).
+        if tries < 1:
+            bar = bars_for(g, min_cells)
+            if bar is not None:
+                return make(offset_mm, bar_to=bar_to, bridges=bar if bridges is None else bridges | bar, tries=1)
         rep["bore_cells_stamped"] = _stamp_bore(g, X, Y, Z)
         rep["zone_cells_stamped"] = exact_zones.stamp(g, X, Y, Z)   # last: the zones' true faces
         # A stamp can cut a thin neck: drop what came loose and close pinches again, or the
         # field held 4 bodies under a 1-piece mesh (Part 4, 2026-11-09).
+        if tries < 2:                          # a neck the stamp cut: joined, once, the same way
+            bar = bars_for(g, min_cells)
+            if bar is not None:
+                return make(offset_mm, bar_to=bar_to, bridges=bar if bridges is None else bridges | bar, tries=2)
         rep["islands_after_stamp_mm3"] = _drop_islands(g) * (d * 1e3) ** 3
         rep["pinch_cells_after_stamp"] = _close_pinches(g, d)
         g.spacing_m = d
-        g.build_report = dict(rep, skin_offset_mm=offset_mm)
+        g.build_report = dict(rep, skin_offset_mm=offset_mm, join_rounds=tries)
         return g
 
     def mass(g):
@@ -532,6 +556,7 @@ def _shave_to(g, target_kg: float, mass, spacing_m: float, XYZ, tol_kg: float = 
 
 
 MILL_SPACING_MM = 0.5
+BRIDGE_MIN_MM3 = 30.0        # a loose piece at least this big is joined to the body, not dropped (0.005 g)
 
 
 class _spacing:
@@ -591,10 +616,11 @@ def _close_pinches(geom, spacing_m: float, rounds: int = 4) -> int:
     return up.close_pinches(geom, spacing_m, rounds)
 
 
-def _drop_islands(geom) -> int:
+def _drop_islands(geom, keep_cells: int = 0) -> int:
     """Remove solid pieces cut off from the main body that hold no mandatory
     solid (a swollen skin can poke through a rule zone and leave a sliver
-    behind it, T4.1). Returns the number of cells removed."""
+    behind it, T4.1). keep_cells > 0: pieces of at least that many cells are
+    left for the caller to join. Returns the number of cells removed."""
     from scipy.ndimage import label
     S = geom.phi.grid < 0
     lab, n = label(S)
@@ -606,6 +632,8 @@ def _drop_islands(geom) -> int:
     keep = np.zeros(n + 1, bool)
     keep[main] = True
     keep[np.unique(lab[geom.phi.hard_mask_solid & S])] = True
+    if keep_cells > 0:
+        keep[sizes >= keep_cells] = True
     keep[0] = True
     drop = ~keep[lab]
     geom.phi.grid[drop] = abs(geom.phi.grid[drop]) + 1e-4

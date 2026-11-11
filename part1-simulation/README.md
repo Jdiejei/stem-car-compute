@@ -2,7 +2,7 @@
 
 > The car body as one precise 3D shape.
 
-> **Status 2026-11-09:** the plan is carving from the block. How to build and test this part, with its rules and pass marks: [`BUILD_SPEC.md`](BUILD_SPEC.md). Old work is kept read-only as `archive/*` tags.
+> **Status 2026-11-09:** the plan is carving from the block. How to build and test this part, with its rules and pass marks: `BUILD_SPEC.md` (in the private repo). Old work is kept read-only as `archive/*` tags.
 
 | | |
 |---|---|
