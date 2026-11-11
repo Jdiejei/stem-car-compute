@@ -479,7 +479,10 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     # thinnest. No skin reaches the target: the layout is refused, never sized.
     g.build_report["mass_unreachable"] = (all(t[1] < 0 for t in tried) and max(t[0] for t in tried) >= 15.0
                                           or all(t[1] > 0 for t in tried) and min(t[0] for t in tried) <= -8.0)
-# Too light at the thickest skin: the car carries ballast for the rest (user, 2026-11-11);    # the layout stays. Part 4 reads this.    g.build_report["ballast_needed_g"] = (max(0.0, -g.build_report["mass_error_g"])                                          if g.build_report["mass_unreachable"] else 0.0)
+    # Too light at the thickest skin: the car carries ballast for the rest (user, 2026-11-11);
+    # the layout stays. Part 4 reads this.
+    g.build_report["ballast_needed_g"] = (max(0.0, -g.build_report["mass_error_g"])
+                                          if g.build_report["mass_unreachable"] else 0.0)
     return g
 
 
