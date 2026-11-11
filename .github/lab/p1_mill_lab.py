@@ -82,6 +82,36 @@ def _wrap(name):
 _wrap("_drop_islands")
 _wrap("_close_pinches")
 
+
+def profile(tag, geom):
+    """Solid volume (mm3) on smooth hat nodes in x (20 mm), |y| (6.5 mm), z (10 mm): no bin-edge noise."""
+    import json
+    d, r = up.GRID_SPACING_M, geom.region
+    fill = np.clip(0.5 - geom.phi.grid.astype(np.float64) / d, 0.0, 1.0) * (d * 1e3) ** 3
+    W = []
+    for ax, h, n in ((0, 20.0, 13), (1, 6.5, 6), (2, 10.0, 6)):
+        c = (r.origin_m[ax] + np.arange(r.shape[ax]) * d) * 1e3
+        c = np.abs(c) if ax == 1 else c
+        W.append(np.clip(1.0 - np.abs(c[None, :] - (np.arange(n) * h)[:, None]) / h, 0.0, 1.0))
+    T = np.einsum("ai,bj,ck,ijk->abc", W[0], W[1], W[2], fill)
+    print(f"LAB prof {tag} d {d * 1e3:.2f} tot {fill.sum():.1f} T {json.dumps(np.round(T, 1).tolist())}", flush=True)
+
+
+def _prof_wrap(mod, name):
+    f = getattr(mod, name)
+
+    def w(geom, *a, **k):
+        profile(name + "_in", geom)
+        out = f(geom, *a, **k)
+        profile(name + "_out", geom)
+        return out
+    setattr(mod, name, w)
+
+
+import exact_zones  # noqa: E402
+_prof_wrap(pb, "_stamp_bore")
+_prof_wrap(exact_zones, "stamp")
+
 pb._mill_on = traced
 machining.make_machinable = traced_mm
 runpy.run_path(str(ROOT / ".github" / "lab" / "p1_grid_lab.py"), run_name="__main__")
