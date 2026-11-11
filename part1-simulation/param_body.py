@@ -242,9 +242,11 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     base = up.build_unified_geometry(W_mm, x_front_mm, d_halo_mm, init_mode="full")
     # Milling runs on one fixed MILL_SPACING_MM grid whatever this car's grid (team lead,
     # 2026-11-09): on the car's own grid the ball's fit flipped with the cell alignment and
-    # the same carved body weighed 0.7-1.2 % differently across 1.0 / 0.75 / 0.5 mm.
+    # the same carved body weighed 0.7-1.2 % differently across 1.0 / 0.75 / 0.5 mm. Finer
+    # grids too (the 0.3 mm production car milled on its own grid until 2026-11-11): "every
+    # build" was the rule, and the same mill whatever the grid is what keeps the grids agreeing.
     mill_base = None
-    if machinable and up.GRID_SPACING_M * 1e3 > MILL_SPACING_MM + 1e-9:
+    if machinable and abs(up.GRID_SPACING_M * 1e3 - MILL_SPACING_MM) > 1e-9:
         with _spacing(MILL_SPACING_MM):
             mill_base = up.build_unified_geometry(W_mm, x_front_mm, d_halo_mm, init_mode="full")
     # Read at call time: sandbox/coarse.use_spacing rewrites the module globals,
