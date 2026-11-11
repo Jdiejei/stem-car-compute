@@ -57,6 +57,14 @@ def carve_field(c: dict, path: Path) -> None:
 
 sc.carve_field = carve_field
 seed, n = int(sys.argv[1]), int(sys.argv[2])
+MODE = sys.argv[3] if len(sys.argv) > 3 else ""     # nocorner | nobars: switch off one 11-Nov cutter change
+if "nocorner" in MODE:                                # corner relief for every body (6b95197) off
+    import machining
+    _ra = machining.reachable_air
+    machining.reachable_air = lambda A, r, any_side=False: np.ones(A.shape, bool) if any_side else _ra(A, r)
+if "nobars" in MODE:                                  # loose pieces joined (e63d51e) off: dropped again
+    import param_body
+    param_body.BRIDGE_MIN_MM3 = 1e18
 out = Path("../stress_p1")
 sys.argv = ["stress_cars.py", "--seed", str(seed), "--n", str(n), "--out", str(out), "--carve"]
 sc.main()
