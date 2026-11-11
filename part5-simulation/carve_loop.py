@@ -8,11 +8,12 @@ A chain is one car being improved. Each round, per chain:
               z = Phi^-1(1 - 0.05 / k) (Bonferroni over the k candidates) and sigma pooled over
               every repeat pair the chain has (sigma^2 = mean (a - b)^2 / 2). Selection and the
               keep test use different runs, so picking the luckiest of k is not rewarded.
-  3. scale:   kept at the largest size -> double the sizes; kept elsewhere -> keep; nothing
-              kept -> halve. The chain stops when the scale falls below MIN_SCALE of its start.
+  3. step:    along -H g, H learned from the chain's own kept steps (L-BFGS, see plan); trust
+              doubles after a keep at the largest size, halves after no keep. The chain stops
+              when trust falls below MIN_SCALE.
 A chain also stops, flagged "compass_suspect", once >= 12 candidates are timed and >= 90 % of
 them were slower, or when it stops having kept at most one step while >= 75 % of its candidates
-them were slower than the car they came from: a compass that points uphill.
+were slower than the car they came from: a compass that points uphill.
 
 Everything is a pure function of the state and the results so far, and every timing has a case
 id (round, chain, tag), so a round is idempotent: `needed(state)` lists what is missing, a
@@ -20,7 +21,7 @@ rerun redoes only that, and `advance(state, results)` moves on once all of it is
 
 The problem plugs in through four calls (fake bench: checks/bench.py; real cars: Parts 1-3):
   start(seed) -> x          step(x, direction, size) -> x'
-  direction(x) -> unit downhill direction (-compass)  measure(x, case_id) -> race time, s
+  direction(x) -> the compass, dT/dx in the problem's coordinates   measure(x, case_id) -> time, s
 """
 from __future__ import annotations
 
@@ -32,10 +33,12 @@ MIN_SCALE = 1 / 16
 MAX_ROUNDS = 25
 ALPHA = 0.05
 SEED0 = 46000
+MEMORY = 5                           # L-BFGS pairs kept per chain
 
 
 def new_chain(i: int, x, scale: float) -> dict:
-    return {"id": i, "seed": SEED0 + i, "x": x, "scale": scale, "scale0": scale, "round": 0,
+    """scale: the first step length; afterwards \"scale\" is the trust multiplier (starts at 1)."""
+    return {"id": i, "seed": SEED0 + i, "x": x, "scale": 1.0, "scale0": scale, "round": 0,
             "status": "running", "phase": "search", "times": [], "pairs": [], "history": [],
             "cands": {}, "slower": 0, "timed": 0}
 
@@ -74,12 +77,51 @@ def needed(state: dict) -> dict:
     return out
 
 
+def lbfgs(g, mem):
+    """-H g by the L-BFGS two-loop recursion over the chain's (s, y) pairs (s = kept step, y =
+    change of the compass across it); with no pairs, the plain downhill direction -g."""
+    q = -g
+    a = []
+    for s, y in reversed(mem):
+        r = 1.0 / (y @ s)
+        a.append(r * (s @ q))
+        q = q - a[-1] * y
+    if mem:
+        s, y = mem[-1]
+        q = q * (s @ y) / (y @ y)
+    for (s, y), ai in zip(mem, reversed(a)):
+        r = 1.0 / (y @ s)
+        q = q + s * (ai - r * (y @ q))
+    return q
+
+
 def plan(state: dict, direction, step) -> None:
-    """Make this round's candidates for chains in search that have none yet."""
+    """Make this round's candidates for chains in search that have none yet.
+
+    direction(x) is the compass in the problem's coordinates (+ = slower). The chain learns the
+    curvature from its own kept steps (L-BFGS, MEMORY pairs), so the step is -H g; its natural
+    length is |H g| once there is a pair, else the chain's starting scale. Candidates sit at
+    SIZES x trust x that length; trust doubles after a keep at the largest size and halves after
+    a round with no keep."""
+    import numpy as np
     for c in state["chains"]:
         if c["status"] == "running" and c["phase"] == "search" and not c["cands"]:
-            d = direction(c["x"])
-            c["cands"] = {str(f): step(c["x"], d, f * c["scale"]) for f in SIZES}
+            g = np.asarray(direction(c["x"]), float)
+            mem = c.setdefault("mem", [])
+            if c.get("g_prev") is not None:
+                s, y = np.asarray(c["x"], float) - c["x_prev"], g - c["g_prev"]
+                if s @ y > 1e-12 * np.linalg.norm(s) * np.linalg.norm(y):
+                    mem.append((s, y))
+                    del mem[:-MEMORY]
+                c["g_prev"] = None
+            c["g"] = g
+            d = lbfgs(g, mem)
+            n = np.linalg.norm(d)
+            if n == 0:
+                c["cands"] = {str(f): c["x"] for f in SIZES}
+                continue
+            length = n if mem else c["scale0"]
+            c["cands"] = {str(f): step(c["x"], d / n, f * c["scale"] * length) for f in SIZES}
 
 
 def advance(state: dict, results: dict, prior_sigma: float) -> None:
@@ -115,6 +157,7 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
                              "dT_search": c["dT"][c["best"]], "gain_confirm": gain, "sigma": sig,
                              "z": z, "kept": keep})
         if keep:
+            c["x_prev"], c["g_prev"] = c["x"], c["g"]
             c["x"], c["times"] = c["cands"][c["best"]], list(conf)
             if float(c["best"]) == max(SIZES):
                 c["scale"] *= 2
@@ -123,10 +166,10 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
         c["round"] += 1
         c["phase"], c["cands"] = "search", {}
         kept = sum(h["kept"] for h in c["history"])
-        stopping = c["scale"] < MIN_SCALE * c["scale0"] or c["round"] >= MAX_ROUNDS
+        stopping = c["scale"] < MIN_SCALE or c["round"] >= MAX_ROUNDS
         if (c["timed"] >= 12 and c["slower"] >= 0.9 * c["timed"]) or (stopping and kept <= 1 and c["slower"] >= 0.75 * c["timed"]):
             c["status"] = "compass_suspect"
-        elif c["scale"] < MIN_SCALE * c["scale0"]:
+        elif c["scale"] < MIN_SCALE:
             c["status"] = "converged"
         elif c["round"] >= MAX_ROUNDS:
             c["status"] = "out_of_rounds"
