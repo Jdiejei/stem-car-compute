@@ -40,6 +40,7 @@ def traced(g, fine_base):
         reinitialise_sdf(h.phi)
         h.phi.apply_hard_constraints()
         vol("up_reinit", h, f)
+        mill_diag(h)
         rep = machining.make_machinable(h)
         rep["mill_spacing_mm"] = pb.MILL_SPACING_MM
         vol("milled", h, f)
@@ -60,6 +61,7 @@ _mm = machining.make_machinable
 def traced_mm(geom, *a, **k):          # the 0.5 mm car mills on its own grid: trace that too
     d = up.GRID_SPACING_M
     vol("mm_in", geom, d)
+    mill_diag(geom)
     rep = _mm(geom, *a, **k)
     vol("mm_out", geom, d)
     return rep
@@ -109,6 +111,111 @@ def _prof_wrap(mod, name):
 
 
 import exact_zones  # noqa: E402
+
+
+def _bins(tag, mask, geom, d_mm, top=10):
+    """Largest (x 10 mm, |y| 6.5 mm, z 10 mm) bins of a cell mask, as mm3."""
+    ijk = np.argwhere(mask)
+    if not len(ijk):
+        print(f"LAB {tag} none", flush=True)
+        return
+    o = np.asarray(geom.region.origin_m) * 1e3
+    P = o + ijk * d_mm
+    key = (P[:, 0] // 10).astype(int) * 10000 + (np.abs(P[:, 1]) // 6.5).astype(int) * 100 + (P[:, 2] // 10).astype(int)
+    u, c = np.unique(key, return_counts=True)
+    best = np.argsort(-c)[:top]
+    out = [(int(u[i] // 10000) * 10, round((int(u[i]) // 100 % 100) * 6.5, 1), int(u[i] % 100) * 10, round(float(c[i]) * d_mm ** 3, 1))
+           for i in best]
+    print(f"LAB {tag} total_mm3 {mask.sum() * d_mm ** 3:.1f} top(x,|y|,z,mm3) {out}", flush=True)
+
+
+def mill_diag(geom):
+    """machining.make_machinable's zone-growth loop, replayed without changing geom: which
+    required-air cells the ball misses (and by how much), and where the zone is grown."""
+    from scipy.ndimage import distance_transform_edt as edt
+    phi = geom.phi
+    d_mm = up.GRID_SPACING_M * 1e3
+    r = machining.TOOL_R_MM / d_mm
+    S = phi.grid < 0
+    H = phi.hard_mask_air.copy()
+    drilled = np.zeros_like(H)
+    fh = getattr(geom, "fixed_hardware", None)
+    if fh is not None and getattr(fh, "canister_void_mask", None) is not None:
+        drilled = fh.canister_void_mask.astype(bool)
+    drilled = drilled | up.model_block_slot_mask(geom.region)
+    border = np.zeros_like(H)
+    border[0, :, :] = border[-1, :, :] = True
+    border[:, 0, :] = border[:, -1, :] = True
+    border[:, :, 0] = border[:, :, -1] = True
+    pocket = np.zeros_like(H)
+    if fh is not None and getattr(fh, "halo_void_mask", None) is not None:
+        pocket = fh.halo_void_mask.astype(bool)
+    Hm = H & ~drilled & ~border & ~pocket
+    A = ~S | H
+    p = int(np.ceil(r)) + 2
+    for it in range(4):
+        Ap = np.pad(A, p, constant_values=True)
+        C = edt(Ap) > r
+        usable = np.zeros_like(C)
+        for _n, axis, hi in machining.DIRECTIONS:
+            usable |= machining._visible(C, axis, hi)
+        dist = edt(~usable)[p:-p, p:-p, p:-p]          # cells, to the nearest usable ball centre
+        miss = Hm & (dist > r)
+        tol = {t: int((Hm & (dist > r + t)).sum()) for t in (0.0, 0.5, 1.0, 1.5, 2.0, 3.0)}
+        print(f"LAB milldiag d {d_mm:.2f} iter {it} miss_cells_by_tolerance_cells {tol}", flush=True)
+        if not miss.any():
+            break
+        _bins(f"milldiag iter {it} miss", miss, geom, d_mm)
+        _bins(f"milldiag iter {it} miss_gt1cell", Hm & (dist > r + 1.0), geom, d_mm)
+        add = machining._dilate(miss, r) & ~phi.hard_mask_solid
+        _bins(f"milldiag iter {it} grown", add & ~A, geom, d_mm)
+        A |= add
+
+
+_stamp = None
+
+
+def stamp_diag(g, X, Y, Z):
+    """exact_zones.stamp, with the volume it removes split by the zone that removed it."""
+    from bounding_volumes import default_rule_envelope
+    ez = exact_zones
+    d = up.GRID_SPACING_M
+    d_mm = d * 1e3
+    before = np.clip(0.5 - g.phi.grid.astype(np.float64) / d, 0.0, 1.0)
+    out = _stamp(g, X, Y, Z)
+    rem = (before - np.clip(0.5 - g.phi.grid.astype(np.float64) / d, 0.0, 1.0)) * d_mm ** 3
+    aY = np.abs(Y)
+    ref_A = g.landmarks["ref_plane_A_m"] * 1e3
+    M = ez.MARGIN_MM
+    names = ("envelope", "wheel_columns", "t79", "t851", "pocket", "block_slot", "halo_above", "halo_shadows")
+    F = [ez.envelope_air(X, aY, Z, g.bv, default_rule_envelope(), d_mm) + M,
+         ez.wheel_columns(X, aY, Z, g.W_mm, g.x_front_mm) + M,
+         ez.t79_zones(X, aY, Z, g.W_mm, g.x_front_mm) + M,
+         ez.t851_cap(X, aY, Z, ref_A) + M,
+         ez.halo_pocket_and_ballast(X, aY, Z, ref_A, g.d_halo_mm, d_mm, ballast=False) - 1e-6,
+         ez.block_slot(X, aY, Z) - 1e-6,
+         ez.halo_zones(X, aY, Z, ref_A, g.d_halo_mm, part="above") - 1e-6,
+         ez.halo_zones(X, aY, Z, ref_A, g.d_halo_mm, ez._canister(g), part="shadows") + M]
+    k = np.argmax(np.stack(F), axis=0)
+    rear = (X >= 130.0) & (X <= 250.0)
+    for i, n in enumerate(names):
+        m = k == i
+        w = rem * (m & rear)
+        tot = w.sum()
+        ym = (w * aY).sum() / tot if tot > 1e-9 else 0.0
+        zm = (w * Z).sum() / tot if tot > 1e-9 else 0.0
+        xm = (w * X).sum() / tot if tot > 1e-9 else 0.0
+        print(f"LAB stampdiag d {d_mm:.2f} zone {n} removed_mm3 {rem[m].sum():.1f} rear_mm3 {tot:.1f} "
+              f"rear_mean_x {xm:.1f} absy {ym:.1f} z {zm:.1f}", flush=True)
+    hs = g.phi.hard_mask_solid
+    print(f"LAB stampdiag d {d_mm:.2f} added_mm3 {-rem[rem < 0].sum():.1f} "
+          f"forced_solid_in_zone_mm3 {(hs & (np.max(np.stack(F), axis=0) > 0)).sum() * d_mm ** 3:.1f}", flush=True)
+    del F
+    return out
+
+
+_stamp = exact_zones.stamp
+exact_zones.stamp = stamp_diag
 _prof_wrap(pb, "_stamp_bore")
 _prof_wrap(exact_zones, "stamp")
 
