@@ -131,7 +131,8 @@ class MassReport:
 
     @property
     def competition_mass_kg(self) -> float:
-        return self.total_mass_kg - 0.02115
+        from optimizer_contract import CARTRIDGE_KG    # one cartridge mass (= Part 2's CO2_CARTRIDGE_MASS_KG)
+        return self.total_mass_kg - CARTRIDGE_KG
 
     def launch_com(self) -> tuple:
         """(mass, com_x, com_y, com_z) with a full propellant charge aboard."""
