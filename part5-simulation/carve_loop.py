@@ -33,7 +33,7 @@ CONFIRM = 2
 LOOKS = 5                            # a promising candidate is confirmed with 2, 4, 8, 16, then 32 runs
 MIN_SCALE = 1 / 64
 MAX_ROUNDS = 25
-HARD_ROUNDS = 40                     # a chain still keeping (a keep in its last 5 rounds) may run to 40
+HARD_ROUNDS = 40                     # a chain still keeping (a keep in its last 10 rounds) may run to 40
 ALPHA = 0.05
 SEED0 = 46000
 RESTARTS = 3                         # fresh starts from the plain compass when trust runs out
@@ -65,7 +65,7 @@ def case(c: dict, tag: str) -> str:
 
 
 def cap(c):
-    recent = [h["kept"] for h in c["history"][-5:]]
+    recent = [h["kept"] for h in c["history"][-10:]]
     return HARD_ROUNDS if any(recent) else MAX_ROUNDS
 
 
