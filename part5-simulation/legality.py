@@ -779,6 +779,27 @@ def ballast_capsule_mm(pocket: dict, above_floor_mm: float = 1.0):
     return m
 
 
+LEAD_G_CM3 = 11.34     # T1.22 names fishing lead; the densest common choice, so the most that fits
+
+
+def ballast_checks(body_mm, pocket: dict, ballast_g: float) -> dict:
+    """T1.22: ballast only in the container under the halo, reached through the halo's
+    aperture. With ballast on board the container must be cut out of the body (open to
+    the pocket) and hold that much lead. No ballast: nothing to check."""
+    if not ballast_g or ballast_g <= 0:
+        return {}
+    cap = ballast_capsule_mm(pocket, above_floor_mm=0.0)
+    vol = abs(cap.volume)
+    held_g = vol * 1e-3 * LEAD_G_CM3
+    foam = _volume_in(body_mm, cap)
+    return {
+        "T1.22_ballast_fits_container": _entry(
+            held_g - ballast_g, f"{ballast_g:.2f} g of lead is {ballast_g / LEAD_G_CM3 * 1e3:.0f} mm3; "
+                                f"the container holds {vol:.0f} mm3 ({held_g:.2f} g)"),
+        "T1.22_ballast_container_open": _absent(foam, f"{foam:.1f} mm3 of body left in the ballast container"),
+    }
+
+
 def manufactured_checks(assembly: dict) -> dict:
     """Rules measured on the files that get made, read back from disk: nothing in
     the T7.9 zones, the body inside the real block, the tether line clear, the
@@ -882,6 +903,7 @@ def manufactured_checks(assembly: dict) -> dict:
         hm.apply_scale(1e3)
         lost = _volume_in(body, hm)
         r["T4.4.4_halo_fits_pocket"] = _absent(lost, f"{lost:.1f} mm3 of one half of the halo in the foam")
+    r.update(ballast_checks(body, halo_pocket_mm(assembly), float(assembly.get("ballast_g") or 0.0)))
     r.update(_visibility_checks(assembly, solids))
     nose_row = assembly["joints"]["parts"].get("nose")
     if nose_row is not None:     # a nose only surface-bonded at Ref A has no tenon holding it

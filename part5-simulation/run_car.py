@@ -386,6 +386,13 @@ def main(argv=None):
     log("1-2 BODY + PARTS: parametric body sized against the manufactured parts")
     p4kw = part4_kwargs(a)
     geom, S["body"], asm = build_car(a, out, **dict(p4kw))
+    # A short layout: Part 1's heaviest reachable body is still under 48 g, so the rest goes
+    # in as lead in the T1.22 container (user's decision, 2026-11-11). The referee checks it.
+    need = float(S["body"].get("build", {}).get("ballast_needed_g") or 0.0)
+    if need > 0 and not a.ballast_g:
+        a.ballast_g = need
+        asm["ballast_g"] = need
+        log(f"  short layout: {need:.2f} g of ballast in the container under the halo")
     S["wheels"] = asm["wheel_design"]
     S["parts_mass_g"] = asm["parts_mass_g"]
 

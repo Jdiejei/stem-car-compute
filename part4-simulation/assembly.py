@@ -269,6 +269,27 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, body_half_stl: str,
 CARTRIDGE_LENGTH_MM = 65.0       # Appendix vi, nominal (65.00 -0.5)
 
 
+LEAD_G_CM3 = 11.34
+
+
+def ballast_com_mm(asm: dict, lead_g_cm3: float = LEAD_G_CM3) -> list:
+    """Centre of the lead in the T1.22 container under the halo, filled from the bottom
+    (it was put at the halo's own centre before 2026-11-11, ~10 mm too high)."""
+    import trimesh
+    from halo_pocket import ballast_capsule_mesh_m
+    cap = ballast_capsule_mesh_m((asm["x_front_mm"] - 16.0) / 1e3, asm["d_halo_mm"], above_floor_mm=0.0)
+    cap.apply_scale(1e3)
+    want = min(asm["ballast_g"] / lead_g_cm3 * 1e3, abs(cap.volume))
+    lo, hi = cap.bounds[0, 2], cap.bounds[1, 2]
+    fill = cap
+    for _ in range(40):                              # the level that holds that volume
+        z = 0.5 * (lo + hi)
+        fill = trimesh.intersections.slice_mesh_plane(cap, [0, 0, -1], [0, 0, z], cap=True)
+        lo, hi = (z, hi) if abs(fill.volume) < want else (lo, z)
+    c = fill.center_mass
+    return [float(c[0]), 0.0, float(c[2])]
+
+
 def write_mass_report(asm: dict, path) -> dict:
     """mass_report.json: the car as it is made. Every manufactured file's own volume x its
     material at its own centre of mass, the wheels with their bearings on their axles, the
@@ -290,7 +311,7 @@ def write_mass_report(asm: dict, path) -> dict:
     hc = fhk["halo_com"]
     rows["halo_and_helmet"] = (fhk["halo_mass_kg"] * 1e3, [hc[0] * 1e3, 0.0, hc[2] * 1e3])
     if asm.get("ballast_g"):
-        rows["ballast"] = (float(asm["ballast_g"]), rows["halo_and_helmet"][1])
+        rows["ballast"] = (float(asm["ballast_g"]), ballast_com_mm(asm))
     car_g = sum(g for g, _c in rows.values())
     com = [sum(g * c[i] for g, c in rows.values()) / car_g for i in range(3)]
     # The cartridge's EMPTY shell (Appendix vi: 28.9-29.4 g full, less the 8 g charge): Part 2's
