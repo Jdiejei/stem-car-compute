@@ -193,6 +193,8 @@ def judge(d: Path):
     modes = [k for k in range(NMODES) if f"m{k}+" in b and f"m{k}-" in b]
     missing = [k for k in range(NMODES) if k not in modes]
     print(f"LAB modes usable {len(modes)} of {NMODES}; missing {missing}")
+    if not modes:
+        raise SystemExit("no usable modes: nothing to judge")
     Phi = np.array([(b[f"m{k}+"] - b[f"m{k}-"]) / 2 for k in modes])
     amp = np.abs(Phi).max(axis=1)
     print(f"LAB mode peak move (mm) p5 p50 p95: {np.round(np.percentile(amp, [5, 50, 95]) * 1e3, 3).tolist()}"
