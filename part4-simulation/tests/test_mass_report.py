@@ -20,7 +20,7 @@ def test_masses_and_centre_add_up(tmp_path):
         m.export(str(f))
         made[k] = {"file": str(f), "g": g}
     made["supports_team_cad"] = {"g": 9.9}                     # no file: not in the car as made
-    asm = {"x_front_mm": 50.0, "W_mm": 130.0, "ballast_g": 1.0, "wheel_moi_kg_m2": 1e-7,
+    asm = {"x_front_mm": 50.0, "W_mm": 130.0, "d_halo_mm": 43.72, "ballast_g": 1.0, "wheel_moi_kg_m2": 1e-7,
            "joints": {"manufactured": made, "bore_end_x_mm": 170.0, "bore_axis_z_mm": 31.0},
            "info": {"tethers": [{"bottom_mm": 2.0, "od_mm": 8.0}, {"bottom_mm": 2.0, "od_mm": 8.0}]},
            "wheel_design": {"front": {"R_mm": 14.0, "mass_g": 1.0}, "rear": {"R_mm": 14.0, "mass_g": 1.5}},
