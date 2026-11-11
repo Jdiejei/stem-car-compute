@@ -131,8 +131,9 @@ def finish(geom, layout: dict, target_body_g: float, out_dir) -> dict:
            "field_bodies": int(label(body.phi.grid < 0)[1]),
            "report": {k: v for k, v in br.items() if k != "sizing_tried"}}
     err = br.get("mass_error_g")
-    if err is None or abs(err) > 0.05:                  # the sizing tolerance (BUILD_SPEC 12.4)
-        res.update(status="refused", reason=f"mass_unreachable: {err} g from target")
+    if br.get("mass_unreachable") or err is None or abs(err) > 0.05:                  # the sizing tolerance (BUILD_SPEC 12.4)
+        res.update(status="refused", reason=f"mass_unreachable: {err} g from target"
+                   + (" (no skin reaches it)" if br.get("mass_unreachable") else ""))
     if res["status"] == "ok":
         half = up.extract_half_surface(body)
         half.vertices[half.vertices[:, 1] < 0, 1] = 0.0

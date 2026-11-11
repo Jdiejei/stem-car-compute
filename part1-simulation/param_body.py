@@ -474,6 +474,11 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, bp: BodyParams,
     g.build_report["trim_mm"], g.build_report["trim_evals"] = trim_mm, trim_evals
     g.build_report["sizing_tried"] = [(round(o, 4), round(e * 1e3, 4)) for o, e in tried]   # (skin mm, error g)
     g.build_report["mass_bracketed"] = any(t[1] < 0 for t in tried) and any(t[1] > 0 for t in tried)
+    # The bracket topped out: under the target at the thickest skin (the body fills the
+    # envelope: 47.54 g at 8 and 15 mm on a W 121.6 layout, 2026-11-11) or over it at the
+    # thinnest. No skin reaches the target: the layout is refused, never sized.
+    g.build_report["mass_unreachable"] = (all(t[1] < 0 for t in tried) and max(t[0] for t in tried) >= 15.0
+                                          or all(t[1] > 0 for t in tried) and min(t[0] for t in tried) <= -8.0)
     return g
 
 
