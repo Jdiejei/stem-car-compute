@@ -69,7 +69,9 @@ def envelope_air(X, aY, Z, bv, re, d_mm=1.0):  # d_mm None: points, max() (exact
         ((None, bv.ref_plane_A_m * mm), (None, re.y_nose_half_m * mm), (re.z_floor_m * mm, re.z_nose_top_m * mm)),
         ((bv.sidepod_x_min_m * mm, bv.sidepod_x_max_m * mm), (re.y_sidepod_inner_m * mm, re.y_sidepod_outer_m * mm),
          (re.z_floor_m * mm, re.z_sidepod_top_m * mm)),
-        ((bv.rearpod.origin_m[0] * mm, bv.rearpod.x_max_m() * mm), (None, re.y_body_half_m * mm),
+        # rear face at Ref B + 40 exactly (T9.4.2): the pod's whole cells ran 0.08 mm past it (Part 4, 2026-11-11)
+        ((bv.rearpod.origin_m[0] * mm, min(bv.rearpod.x_max_m(), bv.ref_plane_B_m + re.rearpod_max_length_m) * mm),
+         (None, re.y_body_half_m * mm),
          (re.z_floor_m * mm, re.z_rearpod_top_m * mm)),
         ((bv.ref_plane_A_m * mm, bv.rearpod.origin_m[0] * mm), (None, re.y_body_half_m * mm),
          (re.z_floor_m * mm, re.z_body_top_m * mm)),
@@ -438,6 +440,19 @@ def cut_boxes(g, mesh):
         # The ballast slot, exact (the field draws none: the rounding of a drawn slot's rim
         # took the pocket floor up to 0.025 mm under the T4.2 cargo top, 2026-11-10)
         cap = hp.ballast_capsule_mesh_m(g.landmarks["ref_plane_A_m"], g.d_halo_mm, grow_mm=e)
+        # The T4.2 cargo, exact, added to the body: vertices pushed out of it still left
+        # triangles cutting across its vertical edges (two 3.3 mm3 pieces at its front corners,
+        # Part 4, 2026-11-11). Its y = 0 face 0.2 um inside the body (no face on the cap) and
+        # its top 0.5 um under the floor's cut, so no face of it lies on another one.
+        cf = cargo_faces(g)
+        if cf is not None:
+            N, c = cf
+            x0, x1, zb, zt = -c[0], c[1], -c[4], c[5] - 5e-4
+            k, s = -N[2, 0] / N[2, 1], 1.0 / N[2, 1]
+            w = lambda x: c[2] * s + k * x                    # half-width at x
+            pts = [(x, y, z) for x in (x0, x1) for y in (2e-4, None) for z in (zb, zt)]
+            pts = [(x, w(x) if y is None else y, z) for x, y, z in pts]
+            body = body + m3.Manifold.hull_points(np.asarray(pts) / 1e3)
         cut = cut + m3.Manifold(m3.Mesh(vert_properties=np.asarray(cap.vertices, np.float32),
                                         tri_verts=np.asarray(cap.faces, np.uint32)))
         o = (body - cut).simplify(2e-7).to_mesh()
