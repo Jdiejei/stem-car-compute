@@ -430,7 +430,12 @@ def cut_boxes(g, mesh):
     # than 0.2 um (where several boxes' edges meet: 16 bad edges at x 180.68, y 11.85 on the
     # 0.5 mm body, 2026-11-10) are collapsed before the STL. Checked as delivered, through an
     # STL and back; other offsets tried if that reload still is not a volume.
-    for e in (2e-4, 3e-4, 1e-4):
+    # Five of 40 carved bodies still came back uncut from (2e-4, 3e-4, 1e-4) alone, leaving the
+    # block slot and halo corners 35-40 mm3 illegal (Jdiejei 43154160454, 2026-11-12): more
+    # offsets, then a smaller edge collapse, before giving up.
+    body0 = body
+    for tol, e in [(t, e) for t in (2e-7, 5e-7, 1e-7) for e in (2e-4, 3e-4, 1e-4, 1.5e-4, 2.5e-4)]:
+        body = body0
         cut = None
         for box in _air_boxes(g):
             lo = [(b[0] - e) if b[0] is not None else (-1.0 if a == 1 else -500.0) for a, b in enumerate(box)]
@@ -455,7 +460,7 @@ def cut_boxes(g, mesh):
             body = body + m3.Manifold.hull_points(np.asarray(pts) / 1e3)
         cut = cut + m3.Manifold(m3.Mesh(vert_properties=np.asarray(cap.vertices, np.float32),
                                         tri_verts=np.asarray(cap.faces, np.uint32)))
-        o = (body - cut).simplify(2e-7).to_mesh()
+        o = (body - cut).simplify(tol).to_mesh()
         raw = trimesh.Trimesh(np.asarray(o.vert_properties)[:, :3].astype(np.float64), np.asarray(o.tri_verts),
                               process=False)
         out = trimesh.load(io.BytesIO(raw.export(file_type="stl")), file_type="stl", force="mesh")
