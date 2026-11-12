@@ -1,13 +1,15 @@
 name: p5_bench
-run-name: "Part 5 (loop): fake-stopwatch bench, ${{ inputs.runs }} runs per cell"
+run-name: "Part 5 (loop): fake-stopwatch bench, ${{ inputs.runs }} runs per cell, ${{ inputs.looks }} looks"
 on:
   workflow_dispatch:
     inputs:
       runs: { default: "200" }
+      looks: { default: "5" }
 permissions: { contents: read }
 jobs:
   bench:
     runs-on: ubuntu-24.04
+    env: { P5_LOOKS: "${{ inputs.looks }}" }
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4

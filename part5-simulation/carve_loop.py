@@ -30,7 +30,7 @@ from statistics import NormalDist
 
 SIZES = (0.25, 0.5, 1.0, 2.0)        # candidates per round, as fractions of the chain's scale
 CONFIRM = 2
-LOOKS = 5                            # a promising candidate is confirmed with 2, 4, 8, 16, then 32 runs
+LOOKS = int(__import__("os").environ.get("P5_LOOKS", 5))  # confirm with 2, 4, 8, 16, 32 (... 2^LOOKS) runs
 MIN_SCALE = 1 / 64
 MAX_ROUNDS = 25
 HARD_ROUNDS = 40                     # a chain still keeping (a keep in its last 5 rounds) may run to 40
