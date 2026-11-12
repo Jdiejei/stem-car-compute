@@ -34,7 +34,8 @@ FIXED_SKIN_MM = "2.5"
 IGNORED = {"T3.6_mass"}
 # A car normally takes 75-100 s and well under 8 GB. Past these it is stopped and reported:
 # machines 1, 3 and 8 died or hung round after round, taking all their cars' results along.
-CAR_LIMIT_S = 900
+# 900 s stopped 14 cars on slow runners (one machine averaged 675 s a car, 2026-11-12); CAR_LIMIT_S overrides.
+CAR_LIMIT_S = float(os.environ.get("CAR_LIMIT_S", "900"))
 CAR_LIMIT_GB = 12.0
 
 

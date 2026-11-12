@@ -22,6 +22,9 @@ on:
       max_parallel:
         description: Part 4's cap on this account
         default: "15"
+      car_limit_s:
+        description: seconds one car may take before it is stopped (900 stopped 14 cars on slow runners)
+        default: "1800"
 
 permissions:
   contents: read
@@ -56,6 +59,7 @@ jobs:
       - run: pip install $PY_DEPS
       - name: Build random cars
         working-directory: part5-simulation
+        env: { CAR_LIMIT_S: "${{ inputs.car_limit_s }}" }
         run: python -W ignore checks/stress_cars.py --seed $(( ${{ matrix.seed }} + ${{ inputs.seed_base }} )) --n ${{ inputs.cars_per_machine }} --out ../stress ${{ inputs.carve == 'true' && '--carve' || '' }} 2>&1 | grep --line-buffered -E '^car '
       - uses: actions/upload-artifact@v4
         if: always()
