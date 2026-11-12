@@ -56,6 +56,26 @@ def carve_field(c: dict, path: Path) -> None:
 
 
 sc.carve_field = carve_field
+if "span" in (sys.argv[3] if len(sys.argv) > 3 else ""):   # span: what cuts the front wing's span, and where
+    import legality as _lg
+    import trimesh as _tm
+    _sb = _lg._span_blocker_y
+    def _span(elements, others):
+        y = _sb(elements, others)
+        for e in elements:
+            h = e.convex_hull
+            print("LAB span wing", np.round(e.bounds, 2).tolist(), flush=True)
+            for i, m in enumerate(others):
+                if not m.is_volume:
+                    print("LAB span other", i, "not a volume", np.round(m.bounds, 1).tolist(), flush=True)
+                    continue
+                x = _tm.boolean.intersection([m, h], engine="manifold")
+                if x is not None and not x.is_empty and abs(x.volume) > 1e-3:
+                    print("LAB span hit", i, round(abs(x.volume), 2), np.round(x.bounds, 2).tolist(),
+                          "other", np.round(m.bounds, 1).tolist(), flush=True)
+        print("LAB span cut_y", y, flush=True)
+        return y
+    _lg._span_blocker_y = _span
 if "cutwarn" in (sys.argv[3] if len(sys.argv) > 3 else ""):   # cutwarn: say when cut_boxes leaves a mesh uncut
     import exact_zones as _ez
     _cb = _ez.cut_boxes
