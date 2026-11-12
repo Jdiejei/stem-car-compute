@@ -129,7 +129,7 @@ def run_car(item: str, ref: str | None, out: Path) -> Path:
     runs = Path("../part2-simulation/cfd_case_template/runs")
     shutil.rmtree(runs, ignore_errors=True)
     cmd = [sys.executable, "-W", "ignore", "run_car.py", "--out", str(o), "--skin-mm", SKIN, "--support", "beam",
-           "--phi-npy", str(o / "field.npy"), "--cfd", "--cfd-iters", ITERS, "--res", "medium", "--np", "4",
+           "--phi-npy", str(o / "field.npy"), "--cfd", "--cfd-iters", ITERS, "--res", "medium", "--np", "2",
            "--keep-runs", "--cfd-json", json.dumps(opt)]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
