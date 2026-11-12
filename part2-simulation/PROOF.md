@@ -146,6 +146,7 @@ Start car at skin 3.95 mm, fresh search mesh, 1000 iterations, six GitHub machin
 
 - **Cause found: running each car on 4 cores.** Same set-up on ONE core per machine (blackwingftc-lang/stem-car-compute 43118251223, 1000 it): all six machines give T = 1.55770 s and D20 = 0.41692 N to every printed digit, **spread 0.000 ms (PASS vs 0.1 ms)**. The 0.29–0.30 ms spread on 4 cores comes from the order the cores add up their parts, which changes run to run. Cost: about 70–80 min per car on one core vs 35–45 on four. Testing 4 cores with a fixed adding order next (rp9, shawshanker18/stem-racing-car 43148978484).
 - Two cores (mxnviir/stem-car-compute 43142210991, 1000 it): T 1.55771–1.55772 s, **spread 0.01 ms (PASS)**, same answer as one core.
+- Four cores with a fixed MPI adding order (shawshanker18/stem-racing-car 43148978484): spread 0.17 ms, still FAIL; the order of the parallel linear-solver sums is not fixed by that setting. **Decision: the stopwatch runs on 2 cores** (`stopwatch.py` default `--np 2`), which repeats to 0.01 ms. The smooth noise test is being redone at 2 cores (ms7) and 1 core (ms8).
 - Skin ladders ref 3.930 (mxnviir 43066023520): 1.31 ms; ref 3.912 (mxnviir 43066015091): 0.67 ms.
 
 ## Still to prove

@@ -70,7 +70,7 @@ jobs:
         run: |
           set -o pipefail
           python -W ignore stopwatch.py ../cars/s${{ inputs.skin_a }} ../cars/s${{ inputs.skin_b }} \
-            --iters ${{ inputs.iters }} --np 4 2>&1 | tail -5 | tee ../cars/compare.txt
+            --iters ${{ inputs.iters }} --np 2 2>&1 | tail -5 | tee ../cars/compare.txt
       - name: Result
         if: always()
         run: |

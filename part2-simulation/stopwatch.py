@@ -14,7 +14,7 @@ time_car(folder) writes folder/stopwatch.json (BUILD_SPEC section 6) and
 returns it. compare(a, b) -> (dT, sd): dT = T_b - T_a in seconds (positive
 means b is slower), sd its standard deviation from the measured noise.
 
-    python stopwatch.py CAR_DIR [CAR_DIR_B] [--res medium] [--iters 1000] [--np 4]
+    python stopwatch.py CAR_DIR [CAR_DIR_B] [--res medium] [--iters 1000] [--np 2]
 """
 import argparse
 import json
@@ -120,7 +120,7 @@ def race(D20: float, L20: float, mass: dict, assembly: dict | None = None) -> tu
     return T_raw, {k: g[k] for k in DT_NAMES}, inputs
 
 
-def time_car(folder, res=None, iters=None, n_subdomains=4, cfd=None, noise_s=NOISE_S) -> dict:
+def time_car(folder, res=None, iters=None, n_subdomains=2, cfd=None, noise_s=NOISE_S) -> dict:
     from cfd_wrapper import run_half_car_cfd
 
     folder = Path(folder)
@@ -175,7 +175,7 @@ def main() -> None:
     ap.add_argument("cars", nargs="+")
     ap.add_argument("--res")
     ap.add_argument("--iters", type=int)
-    ap.add_argument("--np", type=int, default=4)
+    ap.add_argument("--np", type=int, default=2)
     ap.add_argument("--cfd-json", default="{}")
     a = ap.parse_args()
     kw = dict(res=a.res, iters=a.iters, n_subdomains=a.np, cfd=json.loads(a.cfd_json))
