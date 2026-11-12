@@ -116,6 +116,9 @@ interval and the part explained by each car's own averaging error
 - The skins 4.00–4.05 mm of the first runs also carried a Part 1 body step (fixed in
   Part 1 55696e3), so the later ladders stop at 3.99 mm.
 
+| reshaped + warm, 3000 it, ref 3.960 (main code) | 0.42 (0.31–0.66) | 0.14 | mxnviir/stem-car-compute 43066031633 |
+| reshaped + warm, 3000 it, ref 3.990 (main code) | 0.58 (0.43–0.92) | 0.21 | blackwingftc-lang/stem-car-compute 43066095540 |
+
 ## Repeatability (1 car x 6 machines; pass mark spread ≤ 0.1 ms): FAIL so far
 
 Start car at skin 3.95 mm, fresh search mesh, 1000 iterations, six GitHub machines
