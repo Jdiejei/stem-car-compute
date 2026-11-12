@@ -1189,7 +1189,18 @@ def extract_unified_surface(
     filled = nearest_labels(geom)
     milled_ids = {LABEL_IDS[n] for n in MILLED_COMPONENTS}
 
-    mesh = SE._repair_mesh(SE._marching_cubes(geom.phi))
+    def _mc():
+        # Field samples exactly on phi = 0 (an exact zone stamp lands on a node) give
+        # coincident triangles that the repair welds into edges shared by four faces: car L1,
+        # z 4 mm, y +-8 mm, 194 such samples after the 0.5 mm milling (2026-11-12). Nudge them
+        # off the level only when the mesh comes out open, as extract_half_surface does.
+        for eps_frac in (0.0, 1e-4):
+            m = SE._repair_mesh(SE._marching_cubes(geom.phi, eps_frac))
+            if m.is_watertight:
+                break
+        return m
+
+    mesh = _mc()
 
     # ── Stage 3a: machining radius, milled vertices only ───────────────────
     # range(max_retries + 1), not range(max_retries): the loop CHECKS at the
@@ -1210,7 +1221,7 @@ def extract_unified_surface(
                 f"after {max_retries} retries."
             )
         SE._smooth_phi_neighbourhood(geom.phi, list(bad), mesh)
-        mesh = SE._repair_mesh(SE._marching_cubes(geom.phi))
+        mesh = _mc()
 
     # ── Stage 3b: nose wall thickness, nose cells only ─────────────────────
     nose_cells = geom.component_mask("nose")
@@ -1233,7 +1244,7 @@ def extract_unified_surface(
                 f"constraint) after {max_retries} retries."
             )
         SE._thicken_phi_at_thin_walls(geom.phi, thin, NOSE_MIN_WALL_THICKNESS_M)
-        mesh = SE._repair_mesh(SE._marching_cubes(geom.phi))
+        mesh = _mc()
 
     # ── Stage 4: accessibility, per component ──────────────────────────────
     flabels = _points_to_labels(geom, np.asarray(mesh.triangles_center), filled)
