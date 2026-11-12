@@ -381,11 +381,6 @@ def _air_boxes(g):
     ref_A = g.landmarks["ref_plane_A_m"] * 1e3
     W, xf = g.W_mm, g.x_front_mm
     out = [((None, None), (None, MODEL_BLOCK_SLOT_WIDTH_MM / 2.0), (None, MODEL_BLOCK_SLOT_TOP_Z_MM))]
-    # T8.5.1 cap (t851_cap), exact: the chamfer at its inside corner put the nose 0.2-0.8 mm
-    # past 14.5 mm into the front wing (to test), which then read as two segments of 24.2-24.98 mm
-    # (T8.6.1, 7 of 350 carved bodies, 2026-11-12)
-    out.append(((None, ref_A + 1.0), (14.5, None), (None, None)))
-    out.append(((None, ref_A + 1.0), (None, None), (24.5, None)))
     m = MARGIN_MM                   # zones the stamp keeps MARGIN_MM clear: edges moved out too
     r = (R_WHEEL_M + WHEEL_CLEARANCE_M + k) * 1e3 + m
     for ax, inner in ((xf, FRONT_WHEEL_INNER_Y_M), (xf + W, REAR_WHEEL_INNER_Y_M)):
