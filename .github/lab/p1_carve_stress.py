@@ -56,6 +56,14 @@ def carve_field(c: dict, path: Path) -> None:
 
 
 sc.carve_field = carve_field
+if "cutwarn" in (sys.argv[3] if len(sys.argv) > 3 else ""):   # cutwarn: say when cut_boxes leaves a mesh uncut
+    import exact_zones as _ez
+    _cb = _ez.cut_boxes
+    def _cut_boxes(g, mesh):
+        out = _cb(g, mesh)
+        print("LAB cutbox", "UNCUT" if out is mesh else "cut", len(mesh.faces), flush=True)
+        return out
+    _ez.cut_boxes = _cut_boxes
 if "where" in (sys.argv[3] if len(sys.argv) > 3 else ""):   # where: the slivers of each sliver-illegal car, file by file
     import tempfile as _tf
     import trimesh as _tm
