@@ -83,6 +83,7 @@ jobs:
           opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); m=sys.argv[2]; d.update({'morph_from': '/tmp/refmesh'} if m in ('morph', 'both') else {}); d.update({'warm_from': '/tmp/refmesh'} if m in ('warm', 'both') else {}); d.update({'body_scale_y': float(sys.argv[3])} if sys.argv[4] else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ inputs.mode }}' '${{ matrix.skin }}' '${{ inputs.scales }}')
           skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
           set -o pipefail
+          lscpu | grep -m1 "Model name" | sed "s/^/CPU /"; nproc
           [ -n "${{ inputs.mpi_det }}" ] && export OMPI_MCA_coll_tuned_use_dynamic_rules=1 OMPI_MCA_coll_tuned_allreduce_algorithm=1 OMPI_MCA_coll_tuned_reduce_algorithm=1
           python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
             --cfd --cfd-iters ${{ inputs.iters }} --res ${{ inputs.res }} --np ${{ inputs.np }} --keep-runs --cfd-json "$opt" 2>&1 | tail -3
