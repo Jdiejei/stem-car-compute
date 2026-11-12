@@ -314,7 +314,7 @@ def evaluate(case_id: int, out: Path) -> dict:
     import run_car as rc
     B = json.loads(BATCH.read_text())
     c = next(x for x in B["cases"] if x["id"] == case_id)
-    args = ["--out", str(out), "--cfd", "--cfd-if-legal", "--res", "medium", "--np", "4",
+    args = ["--out", str(out), "--cfd", "--cfd-if-legal", "--res", "medium", "--np", "2",
             "--cfd-iters", str(SEARCH_ITERS), "--cfd-json", json.dumps(SEARCH_CFD),
             "--body-json", json.dumps(c["params"])]
     args += _layout_args(c.get("layout", {}))
