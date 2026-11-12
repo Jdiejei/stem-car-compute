@@ -10,7 +10,7 @@ on:
         default: "true"
 
 concurrency:
-  group: tests-${{ github.ref }}
+  group: tests-${{ github.ref }}-${{ inputs.cars == 'true' && github.run_id || 'quick' }}
   cancel-in-progress: true
 
 permissions:
