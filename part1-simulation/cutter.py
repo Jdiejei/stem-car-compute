@@ -142,7 +142,12 @@ def finish(geom, layout: dict, target_body_g: float, out_dir) -> dict:
             half.update_faces(half.nondegenerate_faces())
             half.remove_unreferenced_vertices()
             half.merge_vertices()
-        if not half.is_watertight:
+        br = body.build_report                     # the export cut just added to it
+        res["report"]["cut_failures"] = br.get("cut_failures", 0)
+        if br.get("cut_failed"):                   # exact_zones.cut_boxes gave no volume: uncut
+            res.update(status="refused", reason=f"cut_failed: exact box cut left the body uncut "
+                                                f"({br.get('cut_failures')} of the build's cuts)")
+        elif not half.is_watertight:
             res.update(status="refused", reason="open_surface")
         else:
             half.export(str(out / "body_half.stl"))

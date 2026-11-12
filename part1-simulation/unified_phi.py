@@ -1077,6 +1077,12 @@ def extract_half_surface(geom: UnifiedGeometry):
         # The exact box cut last: projecting after it pushed vertices off one zone onto the
         # seam with the next (the halo's side shadow and the air above it, 2026-11-10).
         cut = exact_zones.cut_boxes(geom, mesh)
+        # Uncut means the slot, halo, cap and wheel boxes keep marching cubes' chamfers: never
+        # hand that on as legal. Counted, and the last one decides (cutter refuses it).
+        br = getattr(geom, "build_report", None)
+        if isinstance(br, dict):
+            br["cut_failed"] = cut is mesh
+            br["cut_failures"] = br.get("cut_failures", 0) + (cut is mesh)
         # The cut takes off the chords marching cubes lays across the body's inside corners
         # round the boxes (47 mm3 in the block slot, 99 in the halo pocket box at 1 mm), from a
         # mesh already at the field's volume, so the milled body weighed 0.024 g under its
