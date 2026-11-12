@@ -73,7 +73,12 @@ def one_run(fname, sigma, kind, seed):
     starts = 20 if fname == "peaks" else 1          # the final run plans about 20 starts
     state = {"chains": [cl.new_chain(i, rng.uniform(0, 1, D), 0.2) for i in range(starts)]}
     f0 = [f(c["x"]) for c in state["chains"]]
-    cl.run_local(state, oracle(kind, f, rng), step, lambda x, _: f(x) + rng.normal(0, sigma), sigma)
+    calls = [0]
+
+    def meas(x, _):
+        calls[0] += 1
+        return f(x) + rng.normal(0, sigma)
+    cl.run_local(state, oracle(kind, f, rng), step, meas, sigma)
     best = min(state["chains"], key=lambda c: f(c["x"]))
     ok = f(best["x"]) - fmin <= 2 * sigma
     # a wrong compass is handled when no chain walked uphill: each one either stopped flagged or
@@ -81,7 +86,7 @@ def one_run(fname, sigma, kind, seed):
     suspect = all(c["status"] == "compass_suspect" or f(c["x"]) <= f0[i] + 2 * sigma
                   for i, c in enumerate(state["chains"]))
     gap = (f(best["x"]) - fmin) / sigma
-    return ok, suspect, best["status"], best["round"], gap, sum(h["kept"] for h in best["history"])
+    return ok, suspect, best["status"], best["round"], gap, sum(h["kept"] for h in best["history"]), calls[0] / len(state["chains"])
 
 
 def false_keep(sigma, trials, seed=0):
@@ -117,7 +122,7 @@ def trace(fname, sigma_ms, kind, n, show=6):
                             h["z"] * h["sigma"] / sigma, h["confirm_runs"], h["kept"], (f(c["x"]) - fmin) / sigma,
                             c["status"]))
         cl.advance = adv
-        ok, _, status, rounds, gap, kept = one_run(fname, sigma, kind, seed)
+        ok, _, status, rounds, gap, kept, _n = one_run(fname, sigma, kind, seed)
         cl.advance = orig
         if ok:
             continue
@@ -141,7 +146,7 @@ def main(n, sigmas=(0.3, 1.0), fnames=("bowl", "valley", "peaks")):
                 sus = np.mean([r[1] for r in res])
                 st = {s: sum(r[2] == s for r in res) for s in {r[2] for r in res}}
                 diag = (f"ends {st}, rounds median {np.median([r[3] for r in res]):.0f}, keeps median"
-                        f" {np.median([r[5] for r in res]):.0f}, gap/sigma p50 {np.median([r[4] for r in res]):.1f} p90 {np.percentile([r[4] for r in res], 90):.1f}")
+                        f" {np.median([r[5] for r in res]):.0f}, gap/sigma p50 {np.median([r[4] for r in res]):.1f} p90 {np.percentile([r[4] for r in res], 90):.1f}, stopwatch runs per chain median {np.median([r[6] for r in res]):.0f} p90 {np.percentile([r[6] for r in res], 90):.0f}")
                 if kind in ("exact", "noisy"):
                     good = okr >= 0.98
                 elif kind == "wrong":
