@@ -1,0 +1,21 @@
+name: p5_trace
+run-name: "Part 5 (loop): per-round traces of failing chains"
+on:
+  workflow_dispatch:
+    inputs:
+      runs: { default: "30" }
+permissions: { contents: read }
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        cell: ["valley 0.3 exact", "valley 0.3 noisy", "valley 1.0 exact", "valley 1.0 noisy", "bowl 0.3 noisy"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6
+      - run: python -u part5-simulation/checks/bench.py trace ${{ matrix.cell }} ${{ inputs.runs }}

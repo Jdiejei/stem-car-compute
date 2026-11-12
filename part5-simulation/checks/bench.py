@@ -97,6 +97,40 @@ def false_keep(sigma, trials, seed=0):
     return keeps / max(rounds, 1), rounds
 
 
+def trace(fname, sigma_ms, kind, n, show=6):
+    """Per-round log of the chains that end outside 2 sigma (same seeds as the bench)."""
+    sigma = sigma_ms * MS
+    orig = cl.advance
+    shown = 0
+    for s in range(n):
+        seed = 10000 * (["bowl", "valley", "peaks"].index(fname) * 4 + ["exact", "noisy", "wrong", "zero"].index(kind)) + s
+        f, fmin = functions(np.random.default_rng(seed))[fname]
+        log = []
+
+        def adv(state, res, ps, f=f, fmin=fmin, log=log):
+            c = state["chains"][0]
+            k = len(c["history"])
+            orig(state, res, ps)
+            if len(c["history"]) > k:
+                h = c["history"][-1]
+                log.append((h["round"], h["scale"], h["best"], h["dT_search"] / sigma, h["gain_confirm"] / sigma,
+                            h["z"] * h["sigma"] / sigma, h["confirm_runs"], h["kept"], (f(c["x"]) - fmin) / sigma,
+                            c["status"]))
+        cl.advance = adv
+        ok, _, status, rounds, gap, kept = one_run(fname, sigma, kind, seed)
+        cl.advance = orig
+        if ok:
+            continue
+        shown += 1
+        print(f"TRACE {fname} {kind} sigma {sigma_ms} ms seed {seed}: end {status} after {rounds} rounds, kept {kept}, gap {gap:.2f} sigma")
+        print("TRACE  rnd  trust    size  search/sig  confirm/sig  z*sig_hat/sig  runs  kept  gap_after/sig  status")
+        for r in log:
+            print(f"TRACE  {r[0]:3d}  {r[1]:7.4f}  {r[2]:4.2f}  {r[3]:10.2f}  {r[4]:11.2f}  {r[5]:13.2f}  {r[6]:4d}  {int(r[7]):4d}  {r[8]:13.2f}  {r[9]}")
+        if shown >= show:
+            break
+    print(f"TRACE done: {shown} failing chains shown of {s + 1} runs")
+
+
 def main(n):
     ok_all = True
     for sigma in (0.3 * MS, 1.0 * MS):
@@ -126,4 +160,7 @@ def main(n):
 
 
 if __name__ == "__main__":
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else 200)
+    if len(sys.argv) > 1 and sys.argv[1] == "trace":
+        trace(sys.argv[2], float(sys.argv[3]), sys.argv[4], int(sys.argv[5]) if len(sys.argv) > 5 else 30)
+    else:
+        main(int(sys.argv[1]) if len(sys.argv) > 1 else 200)

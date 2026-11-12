@@ -33,11 +33,10 @@ CONFIRM = 2
 LOOKS = 5                            # a promising candidate is confirmed with 2, 4, 8, 16, then 32 runs
 MIN_SCALE = 1 / 64
 MAX_ROUNDS = 25
-HARD_ROUNDS = 40                     # a chain still keeping (a keep in its last 10 rounds) may run to 40
+HARD_ROUNDS = 40                     # a chain still keeping (a keep in its last 5 rounds) may run to 40
 ALPHA = 0.05
 SEED0 = 46000
 RESTARTS = 3                         # fresh starts from the plain compass when trust runs out
-ENDGAME = 1 / 8                       # below this trust, confirm with one look of 32 runs (z over sizes only)
 MEMORY = 5                           # L-BFGS pairs kept per chain
 
 
@@ -66,7 +65,7 @@ def case(c: dict, tag: str) -> str:
 
 
 def cap(c):
-    recent = [h["kept"] for h in c["history"][-10:]]
+    recent = [h["kept"] for h in c["history"][-5:]]
     return HARD_ROUNDS if any(recent) else MAX_ROUNDS
 
 
@@ -108,51 +107,11 @@ def lbfgs(g, mem):
     return q
 
 
-def tr_steps(g, mem, fracs, trust, scale0):
-    """Trust-region steps (displacements) for each candidate size.
-
-    Plane: the compass and the last kept step. Curvature there: the inverse of the L-BFGS H
-    restricted to the plane. Radius = frac x trust x |Newton step| (scale0 before any kept
-    step). For each radius the model g.p + p.B.p/2 is minimised over the disc: the Newton point
-    if inside, else the best of 720 points on the circle, so larger sizes bend round a curved
-    valley instead of running along one line. No kept step or a flat plane: -g scaled."""
-    import numpy as np
-    gn = np.linalg.norm(g)
-    if gn == 0:
-        return [g * 0 for f in fracs]
-    if not mem:
-        return [-g / gn * f * trust * scale0 for f in fracs]
-    q1 = -g / gn
-    s = mem[-1][0]
-    v = s - (s @ q1) * q1
-    d = lbfgs(g, mem)
-    if np.linalg.norm(v) < 1e-6 * np.linalg.norm(s):
-        return [d * f * trust for f in fracs]
-    Q = np.stack([q1, v / np.linalg.norm(v)], 1)
-    H2 = np.stack([Q.T @ -lbfgs(Q[:, j], mem) for j in range(2)], 1)
-    H2 = (H2 + H2.T) / 2
-    g2 = Q.T @ g
-    pN = -H2 @ g2
-    B = np.linalg.inv(H2)
-    U = np.stack([np.cos(t := np.linspace(0, 2 * np.pi, 720, endpoint=False)), np.sin(t)], 1)
-    out = []
-    for f in fracs:
-        r = f * trust * np.linalg.norm(pN)
-        if f * trust >= 1:
-            a = pN * f * trust            # past the Newton point: go further along it
-        else:
-            P = U * r
-            a = P[np.argmin(P @ g2 + 0.5 * np.einsum("ij,jk,ik->i", P, B, P))]
-        out.append(Q @ a)
-    return out
-
-
 def plan(state: dict, direction, step) -> None:
     """Make this round's candidates for chains in search that have none yet.
 
     direction(x) is the compass in the problem's coordinates (+ = slower). The chain learns the
-    curvature from its own kept steps (L-BFGS, MEMORY pairs); candidates are trust-region steps
-    in the plane of the compass and the last kept step (tr_steps). The natural
+    curvature from its own kept steps (L-BFGS, MEMORY pairs), so the step is -H g; its natural
     length is |H g| once there is a pair, else the chain's starting scale. Candidates sit at
     SIZES x trust x that length; trust doubles after a keep at the largest size and halves after
     a round with no keep."""
@@ -168,9 +127,13 @@ def plan(state: dict, direction, step) -> None:
                     del mem[:-MEMORY]
                 c["g_prev"] = None
             c["g"] = g
-            steps = tr_steps(g, mem, SIZES, c["scale"], c["scale0"])
-            c["cands"] = {str(f): (step(c["x"], p / np.linalg.norm(p), np.linalg.norm(p)) if np.linalg.norm(p) > 0 else c["x"])
-                          for f, p in zip(SIZES, steps)}
+            d = lbfgs(g, mem)
+            n = np.linalg.norm(d)
+            if n == 0:
+                c["cands"] = {str(f): c["x"] for f in SIZES}
+                continue
+            length = n if mem else c["scale0"]
+            c["cands"] = {str(f): step(c["x"], d / n, f * c["scale"] * length) for f in SIZES}
 
 
 def advance(state: dict, results: dict, prior_sigma: float) -> None:
@@ -194,8 +157,6 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             c["dT"] = dT
             c["best"] = min(dT, key=dT.get)
             c["phase"] = "confirm"
-            if c["scale"] < ENDGAME:
-                c["nconf"], c["endgame"] = CONFIRM * 2 ** (LOOKS - 1), True
             continue
         n = c.get("nconf", CONFIRM)
         conf = [results[case(c, f"conf{r}")] for r in range(n)]
@@ -203,7 +164,7 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
         T0 = sum(cur) / len(cur)
         sig = pooled_sigma(c, prior_sigma)
         # Bonferroni over the k candidates AND the LOOKS confirm looks (2, 4, 8 runs)
-        z = z_bonferroni(len(c["cands"]) * (1 if c.get("endgame") else LOOKS))
+        z = z_bonferroni(len(c["cands"]) * LOOKS)
         gain = T0 - sum(conf) / n
         keep = gain > z * sig * (1 / len(cur) + 1 / n) ** 0.5
         if not keep and gain > 0 and n < CONFIRM * 2 ** (LOOKS - 1):
@@ -211,7 +172,7 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             continue
         c["pairs"] += [(conf[i], conf[i + 1]) for i in range(0, n - 1, 2)]
         c["pairs"] += [(cur[i], cur[i + 1]) for i in range(len(c["times"]), len(cur) - 1, 2)]
-        c["nconf"], c["endgame"] = CONFIRM, False
+        c["nconf"] = CONFIRM
         c["history"].append({"round": c["round"], "scale": c["scale"], "best": float(c["best"]),
                              "dT_search": c["dT"][c["best"]], "gain_confirm": gain, "sigma": sig,
                              "z": z, "confirm_runs": n, "kept": keep})
@@ -220,13 +181,8 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             c["x"], c["times"] = c["cands"][c["best"]], list(conf)
             if float(c["best"]) == max(SIZES):
                 c["scale"] *= 2
-        if keep:
-            c["stall"] = 0
-        elif gain <= 0 or c["dT"][c["best"]] >= 0 or c.get("stall", 0) >= 1:
-            c["scale"] /= 2                     # nothing better, or a second unclear gain in a row: shrink
-            c["stall"] = 0
-        else:
-            c["stall"] = c.get("stall", 0) + 1  # a real but unclear gain keeps the size once
+        elif gain <= 0 or c["dT"][c["best"]] >= 0:
+            c["scale"] /= 2                     # nothing better: shrink; a real but unclear gain keeps the size
         c["round"] += 1
         c["phase"], c["cands"] = "search", {}
         if c["scale"] < MIN_SCALE and c["round"] < cap(c) and c.get("restarts", 0) < RESTARTS:
