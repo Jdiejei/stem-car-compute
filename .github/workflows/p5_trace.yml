@@ -4,11 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       runs: { default: "30" }
+      looks: { default: "5" }
 permissions: { contents: read }
 jobs:
   trace:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env: { P5_LOOKS: "${{ inputs.looks }}" }
     strategy:
       fail-fast: false
       matrix:
