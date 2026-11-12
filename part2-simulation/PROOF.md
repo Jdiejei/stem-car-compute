@@ -149,6 +149,8 @@ Start car at skin 3.95 mm, fresh search mesh, 1000 iterations, six GitHub machin
 - Two cores (mxnviir/stem-car-compute 43142210991, 1000 it): T 1.55771–1.55772 s, **spread 0.01 ms (PASS)**, same answer as one core.
 - Four cores with a fixed MPI adding order (shawshanker18/stem-racing-car 43148978484): spread 0.17 ms, still FAIL; the order of the parallel linear-solver sums is not fixed by that setting. **Decision: the stopwatch runs on 2 cores** (`stopwatch.py` default `--np 2`), which repeats to 0.01 ms. The smooth noise test is being redone at 2 cores (ms7) and 1 core (ms8).
 - **Caution, not yet a pass:** one core on main (shawshanker18/stem-racing-car 43142201751): five machines at 1.55641–1.55648 s, one at 1.55773 s (the rp5 value), **spread 1.3 ms**. So one core is not machine-independent either; the likely cause is different processor models on GitHub machines. The 2-core 0.01 ms result may have drawn one processor model. Run rp10 (10 machines, 2 cores, processor model logged per car, 43169235738) tests this.
+- **Not the processor.** 2 cores, 10 machines, five processor models (AMD EPYC 7763, 9V45, 9V74; Intel Xeon 8370C, 8573C), one shared reference: T 1.55771–1.55772 s, **spread 0.01 ms** (mxnviir/stem-car-compute 43171163246).
+- **The reference case has two flow states ~1.3 ms apart.** Every repeat set agrees within itself, but whole sets land on ~1.5577 s (rp5, rp8, rp12) or ~1.5564 s (rp7, rp9, rp13 same-maths), and one rp7 car flipped. So repeating the whole pipeline, reference included, can differ by 1.3 ms. Proposed fix (QUESTIONS.md Q3): one frozen, stored reference case for all timings.
 - Skin ladders ref 3.930 (mxnviir 43066023520): 1.31 ms; ref 3.912 (mxnviir 43066015091): 0.67 ms.
 
 ## Still to prove
