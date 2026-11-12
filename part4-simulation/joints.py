@@ -468,7 +468,8 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
     # tether guide is printed on its support, and the support wins any overlap.
     no_file = set()
     pa12 = DENSITY_G_CM3["supports"]
-    if "supports" in P and not by["supports"].fill:
+    # a support with no joint (surface-bonded, car 43559/21) is printed as it is, like a filled one
+    if "supports" in P and "supports" in by and not by["supports"].fill:
         # the team's own CAD supports keep their shape: their CAD is the file
         made["supports_team_cad"] = (P.pop("supports"), pa12, 2)
         no_file.add("supports_team_cad")
