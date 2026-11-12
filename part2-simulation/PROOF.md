@@ -122,6 +122,7 @@ interval and the part explained by each car's own averaging error
 | reshaped + warm, 3000 it, ref 3.978 (main code) | 0.86 (0.63–1.36) | 0.17 | shawshanker18/stem-racing-car 43066046473 |
 | **smooth width ladder** (one car, body width x0.9968–1.0028, ~0.01 mm steps), reshaped + warm, 3000 it, ref 3.945 | **0.201 (0.147–0.316)** | 0.14 | blackwingftc-lang/stem-car-compute 43066000504 |
 
+- **At the final stopwatch setting (2 cores, frozen reference p2-ref-3945, 1000 it): 0.093 ms (95 % 0.068–0.147)**, smooth 16-car ladder, mxnviir/stem-car-compute 43195805676. PASS vs 0.3 ms.
 - **Confirmed on fresh machines: 0.119 ms (95 % 0.087–0.187)**, mxnviir/stem-car-compute 43142206299 (same set-up, 4 cores).
 - **Smooth-change test meets the 0.3 ms mark: 0.20 ms** (upper 95 % bound 0.32). With a shape that truly changes smoothly, the stopwatch noise is 0.20 ms; the larger figures on skin ladders include real body-grid shape steps. Confirmation run ms5 (same set-up, fresh machines) and a no-warm-start variant ms4 are running.
 
