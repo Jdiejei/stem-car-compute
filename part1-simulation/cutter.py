@@ -131,7 +131,11 @@ def finish(geom, layout: dict, target_body_g: float, out_dir) -> dict:
            "field_bodies": int(label(body.phi.grid < 0)[1]),
            "report": {k: v for k, v in br.items() if k != "sizing_tried"}}
     err = br.get("mass_error_g")
-    light = br.get("mass_unreachable") and (err or 0.0) < 0          # carries ballast_needed_g
+    # too light: the car carries ballast for the rest (330fae4), but only as much as the
+    # capsule holds; a bigger shortfall stays a refusal (test_cutter, 400 g target, 2026-11-13)
+    import ballast
+    light = (br.get("mass_unreachable") and (err or 0.0) < 0
+             and -err <= ballast.capacity_kg() * 1e3)
     if not light and (br.get("mass_unreachable") or err is None or abs(err) > 0.05):                  # the sizing tolerance (BUILD_SPEC 12.4)
         res.update(status="refused", reason=f"mass_unreachable: {err} g from target"
                    + (" (no skin reaches it)" if br.get("mass_unreachable") else ""))
