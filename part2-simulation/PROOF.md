@@ -145,7 +145,8 @@ Start car at skin 3.95 mm, fresh search mesh, 1000 iterations, six GitHub machin
 - Same at 3000 it (blackwingftc-lang/stem-car-compute 43066007386): T 1.55719–1.55748 s, **spread 0.29 ms** (FAIL). Averaging error halved (0.13 ms) but the spread did not: the machines differ by more than the averaging. Drag also still creeps between 1000 and 3000 it (0.413 → 0.416 N), so each run is still settling; next check whether the spread comes from parallel arithmetic order.
 
 - **Cause found: running each car on 4 cores.** Same set-up on ONE core per machine (blackwingftc-lang/stem-car-compute 43118251223, 1000 it): all six machines give T = 1.55770 s and D20 = 0.41692 N to every printed digit, **spread 0.000 ms (PASS vs 0.1 ms)**. The 0.29–0.30 ms spread on 4 cores comes from the order the cores add up their parts, which changes run to run. Cost: about 70–80 min per car on one core vs 35–45 on four. Testing 4 cores with a fixed adding order next (rp9, shawshanker18/stem-racing-car 43148978484).
-- Skin ladder ref 3.930 (mxnviir 43066023520): 1.31 ms.
+- Two cores (mxnviir/stem-car-compute 43142210991, 1000 it): T 1.55771–1.55772 s, **spread 0.01 ms (PASS)**, same answer as one core.
+- Skin ladders ref 3.930 (mxnviir 43066023520): 1.31 ms; ref 3.912 (mxnviir 43066015091): 0.67 ms.
 
 ## Still to prove
 
