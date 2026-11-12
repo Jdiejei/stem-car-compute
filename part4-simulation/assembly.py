@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -197,19 +198,32 @@ def build(W_mm: float, x_front_mm: float, d_halo_mm: float, body_half_stl: str,
     surfaces.append({"name": "halo", "stl": str(out / "halo.stl"), "rotating": None})
 
     # -- front wing --------------------------------------------------------
-    fwm = wg.build_front_wing(front, x_front_mm, R, body)
-    gates.update(wg.front_wing_gates(front, fwm, x_front_mm, R))
-    _export_half(trimesh.util.concatenate(list(fwm.values())), out / "fwing.stl")
-    surfaces.append({"name": "fwing", "stl": str(out / "fwing.stl"), "rotating": None})
-    parts_mass["fwing"] = _full_mass_com(list(fwm.values()), cc.DENSITY_G_CM3[PART_MATERIAL])
-
     # -- nose cone (printed, ahead of Ref A) --------------------------------
+    nm = None
     if nose is not None:
         nm = ns.build_nose(nose, x_front_mm, body)
         gates.update(ns.nose_gates(nose, nm, x_front_mm))
         _export_half(nm["nose"], out / "nose.stl")
         surfaces.append({"name": "nose", "stl": str(out / "nose.stl"), "rotating": None})
         parts_mass["nose"] = ns.nose_mass_com(nose, nm["_full"])
+
+    # -- front wing --------------------------------------------------------
+    # A nose or body the wing passes through splits its span there (T8.6.1): each outer
+    # segment must then be 25 mm, so the tip goes out to the crossing + 25 (Part 1 found
+    # 24.23 mm segments on car 41518/1, 2026-11-12, when the gate assumed no crossing).
+    fwm = wg.build_front_wing(front, x_front_mm, R, body)
+    blockers = [body] + ([nm["nose"]] if nm is not None else [])
+    y_cut = wg.front_span_cut_mm(fwm["wing"], blockers)
+    need = y_cut + cc.FRONT_SPAN_SEGMENT_MIN + 0.05
+    if y_cut > front.mount_t_mm / 2 and front.half_span_mm < need:
+        front = replace(front, half_span_mm=need)
+        fwm = wg.build_front_wing(front, x_front_mm, R, body)
+        y_cut = wg.front_span_cut_mm(fwm["wing"], blockers)
+    info["front_span_cut_mm"] = y_cut
+    gates.update(wg.front_wing_gates(front, fwm, x_front_mm, R, nose_half_width_mm=y_cut))
+    _export_half(trimesh.util.concatenate(list(fwm.values())), out / "fwing.stl")
+    surfaces.append({"name": "fwing", "stl": str(out / "fwing.stl"), "rotating": None})
+    parts_mass["fwing"] = _full_mass_com(list(fwm.values()), cc.DENSITY_G_CM3[PART_MATERIAL])
 
     # -- rear wing ---------------------------------------------------------
     forward = [body, halo] + sup

@@ -175,6 +175,18 @@ def build_front_wing(fw: FrontWing, x_front_mm: float, R_mm: float,
     return out
 
 
+def front_span_cut_mm(wing, blockers) -> float:
+    """Outermost y (mm) where a blocker (nose, body) is inside the wing's elements: T8.6.1
+    splits the span there. 0.0 if none crosses it."""
+    import trimesh
+    y = 0.0
+    for b in blockers:
+        i = trimesh.boolean.intersection([wing, b], engine="manifold")
+        if len(i.vertices) and abs(i.volume) > 1e-12:          # 0.001 mm3
+            y = max(y, float(i.bounds[1, 1]) * 1e3)
+    return y
+
+
 def front_wing_gates(fw: FrontWing, meshes: dict, x_front_mm: float, R_mm: float,
                      nose_half_width_mm: float = 0.0) -> dict:
     """Signed margins in mm (>= 0 passes), measured on the meshes."""
