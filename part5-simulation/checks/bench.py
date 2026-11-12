@@ -131,10 +131,10 @@ def trace(fname, sigma_ms, kind, n, show=6):
     print(f"TRACE done: {shown} failing chains shown of {s + 1} runs")
 
 
-def main(n):
+def main(n, sigmas=(0.3, 1.0), fnames=("bowl", "valley", "peaks")):
     ok_all = True
-    for sigma in (0.3 * MS, 1.0 * MS):
-        for fname in ("bowl", "valley", "peaks"):
+    for sigma in [s * MS for s in sigmas]:
+        for fname in fnames:
             for kind in ("exact", "noisy", "wrong", "zero"):
                 res = [one_run(fname, sigma, kind, 10000 * (["bowl", "valley", "peaks"].index(fname) * 4 + ["exact", "noisy", "wrong", "zero"].index(kind)) + s) for s in range(n)]
                 okr = np.mean([r[0] for r in res])
@@ -152,10 +152,11 @@ def main(n):
                 print(f"LAB sigma {sigma / MS:.1f} ms {fname:6s} {kind:5s}: within 2 sigma {okr:.1%},"
                       f" no chain walked uphill {sus:.1%} {'PASS' if good else 'FAIL' if kind != 'zero' else ''} | {diag}",
                       flush=True)
-        fk, rounds = false_keep(sigma, 1000)
-        ok_all &= fk <= 0.05
-        print(f"LAB sigma {sigma / MS:.1f} ms false-keep on pure noise: {fk:.2%} of {rounds} rounds (mark <= 5 %)"
-              f" {'PASS' if fk <= 0.05 else 'FAIL'}", flush=True)
+        if "bowl" in fnames:                      # once per noise level
+            fk, rounds = false_keep(sigma, 1000)
+            ok_all &= fk <= 0.05
+            print(f"LAB sigma {sigma / MS:.1f} ms false-keep on pure noise: {fk:.2%} of {rounds} rounds (mark <= 5 %)"
+                  f" {'PASS' if fk <= 0.05 else 'FAIL'}", flush=True)
     print(f"LAB bench overall: {'PASS' if ok_all else 'FAIL'}")
 
 
@@ -163,4 +164,5 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "trace":
         trace(sys.argv[2], float(sys.argv[3]), sys.argv[4], int(sys.argv[5]) if len(sys.argv) > 5 else 30)
     else:
-        main(int(sys.argv[1]) if len(sys.argv) > 1 else 200)
+        main(int(sys.argv[1]) if len(sys.argv) > 1 else 200,
+             *([(float(sys.argv[2]),), (sys.argv[3],)] if len(sys.argv) > 3 else []))

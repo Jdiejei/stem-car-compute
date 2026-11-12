@@ -1,0 +1,25 @@
+name: p5_cells
+run-name: "Part 5 (loop): bench split by cell, ${{ inputs.runs }} runs, looks ${{ inputs.looks }}"
+on:
+  workflow_dispatch:
+    inputs:
+      runs: { default: "30" }
+      looks: { default: "[6, 7, 8]" }
+permissions: { contents: read }
+jobs:
+  cell:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        looks: ${{ fromJSON(inputs.looks) }}
+        sigma: ["0.3", "1.0"]
+        fname: [bowl, valley, peaks]
+    env: { P5_LOOKS: "${{ matrix.looks }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6
+      - run: python -u part5-simulation/checks/bench.py ${{ inputs.runs }} ${{ matrix.sigma }} ${{ matrix.fname }} | sed "s/^LAB /LAB looks ${{ matrix.looks }} /"
