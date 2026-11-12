@@ -60,8 +60,6 @@ def test_cars_are_timed_from_both_frozen_states(tmp_path, fake_cfd, monkeypatch)
 
 
 def test_state_difference_widens_the_error_bar(tmp_path, monkeypatch):
-    import cfd_wrapper
-    from cfd_wrapper import HalfCarQuantities
     d, _ = _car(tmp_path / "a")
     drag = {str(Path("/frozen_A")): 0.060, str(Path("/frozen_B")): 0.061}
 
