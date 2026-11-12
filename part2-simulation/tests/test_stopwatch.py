@@ -39,7 +39,20 @@ def fake_cfd(monkeypatch):
         return HalfCarQuantities(D20=D, L=L, A=1e-3, pitching_moment_half=0.0), health
 
     monkeypatch.setattr(cfd_wrapper, "run_half_car_cfd", run)
+    monkeypatch.setattr(sw, "frozen_ref", lambda: Path("/frozen_ref"))
     return calls, forces
+
+
+def test_cars_start_from_the_frozen_reference(tmp_path, fake_cfd):
+    calls, forces = fake_cfd
+    d, forces["a"] = _car(tmp_path / "a")
+    rec = sw.time_car(d)
+    kw = calls[0][1]
+    assert kw["morph_from"] == kw["warm_from"] == str(Path("/frozen_ref"))
+    assert rec["race_time_sd_s"] == sw.NOISE_FROZEN_S and rec["reference_case"] == sw.FROZEN_REF
+    assert rec["state_uncertainty_s"] == sw.STATE_UNCERTAINTY_S
+    rec2 = sw.time_car(d, frozen=False)
+    assert "morph_from" not in calls[1][1] and rec2["race_time_sd_s"] == sw.NOISE_S
 
 
 def test_body_stl_keeps_only_the_car_solid(tmp_path):

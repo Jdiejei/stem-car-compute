@@ -37,6 +37,27 @@ THRUST_CSV = HERE / "thrust_measured_beta.csv"
 # (The earlier 1.95 ms, run 42642036465, was taken with the early stop on and
 # is not valid.) Update it when a noise fix lands.
 NOISE_S = 8.645e-3
+# 2026-11-12: with every car reshaped from and started on ONE frozen reference
+# case (FROZEN_REF, 2 cores), the smooth 16-car ladder gives 0.093 ms (95 % 0.068
+# to 0.147; mxnviir/stem-car-compute 43195805676) and 9 machines repeat to 0.01 ms.
+NOISE_FROZEN_S = 0.093e-3
+# The reference flow has a second steady state 1.3 ms away (PROOF.md): kept on
+# record as an uncertainty of the absolute time, not of car-to-car differences.
+STATE_UNCERTAINTY_S = 1.3e-3
+FROZEN_REF = ("https://github.com/shawshanker18/stem-racing-car/releases/download/"
+              "p2-ref-3945/refcase-3945.zip")
+
+
+def frozen_ref(cache: Path = HERE / "cfd_case_template" / "frozen_ref") -> Path:
+    """Download and unpack the frozen reference case once; return its folder."""
+    if not (cache / "constant" / "polyMesh").exists():
+        import io
+        import urllib.request
+        import zipfile
+        cache.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(FROZEN_REF, timeout=300) as r:
+            zipfile.ZipFile(io.BytesIO(r.read())).extractall(cache)
+    return cache
 # ONE meshing frame for every car (as run_car.make_bindings): the legal envelope
 # for the default scalars (x_front 46, W 120.3 mm), so background cells and boxes
 # never move with the car. A car outside it raises; pass cfd={"domain_reference_bounds": ...}.
@@ -120,12 +141,22 @@ def race(D20: float, L20: float, mass: dict, assembly: dict | None = None) -> tu
     return T_raw, {k: g[k] for k in DT_NAMES}, inputs
 
 
-def time_car(folder, res=None, iters=None, n_subdomains=2, cfd=None, noise_s=NOISE_S) -> dict:
+def time_car(folder, res=None, iters=None, n_subdomains=2, cfd=None, noise_s=None,
+             frozen=True) -> dict:
+    """frozen=True: reshape the frozen reference mesh onto this car and start from
+    its flow (the measured 0.093 ms set-up) on the search mesh. If the reshape
+    fails its mesh checks the case falls back to a fresh mesh (MORPH_FALLBACK in
+    the run folder) and the 0.093 ms figure does not apply to that car."""
     from cfd_wrapper import run_half_car_cfd
 
     folder = Path(folder)
     mass = json.loads((folder / "mass_report.json").read_text())
     kw = dict(SEARCH, **(cfd or {}))
+    if frozen and not res and "morph_from" not in kw:
+        ref = str(frozen_ref())
+        kw.update(morph_from=ref, warm_from=ref)
+    if noise_s is None:
+        noise_s = NOISE_FROZEN_S if kw.get("morph_from") else NOISE_S
     if res:
         kw["resolution"] = res
     if iters:
@@ -144,6 +175,8 @@ def time_car(folder, res=None, iters=None, n_subdomains=2, cfd=None, noise_s=NOI
     layers = (kw.get("layer_overrides") or {}).get("nSurfaceLayers")
     rec = {"D20_N": full.D20, "L20_N": full.L, "parts": parts,
            "race_time_s": T, "race_time_sd_s": noise_s, "dT_d": dT_d,
+           "reference_case": FROZEN_REF if kw.get("morph_from") else None,
+           "state_uncertainty_s": STATE_UNCERTAINTY_S,
            "mesh": {"res": kw["resolution"], "cells": None, "layers": layers,
                     "iters": kw["max_iterations"]},
            "converged": bool(health.converged), "residual_p": health.residual_final,
@@ -155,7 +188,7 @@ def time_car(folder, res=None, iters=None, n_subdomains=2, cfd=None, noise_s=NOI
     return rec
 
 
-def compare(car_a, car_b, noise_s=NOISE_S, **kw) -> tuple:
+def compare(car_a, car_b, noise_s=None, **kw) -> tuple:
     """(T_b - T_a, sd) in seconds, both cars on the same mesh recipe and machine
     type. Raises StopwatchError if either solve is unconverged: never rank on it."""
     ra, rb = time_car(car_a, noise_s=noise_s, **kw), time_car(car_b, noise_s=noise_s, **kw)
