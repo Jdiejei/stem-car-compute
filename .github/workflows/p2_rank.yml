@@ -11,6 +11,7 @@ on:
       res: { default: "fine" }
       iters: { default: "1000" }
       opt: { default: "{}" }
+      np: { default: "2" }
       cars: { default: '["L0","L1","L2","L3","L4","L5","L6","L7","L8","L9","L10","L11","C0","C1","C2","C3","C4","C5","C6","C7"]' }
 
 permissions:
@@ -26,7 +27,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 10
+      max-parallel: 20
       matrix:
         car: ${{ fromJSON(inputs.cars) }}
     env:
@@ -45,7 +46,7 @@ jobs:
       - working-directory: part5-simulation
         run: |
           set -o pipefail
-          python -W ignore ../part2-simulation/rank_study.py car ${{ matrix.car }} --res ${{ inputs.res }} \
+          python -W ignore ../part2-simulation/rank_study.py car ${{ matrix.car }} --res ${{ inputs.res }} --np ${{ inputs.np }} \
             --iters ${{ inputs.iters }} --cfd-json '${{ inputs.opt }}' --out ../out/${{ matrix.car }} 2>&1 | tail -15
       - name: The numbers
         if: always()

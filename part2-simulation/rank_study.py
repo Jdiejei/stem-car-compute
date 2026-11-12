@@ -83,6 +83,7 @@ def main() -> None:
     c.add_argument("--iters", default="1000")
     c.add_argument("--cfd-json", default="{}")
     c.add_argument("--out", required=True)
+    c.add_argument("--np", default="2")
     s = sub.add_parser("stats")
     s.add_argument("pairs_json")
     a = ap.parse_args()
@@ -90,7 +91,7 @@ def main() -> None:
         print(stats(json.loads(a.pairs_json)))
         return
     import run_car
-    args = car_args(a.car_id, Path(a.out)) + ["--cfd", "--res", a.res, "--np", "4",
+    args = car_args(a.car_id, Path(a.out)) + ["--cfd", "--res", a.res, "--np", str(a.np),
                                               "--cfd-iters", a.iters, "--cfd-json", a.cfd_json]
     run_car.main(args)
 
