@@ -41,21 +41,28 @@ NOISE_S = 8.645e-3
 # case (FROZEN_REF, 2 cores), the smooth 16-car ladder gives 0.093 ms (95 % 0.068
 # to 0.147; mxnviir/stem-car-compute 43195805676) and 9 machines repeat to 0.01 ms.
 NOISE_FROZEN_S = 0.093e-3
-# The reference flow has a second steady state 1.3 ms away (PROOF.md): kept on
-# record as an uncertainty of the absolute time, not of car-to-car differences.
+# The reference flow has two steady states (A, B) about 1.3 ms apart, and a car's
+# time depends on which one it starts from (de-meaned SD 0.50 ms over 15 cars).
+# Method A (reviewer, Q4): time every car from BOTH, report the mean, and add
+# |A - B| / 2 to its error bar. Smooth 16-car ladder on that method: 0.091 ms,
+# confirmed 0.087 ms on fresh machines (PROOF.md).
+NOISE_BOTH_S = 0.091e-3
 STATE_UNCERTAINTY_S = 1.3e-3
-FROZEN_REF = ("https://github.com/shawshanker18/stem-racing-car/releases/download/"
-              "p2-ref-3945/refcase-3945.zip")
+_REL = "https://github.com/shawshanker18/stem-racing-car/releases/download/"
+FROZEN_REFS = {"A": _REL + "p2-ref-3945/refcase-3945.zip",
+               "B": _REL + "p2-ref-3945-b/refcase-3945b.zip"}
+FROZEN_REF = FROZEN_REFS["A"]
 
 
-def frozen_ref(cache: Path = HERE / "cfd_case_template" / "frozen_ref") -> Path:
-    """Download and unpack the frozen reference case once; return its folder."""
+def frozen_ref(state: str = "A", cache: Path = None) -> Path:
+    """Download and unpack one frozen reference case once; return its folder."""
+    cache = cache or HERE / "cfd_case_template" / f"frozen_ref_{state}"
     if not (cache / "constant" / "polyMesh").exists():
         import io
         import urllib.request
         import zipfile
         cache.mkdir(parents=True, exist_ok=True)
-        with urllib.request.urlopen(FROZEN_REF, timeout=300) as r:
+        with urllib.request.urlopen(FROZEN_REFS[state], timeout=300) as r:
             zipfile.ZipFile(io.BytesIO(r.read())).extractall(cache)
     return cache
 # ONE meshing frame for every car (as run_car.make_bindings): the legal envelope
@@ -142,44 +149,68 @@ def race(D20: float, L20: float, mass: dict, assembly: dict | None = None) -> tu
 
 
 def time_car(folder, res=None, iters=None, n_subdomains=2, cfd=None, noise_s=None,
-             frozen=True) -> dict:
-    """frozen=True: reshape the frozen reference mesh onto this car and start from
-    its flow (the measured 0.093 ms set-up) on the search mesh. If the reshape
-    fails its mesh checks the case falls back to a fresh mesh (MORPH_FALLBACK in
-    the run folder) and the 0.093 ms figure does not apply to that car."""
+             frozen="both") -> dict:
+    """frozen="both" (default, method A): reshape each frozen reference mesh onto
+    this car, start from its flow, and solve once per state on the search mesh;
+    the record is the mean, with |A - B| / 2 added to the error bar. "A" or "B":
+    one state only. False / a custom res or morph_from: one plain solve.
+    A reshape that fails its mesh checks falls back to a fresh mesh
+    (MORPH_FALLBACK in the run folder) and the noise figure does not apply."""
     from cfd_wrapper import run_half_car_cfd
 
     folder = Path(folder)
     mass = json.loads((folder / "mass_report.json").read_text())
     kw = dict(SEARCH, **(cfd or {}))
+    states = [None]
     if frozen and not res and "morph_from" not in kw:
-        ref = str(frozen_ref())
-        kw.update(morph_from=ref, warm_from=ref)
-    if noise_s is None:
-        noise_s = NOISE_FROZEN_S if kw.get("morph_from") else NOISE_S
+        states = ["A", "B"] if frozen == "both" else [frozen if frozen in FROZEN_REFS else "A"]
     if res:
         kw["resolution"] = res
     if iters:
         kw["max_iterations"] = int(iters)
     t0 = time.time()
     body = body_stl(folder / "car_half.stl", folder / "_body_half.stl")
-    half, health = run_half_car_cfd(str(body), n_subdomains=n_subdomains,
-                                    extra_surfaces=extra_surfaces(folder), **kw)
-    full = half.to_full_car()
+    solves = []
+    for s in states:
+        k2 = dict(kw)
+        if s:
+            ref = str(frozen_ref(s))
+            k2.update(morph_from=ref, warm_from=ref)
+        solves.append((s, *run_half_car_cfd(str(body), n_subdomains=n_subdomains,
+                                            extra_surfaces=extra_surfaces(folder), **k2)))
     asm_path = folder / "assembly.json"
     asm = json.loads(asm_path.read_text()) if asm_path.exists() else None
-    T, dT_d, inputs = race(full.D20, full.L, mass, asm)
+    per = {}
+    for s, half, health in solves:
+        full = half.to_full_car()
+        per[s or "plain"] = (full, health, *race(full.D20, full.L, mass, asm))
+    keys = list(per)
+    D20 = float(np.mean([per[k][0].D20 for k in keys]))
+    L20 = float(np.mean([per[k][0].L for k in keys]))
+    Ts = [per[k][2] for k in keys]
+    T = float(np.mean(Ts))
+    _, _, _, dT_d, inputs = per[keys[0]]
+    health = per[keys[0]][1]
+    if noise_s is None:
+        noise_s = (NOISE_BOTH_S if len(states) == 2 else
+                   NOISE_FROZEN_S if states[0] else NOISE_S)
+    spread = (max(Ts) - min(Ts)) / 2
+    sd = math.hypot(noise_s, spread)
     parts = {}
     for k, v in (health.patch_forces or {}).items():
         parts[k] = {"D_N": 2 * v["D_half_N"], "L_N": 2 * v["L_half_N"]}
     layers = (kw.get("layer_overrides") or {}).get("nSurfaceLayers")
-    rec = {"D20_N": full.D20, "L20_N": full.L, "parts": parts,
-           "race_time_s": T, "race_time_sd_s": noise_s, "dT_d": dT_d,
-           "reference_case": FROZEN_REF if kw.get("morph_from") else None,
+    rec = {"D20_N": D20, "L20_N": L20, "parts": parts,
+           "race_time_s": T, "race_time_sd_s": sd, "dT_d": dT_d,
+           "by_state": {k: {"race_time_s": per[k][2], "D20_N": per[k][0].D20,
+                            "converged": bool(per[k][1].converged)} for k in keys},
+           "state_half_spread_s": spread,
+           "reference_case": [FROZEN_REFS[s] for s in states if s] or None,
            "state_uncertainty_s": STATE_UNCERTAINTY_S,
            "mesh": {"res": kw["resolution"], "cells": None, "layers": layers,
                     "iters": kw["max_iterations"]},
-           "converged": bool(health.converged), "residual_p": health.residual_final,
+           "converged": all(per[k][1].converged for k in keys),
+           "residual_p": health.residual_final,
            "force_osc_frac": health.force_oscillation,
            "force_mean_stderr": health.force_mean_stderr, "force_drift": health.force_drift,
            "seconds": round(time.time() - t0), "model_inputs": inputs,

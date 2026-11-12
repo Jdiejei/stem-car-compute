@@ -39,20 +39,44 @@ def fake_cfd(monkeypatch):
         return HalfCarQuantities(D20=D, L=L, A=1e-3, pitching_moment_half=0.0), health
 
     monkeypatch.setattr(cfd_wrapper, "run_half_car_cfd", run)
-    monkeypatch.setattr(sw, "frozen_ref", lambda: Path("/frozen_ref"))
+    monkeypatch.setattr(sw, "frozen_ref", lambda state="A": Path(f"/frozen_{state}"))
     return calls, forces
 
 
-def test_cars_start_from_the_frozen_reference(tmp_path, fake_cfd):
+def test_cars_are_timed_from_both_frozen_states(tmp_path, fake_cfd, monkeypatch):
     calls, forces = fake_cfd
     d, forces["a"] = _car(tmp_path / "a")
     rec = sw.time_car(d)
-    kw = calls[0][1]
-    assert kw["morph_from"] == kw["warm_from"] == str(Path("/frozen_ref"))
-    assert rec["race_time_sd_s"] == sw.NOISE_FROZEN_S and rec["reference_case"] == sw.FROZEN_REF
-    assert rec["state_uncertainty_s"] == sw.STATE_UNCERTAINTY_S
-    rec2 = sw.time_car(d, frozen=False)
-    assert "morph_from" not in calls[1][1] and rec2["race_time_sd_s"] == sw.NOISE_S
+    assert [c[1]["morph_from"] for c in calls] == [str(Path("/frozen_A")), str(Path("/frozen_B"))]
+    assert all(c[1]["warm_from"] == c[1]["morph_from"] for c in calls)
+    assert rec["race_time_sd_s"] == pytest.approx(sw.NOISE_BOTH_S)    # A == B here
+    assert rec["reference_case"] == [sw.FROZEN_REFS["A"], sw.FROZEN_REFS["B"]]
+    assert set(rec["by_state"]) == {"A", "B"} and rec["state_half_spread_s"] == 0
+    # one state only, and a plain solve
+    sw.time_car(d, frozen="A")
+    assert len(calls) == 3 and calls[2][1]["morph_from"] == str(Path("/frozen_A"))
+    rec3 = sw.time_car(d, frozen=False)
+    assert "morph_from" not in calls[3][1] and rec3["race_time_sd_s"] == sw.NOISE_S
+
+
+def test_state_difference_widens_the_error_bar(tmp_path, monkeypatch):
+    import cfd_wrapper
+    from cfd_wrapper import HalfCarQuantities
+    d, _ = _car(tmp_path / "a")
+    drag = {str(Path("/frozen_A")): 0.060, str(Path("/frozen_B")): 0.061}
+
+    def run(stl, **kw):
+        h = cfd_wrapper.CFDHealthReport(converged=True, residual_final=1e-3, negative_volume_cells=0,
+                                        y_plus_min=1.0, y_plus_max=30.0, force_oscillation=0.01,
+                                        patch_forces={})
+        return HalfCarQuantities(D20=drag[kw["morph_from"]], L=-0.01, A=1e-3,
+                                 pitching_moment_half=0.0), h
+    monkeypatch.setattr(cfd_wrapper, "run_half_car_cfd", run)
+    monkeypatch.setattr(sw, "frozen_ref", lambda state="A": Path(f"/frozen_{state}"))
+    rec = sw.time_car(d)
+    tA, tB = rec["by_state"]["A"]["race_time_s"], rec["by_state"]["B"]["race_time_s"]
+    assert rec["race_time_s"] == pytest.approx((tA + tB) / 2)
+    assert rec["race_time_sd_s"] == pytest.approx(math.hypot(sw.NOISE_BOTH_S, abs(tB - tA) / 2))
 
 
 def test_body_stl_keeps_only_the_car_solid(tmp_path):
