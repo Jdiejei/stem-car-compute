@@ -9,6 +9,10 @@ on:
         description: Also build the whole test cars (includes the multi-hour CFD ones)
         default: "true"
 
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
