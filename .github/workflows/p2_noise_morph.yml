@@ -13,6 +13,7 @@ on:
       res: { default: "medium" }
       iters: { default: "1000" }
       np: { default: "4" }
+      same_math: { default: "", description: "set to 1: glibc maths on one code path for every CPU (GLIBC_TUNABLES)" }
       mpi_det: { default: "", description: "set to 1: fixed-order MPI allreduce (repeatability test)" }
       opt: { default: '{"layer_overrides": {"nSurfaceLayers": 0}}' }
       scales: { default: "", description: "optional smooth ladder: body width factors (body_scale_y) on the ref_skin car; replaces skins" }
@@ -83,6 +84,7 @@ jobs:
           opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); m=sys.argv[2]; d.update({'morph_from': '/tmp/refmesh'} if m in ('morph', 'both') else {}); d.update({'warm_from': '/tmp/refmesh'} if m in ('warm', 'both') else {}); d.update({'body_scale_y': float(sys.argv[3])} if sys.argv[4] else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ inputs.mode }}' '${{ matrix.skin }}' '${{ inputs.scales }}')
           skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
           set -o pipefail
+          [ -n "${{ inputs.same_math }}" ] && export GLIBC_TUNABLES=glibc.cpu.hwcaps=-AVX2_Usable,-AVX_Usable,-FMA_Usable,-FMA4_Usable,-AVX512F_Usable
           lscpu | grep -m1 "Model name" | sed "s/^/CPU /"; nproc
           [ -n "${{ inputs.mpi_det }}" ] && export OMPI_MCA_coll_tuned_use_dynamic_rules=1 OMPI_MCA_coll_tuned_allreduce_algorithm=1 OMPI_MCA_coll_tuned_reduce_algorithm=1
           python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
