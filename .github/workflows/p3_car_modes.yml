@@ -13,6 +13,7 @@ on:
       chunk: { default: "6" }
       parallel: { default: "6" }
       skin_mm: { default: "3.95" }
+      res: { default: "medium" }
 
 permissions: { contents: read }
 
@@ -25,6 +26,7 @@ env:
   P3_CFD_ITERS: ${{ inputs.iters }}
   P3_CHUNK: ${{ inputs.chunk }}
   P3_SKIN_MM: ${{ inputs.skin_mm }}
+  P3_RES: ${{ inputs.res }}
   INSTALL: |
     (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; sleep 20; done) || echo "apt update did not finish; using the runner's package lists"
     for i in 1 2 3 4 5 6; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; sudo apt-get update -q || true; done

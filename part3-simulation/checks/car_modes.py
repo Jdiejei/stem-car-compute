@@ -46,6 +46,7 @@ NCUTS = int(os.environ.get("P3_NCUTS", "40"))
 DEPTHS = [float(t) for t in os.environ.get("P3_CUT_DEPTHS", "1 1.5").split()]
 SKIN = os.environ.get("P3_SKIN_MM", "3.95")
 ITERS = os.environ.get("P3_CFD_ITERS", "1000")
+RES = os.environ.get("P3_RES", "medium")  # quick mesh = coarse; finalists stay on medium
 SIGMA_S = float(os.environ.get("P3_SIGMA_MS", "0.36")) / 1e3
 CHUNK = int(os.environ.get("P3_CHUNK", "8"))
 
@@ -129,7 +130,7 @@ def run_car(item: str, ref: str | None, out: Path) -> Path:
     runs = Path("../part2-simulation/cfd_case_template/runs")
     shutil.rmtree(runs, ignore_errors=True)
     cmd = [sys.executable, "-W", "ignore", "run_car.py", "--out", str(o), "--skin-mm", SKIN, "--support", "beam",
-           "--phi-npy", str(o / "field.npy"), "--cfd", "--cfd-iters", ITERS, "--res", "medium", "--np", "2",
+           "--phi-npy", str(o / "field.npy"), "--cfd", "--cfd-iters", ITERS, "--res", RES, "--np", "2",
            "--keep-runs", "--cfd-json", json.dumps(opt)]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
