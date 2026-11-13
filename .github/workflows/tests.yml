@@ -71,9 +71,7 @@ jobs:
           - { id: fine05, args: "--body-json '{}' --cfd-mm 0.5" }
           - { id: fine03, allow_mass: true, args: "--body-json '{}' --cfd-mm 0.3 --skin-mm 3.5" }
           # The same car again on a wall-resolved mesh: does the score hold?
-          - { id: start_resolved, cfd: true, args: "--body-json '{}' --cfd --res resolved --np 4 --keep-runs" }
           # One level finer than the search's mesh: the mesh study most likely to finish in time.
-          - { id: start_fine, cfd: true, args: "--body-json '{}' --cfd --res fine --np 4 --keep-runs" }
     env:
       OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
       OMPI_MCA_rmaps_base_oversubscribe: "1"
@@ -142,3 +140,595 @@ jobs:
             out/${{ matrix.id }}/*.json
             out/${{ matrix.id }}/manufacture/*.stl
             out/${{ matrix.id }}/solver_logs/
+
+  long_fine_1:
+    # The CFD-heavy car start_fine, link 1 of 3 (CHECKPOINTS in part2 openfoam_case):
+    # each link solves until 30 min before the 6 h job limit, saves the case and
+    # hands it to the next link, which continues from the latest time.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.cars == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    outputs:
+      chained: ${{ steps.build.outputs.chained }}
+    env:
+      OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Libraries the remesher needs
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: Install ESI OpenFOAM v2412
+        run: |
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y openfoam2412-default
+      - name: Saved case from the previous link
+        if: 1 != 1
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-start_fine-0", path: /tmp/ckpt }
+      - name: Build the car
+        id: build
+        working-directory: part5-simulation
+        run: |
+          mkdir -p ../out
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            echo "continuing the saved case"
+          fi
+          set +e
+          python run_car.py --out ../out/start_fine --body-json '{}' --cfd --res fine --np 4 --keep-runs 2>&1 | tee ../out/start_fine.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt)
+            mkdir -p ../ckpt && tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            du -sh ../ckpt/case.tar
+            echo "chained=true" >> "$GITHUB_OUTPUT"
+            if [ 1 = 3 ]; then echo "still not finished after 3 links"; exit 1; fi
+            exit 0
+          fi
+          exit $rc
+      - if: steps.build.outputs.chained == 'true'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-start_fine-1", path: ckpt/case.tar, retention-days: 2 }
+      - name: Solver logs
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          mkdir -p out/start_fine/solver_logs
+          find part2-simulation/cfd_case_template /tmp/case -path "*/logs/*.log" 2>/dev/null | while read f; do
+            tail -200 "$f" > "out/start_fine/solver_logs/$(basename "$f")"
+          done
+      - name: Rule checks
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("out/start_fine/summary.json")
+          if not p.exists():
+              print("No summary: the build did not finish.")
+              raise SystemExit
+          S = json.loads(p.read_text())
+          L = S["legality"]
+          print(f"## start_fine\n\n{L['summary']['n_checks']} checks, {L['summary']['n_failed']} failed. "
+                f"Mass as manufactured {S['mass'].get('manufactured_mass_g', 0):.2f} g.\n")
+          print("| rule | margin | pass | note |\n|---|---|---|---|")
+          for k, v in sorted(L["checks"].items(), key=lambda kv: (kv[1]["pass"], kv[0])):
+              print(f"| {k} | {v['margin']:+.3f} | {'yes' if v['pass'] else '**NO**'} | {v['note']} |")
+          PYEOF
+      - name: Fail if any rule check failed
+        if: steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          failed = json.load(open("out/start_fine/summary.json"))["legality"]["summary"]["failed"]
+          print("failed:", failed)
+          sys.exit(bool(failed))
+          PYEOF
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.build.outputs.chained != 'true'
+        with:
+          name: car-start_fine
+          path: |
+            out/*.log
+            out/start_fine/*.md
+            out/start_fine/*.json
+            out/start_fine/manufacture/*.stl
+            out/start_fine/solver_logs/
+
+  long_fine_2:
+    # The CFD-heavy car start_fine, link 2 of 3 (CHECKPOINTS in part2 openfoam_case):
+    # each link solves until 30 min before the 6 h job limit, saves the case and
+    # hands it to the next link, which continues from the latest time.
+    if: needs.long_fine_1.outputs.chained == 'true'
+    needs: long_fine_1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    outputs:
+      chained: ${{ steps.build.outputs.chained }}
+    env:
+      OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Libraries the remesher needs
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: Install ESI OpenFOAM v2412
+        run: |
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y openfoam2412-default
+      - name: Saved case from the previous link
+        if: 2 != 1
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-start_fine-1", path: /tmp/ckpt }
+      - name: Build the car
+        id: build
+        working-directory: part5-simulation
+        run: |
+          mkdir -p ../out
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            echo "continuing the saved case"
+          fi
+          set +e
+          python run_car.py --out ../out/start_fine --body-json '{}' --cfd --res fine --np 4 --keep-runs 2>&1 | tee ../out/start_fine.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt)
+            mkdir -p ../ckpt && tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            du -sh ../ckpt/case.tar
+            echo "chained=true" >> "$GITHUB_OUTPUT"
+            if [ 2 = 3 ]; then echo "still not finished after 3 links"; exit 1; fi
+            exit 0
+          fi
+          exit $rc
+      - if: steps.build.outputs.chained == 'true'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-start_fine-2", path: ckpt/case.tar, retention-days: 2 }
+      - name: Solver logs
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          mkdir -p out/start_fine/solver_logs
+          find part2-simulation/cfd_case_template /tmp/case -path "*/logs/*.log" 2>/dev/null | while read f; do
+            tail -200 "$f" > "out/start_fine/solver_logs/$(basename "$f")"
+          done
+      - name: Rule checks
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("out/start_fine/summary.json")
+          if not p.exists():
+              print("No summary: the build did not finish.")
+              raise SystemExit
+          S = json.loads(p.read_text())
+          L = S["legality"]
+          print(f"## start_fine\n\n{L['summary']['n_checks']} checks, {L['summary']['n_failed']} failed. "
+                f"Mass as manufactured {S['mass'].get('manufactured_mass_g', 0):.2f} g.\n")
+          print("| rule | margin | pass | note |\n|---|---|---|---|")
+          for k, v in sorted(L["checks"].items(), key=lambda kv: (kv[1]["pass"], kv[0])):
+              print(f"| {k} | {v['margin']:+.3f} | {'yes' if v['pass'] else '**NO**'} | {v['note']} |")
+          PYEOF
+      - name: Fail if any rule check failed
+        if: steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          failed = json.load(open("out/start_fine/summary.json"))["legality"]["summary"]["failed"]
+          print("failed:", failed)
+          sys.exit(bool(failed))
+          PYEOF
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.build.outputs.chained != 'true'
+        with:
+          name: car-start_fine
+          path: |
+            out/*.log
+            out/start_fine/*.md
+            out/start_fine/*.json
+            out/start_fine/manufacture/*.stl
+            out/start_fine/solver_logs/
+
+  long_fine_3:
+    # The CFD-heavy car start_fine, link 3 of 3 (CHECKPOINTS in part2 openfoam_case):
+    # each link solves until 30 min before the 6 h job limit, saves the case and
+    # hands it to the next link, which continues from the latest time.
+    if: needs.long_fine_2.outputs.chained == 'true'
+    needs: long_fine_2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    outputs:
+      chained: ${{ steps.build.outputs.chained }}
+    env:
+      OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Libraries the remesher needs
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: Install ESI OpenFOAM v2412
+        run: |
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y openfoam2412-default
+      - name: Saved case from the previous link
+        if: 3 != 1
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-start_fine-2", path: /tmp/ckpt }
+      - name: Build the car
+        id: build
+        working-directory: part5-simulation
+        run: |
+          mkdir -p ../out
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            echo "continuing the saved case"
+          fi
+          set +e
+          python run_car.py --out ../out/start_fine --body-json '{}' --cfd --res fine --np 4 --keep-runs 2>&1 | tee ../out/start_fine.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt)
+            mkdir -p ../ckpt && tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            du -sh ../ckpt/case.tar
+            echo "chained=true" >> "$GITHUB_OUTPUT"
+            if [ 3 = 3 ]; then echo "still not finished after 3 links"; exit 1; fi
+            exit 0
+          fi
+          exit $rc
+      - if: steps.build.outputs.chained == 'true'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-start_fine-3", path: ckpt/case.tar, retention-days: 2 }
+      - name: Solver logs
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          mkdir -p out/start_fine/solver_logs
+          find part2-simulation/cfd_case_template /tmp/case -path "*/logs/*.log" 2>/dev/null | while read f; do
+            tail -200 "$f" > "out/start_fine/solver_logs/$(basename "$f")"
+          done
+      - name: Rule checks
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("out/start_fine/summary.json")
+          if not p.exists():
+              print("No summary: the build did not finish.")
+              raise SystemExit
+          S = json.loads(p.read_text())
+          L = S["legality"]
+          print(f"## start_fine\n\n{L['summary']['n_checks']} checks, {L['summary']['n_failed']} failed. "
+                f"Mass as manufactured {S['mass'].get('manufactured_mass_g', 0):.2f} g.\n")
+          print("| rule | margin | pass | note |\n|---|---|---|---|")
+          for k, v in sorted(L["checks"].items(), key=lambda kv: (kv[1]["pass"], kv[0])):
+              print(f"| {k} | {v['margin']:+.3f} | {'yes' if v['pass'] else '**NO**'} | {v['note']} |")
+          PYEOF
+      - name: Fail if any rule check failed
+        if: steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          failed = json.load(open("out/start_fine/summary.json"))["legality"]["summary"]["failed"]
+          print("failed:", failed)
+          sys.exit(bool(failed))
+          PYEOF
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.build.outputs.chained != 'true'
+        with:
+          name: car-start_fine
+          path: |
+            out/*.log
+            out/start_fine/*.md
+            out/start_fine/*.json
+            out/start_fine/manufacture/*.stl
+            out/start_fine/solver_logs/
+
+  long_resolved_1:
+    # The CFD-heavy car start_resolved, link 1 of 3 (CHECKPOINTS in part2 openfoam_case):
+    # each link solves until 30 min before the 6 h job limit, saves the case and
+    # hands it to the next link, which continues from the latest time.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.cars == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    outputs:
+      chained: ${{ steps.build.outputs.chained }}
+    env:
+      OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Libraries the remesher needs
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: Install ESI OpenFOAM v2412
+        run: |
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y openfoam2412-default
+      - name: Saved case from the previous link
+        if: 1 != 1
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-start_resolved-0", path: /tmp/ckpt }
+      - name: Build the car
+        id: build
+        working-directory: part5-simulation
+        run: |
+          mkdir -p ../out
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            echo "continuing the saved case"
+          fi
+          set +e
+          python run_car.py --out ../out/start_resolved --body-json '{}' --cfd --res resolved --np 4 --keep-runs 2>&1 | tee ../out/start_resolved.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt)
+            mkdir -p ../ckpt && tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            du -sh ../ckpt/case.tar
+            echo "chained=true" >> "$GITHUB_OUTPUT"
+            if [ 1 = 3 ]; then echo "still not finished after 3 links"; exit 1; fi
+            exit 0
+          fi
+          exit $rc
+      - if: steps.build.outputs.chained == 'true'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-start_resolved-1", path: ckpt/case.tar, retention-days: 2 }
+      - name: Solver logs
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          mkdir -p out/start_resolved/solver_logs
+          find part2-simulation/cfd_case_template /tmp/case -path "*/logs/*.log" 2>/dev/null | while read f; do
+            tail -200 "$f" > "out/start_resolved/solver_logs/$(basename "$f")"
+          done
+      - name: Rule checks
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("out/start_resolved/summary.json")
+          if not p.exists():
+              print("No summary: the build did not finish.")
+              raise SystemExit
+          S = json.loads(p.read_text())
+          L = S["legality"]
+          print(f"## start_resolved\n\n{L['summary']['n_checks']} checks, {L['summary']['n_failed']} failed. "
+                f"Mass as manufactured {S['mass'].get('manufactured_mass_g', 0):.2f} g.\n")
+          print("| rule | margin | pass | note |\n|---|---|---|---|")
+          for k, v in sorted(L["checks"].items(), key=lambda kv: (kv[1]["pass"], kv[0])):
+              print(f"| {k} | {v['margin']:+.3f} | {'yes' if v['pass'] else '**NO**'} | {v['note']} |")
+          PYEOF
+      - name: Fail if any rule check failed
+        if: steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          failed = json.load(open("out/start_resolved/summary.json"))["legality"]["summary"]["failed"]
+          print("failed:", failed)
+          sys.exit(bool(failed))
+          PYEOF
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.build.outputs.chained != 'true'
+        with:
+          name: car-start_resolved
+          path: |
+            out/*.log
+            out/start_resolved/*.md
+            out/start_resolved/*.json
+            out/start_resolved/manufacture/*.stl
+            out/start_resolved/solver_logs/
+
+  long_resolved_2:
+    # The CFD-heavy car start_resolved, link 2 of 3 (CHECKPOINTS in part2 openfoam_case):
+    # each link solves until 30 min before the 6 h job limit, saves the case and
+    # hands it to the next link, which continues from the latest time.
+    if: needs.long_resolved_1.outputs.chained == 'true'
+    needs: long_resolved_1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    outputs:
+      chained: ${{ steps.build.outputs.chained }}
+    env:
+      OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Libraries the remesher needs
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: Install ESI OpenFOAM v2412
+        run: |
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y openfoam2412-default
+      - name: Saved case from the previous link
+        if: 2 != 1
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-start_resolved-1", path: /tmp/ckpt }
+      - name: Build the car
+        id: build
+        working-directory: part5-simulation
+        run: |
+          mkdir -p ../out
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            echo "continuing the saved case"
+          fi
+          set +e
+          python run_car.py --out ../out/start_resolved --body-json '{}' --cfd --res resolved --np 4 --keep-runs 2>&1 | tee ../out/start_resolved.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt)
+            mkdir -p ../ckpt && tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            du -sh ../ckpt/case.tar
+            echo "chained=true" >> "$GITHUB_OUTPUT"
+            if [ 2 = 3 ]; then echo "still not finished after 3 links"; exit 1; fi
+            exit 0
+          fi
+          exit $rc
+      - if: steps.build.outputs.chained == 'true'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-start_resolved-2", path: ckpt/case.tar, retention-days: 2 }
+      - name: Solver logs
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          mkdir -p out/start_resolved/solver_logs
+          find part2-simulation/cfd_case_template /tmp/case -path "*/logs/*.log" 2>/dev/null | while read f; do
+            tail -200 "$f" > "out/start_resolved/solver_logs/$(basename "$f")"
+          done
+      - name: Rule checks
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("out/start_resolved/summary.json")
+          if not p.exists():
+              print("No summary: the build did not finish.")
+              raise SystemExit
+          S = json.loads(p.read_text())
+          L = S["legality"]
+          print(f"## start_resolved\n\n{L['summary']['n_checks']} checks, {L['summary']['n_failed']} failed. "
+                f"Mass as manufactured {S['mass'].get('manufactured_mass_g', 0):.2f} g.\n")
+          print("| rule | margin | pass | note |\n|---|---|---|---|")
+          for k, v in sorted(L["checks"].items(), key=lambda kv: (kv[1]["pass"], kv[0])):
+              print(f"| {k} | {v['margin']:+.3f} | {'yes' if v['pass'] else '**NO**'} | {v['note']} |")
+          PYEOF
+      - name: Fail if any rule check failed
+        if: steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          failed = json.load(open("out/start_resolved/summary.json"))["legality"]["summary"]["failed"]
+          print("failed:", failed)
+          sys.exit(bool(failed))
+          PYEOF
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.build.outputs.chained != 'true'
+        with:
+          name: car-start_resolved
+          path: |
+            out/*.log
+            out/start_resolved/*.md
+            out/start_resolved/*.json
+            out/start_resolved/manufacture/*.stl
+            out/start_resolved/solver_logs/
+
+  long_resolved_3:
+    # The CFD-heavy car start_resolved, link 3 of 3 (CHECKPOINTS in part2 openfoam_case):
+    # each link solves until 30 min before the 6 h job limit, saves the case and
+    # hands it to the next link, which continues from the latest time.
+    if: needs.long_resolved_2.outputs.chained == 'true'
+    needs: long_resolved_2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    outputs:
+      chained: ${{ steps.build.outputs.chained }}
+    env:
+      OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Libraries the remesher needs
+        run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done) && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install $PY_DEPS
+      - name: Install ESI OpenFOAM v2412
+        run: |
+          curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
+          sudo apt-get install -y openfoam2412-default
+      - name: Saved case from the previous link
+        if: 3 != 1
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-start_resolved-2", path: /tmp/ckpt }
+      - name: Build the car
+        id: build
+        working-directory: part5-simulation
+        run: |
+          mkdir -p ../out
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            echo "continuing the saved case"
+          fi
+          set +e
+          python run_car.py --out ../out/start_resolved --body-json '{}' --cfd --res resolved --np 4 --keep-runs 2>&1 | tee ../out/start_resolved.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt)
+            mkdir -p ../ckpt && tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            du -sh ../ckpt/case.tar
+            echo "chained=true" >> "$GITHUB_OUTPUT"
+            if [ 3 = 3 ]; then echo "still not finished after 3 links"; exit 1; fi
+            exit 0
+          fi
+          exit $rc
+      - if: steps.build.outputs.chained == 'true'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-start_resolved-3", path: ckpt/case.tar, retention-days: 2 }
+      - name: Solver logs
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          mkdir -p out/start_resolved/solver_logs
+          find part2-simulation/cfd_case_template /tmp/case -path "*/logs/*.log" 2>/dev/null | while read f; do
+            tail -200 "$f" > "out/start_resolved/solver_logs/$(basename "$f")"
+          done
+      - name: Rule checks
+        if: always() && steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("out/start_resolved/summary.json")
+          if not p.exists():
+              print("No summary: the build did not finish.")
+              raise SystemExit
+          S = json.loads(p.read_text())
+          L = S["legality"]
+          print(f"## start_resolved\n\n{L['summary']['n_checks']} checks, {L['summary']['n_failed']} failed. "
+                f"Mass as manufactured {S['mass'].get('manufactured_mass_g', 0):.2f} g.\n")
+          print("| rule | margin | pass | note |\n|---|---|---|---|")
+          for k, v in sorted(L["checks"].items(), key=lambda kv: (kv[1]["pass"], kv[0])):
+              print(f"| {k} | {v['margin']:+.3f} | {'yes' if v['pass'] else '**NO**'} | {v['note']} |")
+          PYEOF
+      - name: Fail if any rule check failed
+        if: steps.build.outputs.chained != 'true'
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          failed = json.load(open("out/start_resolved/summary.json"))["legality"]["summary"]["failed"]
+          print("failed:", failed)
+          sys.exit(bool(failed))
+          PYEOF
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.build.outputs.chained != 'true'
+        with:
+          name: car-start_resolved
+          path: |
+            out/*.log
+            out/start_resolved/*.md
+            out/start_resolved/*.json
+            out/start_resolved/manufacture/*.stl
+            out/start_resolved/solver_logs/
