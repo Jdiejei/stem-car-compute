@@ -24,7 +24,8 @@ jobs:
           for i in 1 2 3 4; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 60; done
       - run: pip install numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1 meshio
       - working-directory: part5-simulation
-        run: python -W ignore ../part2-simulation/rank_study.py car ${{ inputs.car }} --res ${{ inputs.res }} --np 2 --iters 3 --cfd-json '{"keep_run_dir": true}' --out ../out/car 2>&1 | tail -8 || true
+        run: |
+          python -W ignore ../part2-simulation/rank_study.py car ${{ inputs.car }} --res ${{ inputs.res }} --np 2 --iters 3 --cfd-json '{"keep_run_dir": true}' --out ../out/car 2>&1 | tail -8 || true
       - name: Cells, quality and pictures
         run: |
           D=$(dirname $(dirname $(find out -path '*constant/polyMesh/owner' | head -1)))
