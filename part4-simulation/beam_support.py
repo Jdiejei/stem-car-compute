@@ -303,6 +303,37 @@ def channel_outline(ch: dict):
     return box(ch["x0_mm"], -5.0, ch["x1_mm"], ch["z_arch_mm"]).buffer(-TOOL_R_MM).buffer(TOOL_R_MM)
 
 
+def claw_neck(bs: BeamSupport, dx_mm: float, dz_mm: float, rk_mm: float):
+    """The plate's section at the claw band, about the axle: the plate (centred at
+    dx, dz) plus a web of its chord down to the axle's level, cut to radius rk.
+    Returns (neck polygon, web outline)."""
+    from shapely.geometry import Point, Polygon, box
+    a = bs.beam_w_mm / 2
+    web = box(dx_mm - a, min(0.0, dz_mm), dx_mm + a, max(0.0, dz_mm))
+    sec = Polygon(section(bs)).buffer(0)
+    sec = Polygon(np.asarray(sec.exterior.coords) + [dx_mm, dz_mm])
+    neck = sec.union(web).intersection(Point(0, 0).buffer(rk_mm, quad_segs=64))
+    return neck, np.asarray(web.exterior.coords)[:-1]
+
+
+def neck_section_modulus_mm3(poly) -> float:
+    """I/c for bending about the horizontal axis through the centroid (vertical load)."""
+    from shapely.geometry.polygon import orient
+    polys = getattr(poly, "geoms", [poly])
+    A = Ix = Sz = 0.0
+    for p in polys:
+        q = np.asarray(orient(p).exterior.coords)
+        x, z = q[:, 0], q[:, 1]
+        cr = x[:-1] * z[1:] - x[1:] * z[:-1]
+        A += cr.sum() / 2
+        Sz += (cr * (z[:-1] + z[1:])).sum() / 6
+        Ix += (cr * (z[:-1] ** 2 + z[:-1] * z[1:] + z[1:] ** 2)).sum() / 12
+    zc = Sz / A
+    I = Ix - A * zc ** 2
+    zs = np.concatenate([np.asarray(p.exterior.coords)[:, 1] for p in polys])
+    return I / max(zs.max() - zc, zc - zs.min())
+
+
 def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float,
           wheel_width_mm: float, disc: bool, hub_mm: tuple = (5.25, 8.25),
           R_mm: float = 14.12, channel: dict | None = None) -> dict:
@@ -370,11 +401,18 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
     # within R - lip of the axle, so a pod-high plate steps down to the disc there.
     y_claw = y_inner_mm - CLAW_LIP_MM - 0.1
     if y_beam_end + 0.05 > y_claw:
-        keep = _revolve_y([(0.0, y_claw), (R_mm - CLAW_LIP_MM - 0.1, y_claw),
-                           (R_mm - CLAW_LIP_MM - 0.1, y_beam_end + 1.0), (0.0, y_beam_end + 1.0)],
+        # the trimmed end (the neck) is the plate plus a web down to the axle's level,
+        # inside the circle; it carries the stub's moment at y_claw, so it is sized for it
+        rk = R_mm - CLAW_LIP_MM - 0.1
+        neck, web_xz = claw_neck(bs_sized, xc - x_axle_mm, zc - z_axle_mm, rk)
+        M = LOAD_RADIAL_N * (y_bear - y_claw) + LOAD_AXIAL_N * R_mm          # N mm
+        st["claw_neck_stress_mpa"] = M / neck_section_modulus_mm3(neck)
+        keep = _revolve_y([(0.0, y_claw), (rk, y_claw), (rk, y_beam_end + 1.0), (0.0, y_beam_end + 1.0)],
                           x_axle_mm, z_axle_mm)
         inboard = _extrude_xz(section(bs_sized), y_plate0, y_claw, xc, zc)
-        outboard = trimesh.boolean.intersection([plate, keep], engine="manifold")
+        web = _extrude_xz(web_xz, y_claw, y_beam_end + 0.05, x_axle_mm, z_axle_mm)
+        outboard = trimesh.boolean.intersection([trimesh.boolean.union([plate, web], engine="manifold"), keep],
+                                                engine="manifold")
         plate = trimesh.boolean.union([inboard, outboard], engine="manifold")
     parts = [plate, _revolve_y(prof, x_axle_mm, z_axle_mm)]
     if pod and bs.strip:
@@ -410,6 +448,8 @@ def gates(bs: BeamSupport, meshes: dict, x_axle_mm: float, z_axle_mm: float, R_m
          f"load_{tag}_bearing_sag": SAG_MAX_MM - st["sag_mm"]}
     if "claw_band_r_mm" in st:
         g[f"T7.13_{tag}_support_clear_of_claw"] = st["claw_band_limit_mm"] - st["claw_band_r_mm"]
+    if "claw_neck_stress_mpa" in st:
+        g[f"load_{tag}_claw_neck_stress"] = st["allow_mpa"] - st["claw_neck_stress_mpa"]
     if "frame_stress_mpa" in st:
         g[f"load_{tag}_frame_stress"] = st["allow_mpa"] - st["frame_stress_mpa"]
     if "disc_stress_mpa" in st:

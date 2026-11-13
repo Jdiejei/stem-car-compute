@@ -26,3 +26,11 @@ def test_tall_pod_plate_clears_claw_band():
     g = bsm.gates(bs, out, x, z, R, "rear")
     assert g["T7.13_rear_support_clear_of_claw"] >= 0, g
     assert all(m >= 0 for m in g.values()), {k: m for k, m in g.items() if m < 0}
+    # the trimmed end is sized: a neck (plate + web) carries the stub's moment
+    assert "claw_neck_stress_mpa" in out["_struct"]
+    assert g["load_rear_claw_neck_stress"] >= 0, g
+
+
+def test_neck_section_modulus_of_a_rectangle_is_bh2_over_6():
+    from shapely.geometry import box
+    assert abs(bsm.neck_section_modulus_mm3(box(0, 0, 6.0, 2.0)) - 6.0 * 2.0 ** 2 / 6) < 1e-9
