@@ -383,7 +383,7 @@ def _marking_room_mask(region, cargo_solid, ref_A_mm: float, d_halo_mm: float):
     zf = HALO_MIN_Z_MM + fh.HALO_VISIBILITY_FILLET_MM
     xa = ref_A_mm + 3.0
     if x0 - 1.0 - xa >= 17.0:
-        m |= (X >= xa) & (X <= xa + 17.0) & (Y <= 5.5) & (Z >= zf - 8.0) & (Z <= zf - 1.0)
+        m |= (X >= xa) & (X <= xa + 17.0) & (Y <= 5.5) & (Z <= zf - 1.0)   # down to the floor: a deck alone came out as a second piece (44016/0)
     return m
 
 
