@@ -184,6 +184,17 @@ Sensitivities on the measured thrust (times x 0.802, relative only), best search
 
 **Still team placeholders, not measured:** rolling friction (mu 0.010), wheel spin-down / inertia (1.39e-7 kg m²), tether and guide friction (mu_guide), bearing load law, tether drag (not modelled), real part weights, and the timed track run that would set the time coefficient. These cannot be checked until the team measures them (CONTEXT.md section 12).
 
+## Chained long runs (BUILD_SPEC Step 5; a solve longer than one 6 h job)
+
+The solver stops at a time budget, writes its fields (binary), and the next job continues from the latest time (`openfoam_case` CHECKPOINTS); the force history is joined across the break. Same car from the frozen reference case, 1000 steps, 2 cores, link 1 stopped at a 600 s budget (step 163):
+
+| comparison | D20 N | race time s | difference |
+| --- | --- | --- | --- |
+| unbroken vs chained, links on two machines (shawshanker18/stem-racing-car 43373052358) | 0.41695454 vs 0.41695062 | 1.5577195 vs 1.5577175 | 0.004 mN, 0.002 ms |
+| unbroken vs chained, all on one machine (43388406547) | 0.41695037 vs 0.41694927 | 1.5577175 vs 1.5577170 | 0.001 mN, 0.0005 ms |
+
+Not bit-identical: on one machine the restart moves the time by 0.0005 ms, 200 times below the 0.1 ms repeat mark and 20 times below the 0.01 ms machine-to-machine spread. **Pass mark (within 0.1 %): PASS** (0.0003 % on drag). The whole-car test now runs its fine and resolved cars this way (tests.yml long_fine_1..3, long_resolved_1..3).
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
