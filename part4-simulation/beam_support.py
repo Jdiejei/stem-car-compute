@@ -88,6 +88,8 @@ class BeamSupport:
     beam_w_mm: float = 12.0       # x: the chord
     beam_h_mm: float = PRINT_MIN_MM   # z: the thickness, at least
     p: float = 2.0                # 2 = ellipse (smoothest), larger = boxier
+    round_r_mm: float = 0.0       # > 0: a rounded rectangle with these corners instead
+    #                               (a bare beam grown so the ball can follow its slot)
     x_offset_mm: float = 0.0      # beam centre relative to the axle
     z_offset_mm: float = 0.0
     disc_front: bool = True       # the team's CAD has a disc at every wheel
@@ -120,7 +122,13 @@ class BeamSupport:
 
 def section(bs: BeamSupport, n: int = 64) -> np.ndarray:
     """(x, z) of the beam section about its own centre, mm."""
-    t = np.linspace(0, 2 * math.pi, n, endpoint=False)
+    if bs.round_r_mm > 0:
+        from shapely.geometry import box
+        a, b = bs.beam_w_mm / 2, bs.beam_h_mm / 2
+        r = min(bs.round_r_mm, a, b)
+        ring = box(-a + r, -b + r, a - r, b - r).buffer(r, quad_segs=max(n // 4, 16))
+        return np.asarray(ring.exterior.coords)[:-1]
+    t =np.linspace(0, 2 * math.pi, n, endpoint=False)
     c, s = np.cos(t), np.sin(t)
     a, b = bs.beam_w_mm / 2, bs.beam_h_mm / 2
     return np.c_[a * np.sign(c) * np.abs(c) ** (2 / bs.p), b * np.sign(s) * np.abs(s) ** (2 / bs.p)]
@@ -130,11 +138,12 @@ def min_curvature_radius_mm(bs: BeamSupport) -> float:
     """Smallest radius of curvature of the section -- the slot's tightest
     corner, which the ball-end must fit."""
     P = section(bs, 720)
-    d1 = (np.roll(P, -1, 0) - np.roll(P, 1, 0)) / 2
-    d2 = np.roll(P, -1, 0) - 2 * P + np.roll(P, 1, 0)
-    k = np.abs(d1[:, 0] * d2[:, 1] - d1[:, 1] * d2[:, 0]) / np.maximum(
-        np.linalg.norm(d1, axis=1) ** 3, 1e-12)
-    return float(1.0 / k.max())
+    # circumradius of each three neighbouring points (the spacing need not be even)
+    A, B, C = np.roll(P, 1, 0), P, np.roll(P, -1, 0)
+    ab, bc, ca = (np.linalg.norm(B - A, axis=1), np.linalg.norm(C - B, axis=1),
+                  np.linalg.norm(A - C, axis=1))
+    area2 = np.abs((B[:, 0] - A[:, 0]) * (C[:, 1] - A[:, 1]) - (B[:, 1] - A[:, 1]) * (C[:, 0] - A[:, 0]))
+    return float(np.min(ab * bc * ca / np.maximum(2 * area2, 1e-15)))
 
 
 def _extrude_xz(poly_xz_mm, y0_mm, y1_mm, x_mm, z_mm):
@@ -339,6 +348,12 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
         st.update(frame_stress_mpa=fr["stress_mpa"], sag_mm=st["sag_mm"] + fr["sag_mm"],
                   plate_h_mm=plate_h, plate_h_asked_mm=bs.beam_h_mm, span_mm=span)
     bs_sized = dataclasses.replace(bs, beam_h_mm=plate_h)
+    if not pod and min_curvature_radius_mm(bs_sized) < TOOL_R_MM:
+        # a bare beam sits in a slot of its own, cut by the ball: grow it to the
+        # lightest section the ball can follow (a rounded rectangle, corners = ball)
+        r = TOOL_R_MM + 0.01
+        bs_sized = dataclasses.replace(bs_sized, beam_h_mm=max(bs_sized.beam_h_mm, 2 * r),
+                                       beam_w_mm=max(bs_sized.beam_w_mm, 2 * r), round_r_mm=r)
     # one revolved piece: (the disc,) the flare, the shoulder, the journal
     prof = [(0.0, y_beam_end - 0.05)]
     if disc:
@@ -363,7 +378,7 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
         cap = _revolve_y([(0.0, y_tip), (STUB_D_MM / 2, y_tip), (STUB_D_MM / 2, y_tip - hub_len),
                           (hub_r, y_tip - hub_len), (hub_r, y_tip), (bs.hubcap_r_mm, y_tip),
                           (bs.hubcap_r_mm, y_out), (0.0, y_out)], x_axle_mm, z_axle_mm)
-    return {"support": part, "hubcap": cap, "_section_centre_mm": (xc, zc), "_struct": st,
+    return {"support": part, "hubcap": cap, "_section_centre_mm": (xc, zc), "_struct": st, "_bs": bs_sized,
             "_pod": pod}
 
 
@@ -382,7 +397,7 @@ def gates(bs: BeamSupport, meshes: dict, x_axle_mm: float, z_axle_mm: float, R_m
     if "disc_stress_mpa" in st:
         g[f"load_{tag}_disc_stress"] = st["allow_mpa"] - st["disc_stress_mpa"]
     if not meshes.get("_pod"):   # a bare beam sits in a slot of its own, which the ball must cut
-        g[f"machining_{tag}_slot_corner_radius"] = min_curvature_radius_mm(bs) - TOOL_R_MM
+        g[f"machining_{tag}_slot_corner_radius"] = min_curvature_radius_mm(meshes.get("_bs", bs)) - TOOL_R_MM
     if st["disc"] and bs.disc_recess_mm > 0:      # a disc inside the rim must clear it
         g[f"fit_{tag}_disc_in_rim"] = RIM_INNER_R_MM - 0.5 - bs.disc_r_mm
     if bs.hubcap:
