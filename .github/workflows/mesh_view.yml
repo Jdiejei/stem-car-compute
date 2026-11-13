@@ -35,7 +35,8 @@ jobs:
           source /usr/lib/openfoam/openfoam2412/etc/bashrc || true
           cd "$D"; checkMesh -latestTime 2>&1 | grep -E "cells:|faces:|Max non-orth|Max skewness|Mesh OK|Failed" | tee -a $GITHUB_STEP_SUMMARY
           grep -A3 -E "^ *car$" constant/polyMesh/boundary | head -4 | tee -a $GITHUB_STEP_SUMMARY
-          foamToVTK -latestTime -noInternal -patches '(symmetry car)' > /dev/null 2>&1 || foamToVTK -noInternal > /dev/null
+          foamToVTK -latestTime -legacy -no-internal -patches '(symmetry car)' 2>&1 | tail -5 || true
+          find VTK -type f | head
           cd - ; python .github/lab/mesh_view.py "$D/VTK" "${{ inputs.res }}" pics
       - uses: actions/upload-artifact@v4
         with:
