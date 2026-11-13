@@ -83,6 +83,7 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 from pitch_balance import CarGeometry, axle_loads, com_with_gas
+from physics_contract import DRAG_BIAS
 
 
 G = 9.81
@@ -172,6 +173,11 @@ class SmoothSheetModel(NamedTuple):
     geometry: CarGeometry = DEFAULT_GEOMETRY
     gas_xz_m: tuple = DEFAULT_GAS_XZ_M
     bearing_p: float = DEFAULT_BEARING_P
+    # CFD drag reads high against the wind tunnel (Ahmed 25°: +3 to +13 %, 35°:
+    # +5 %; PROOF.md "Drag bias"). Reviewer Q11 = A: the race model uses
+    # D_true = D_cfd / drag_bias, with drag_bias 1.09 +- 0.04 (check the best
+    # body at 1.05 and 1.13). drag_20_n stays the CFD value everywhere else.
+    drag_bias: float = DRAG_BIAS
 
 
 @dataclass(frozen=True)
@@ -397,7 +403,7 @@ def acceleration(t: jnp.ndarray, q: jnp.ndarray, params: jnp.ndarray,
     m_eff = m_tot + N_WHEELS * p["wheel_moi_kg_m2"] / (R_WHEEL ** 2)
 
     F_thrust = thrust_force(t, model)
-    F_drag = p["drag_20_n"] * q / (REFERENCE_SPEED ** 2)
+    F_drag = p["drag_20_n"] / model.drag_bias * q / (REFERENCE_SPEED ** 2)
     L_v = p["lift_20_n"] * q / (REFERENCE_SPEED ** 2)
     geo = model.geometry._replace(mu_front=p["mu"], mu_rear=p["mu"])
     pr = axle_loads(F_thrust, F_drag, L_v, m_tot, xc, zc, geo)

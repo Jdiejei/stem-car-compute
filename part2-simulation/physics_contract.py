@@ -80,6 +80,11 @@ DEFAULT_ROLLING_MU: float = 0.010
 # uncalibrated model and is what race_value_and_grad_guarded also accepts.
 TIME_COEFFICIENT: float = 0.802
 
+# Wind-tunnel drag correction (reviewer Q11 = A, 2026-11-13): CFD drag / 1.09,
+# error bar +- 0.04 (DRAG_BIAS_RANGE), from the Ahmed benchmarks.
+DRAG_BIAS: float = 1.09
+DRAG_BIAS_RANGE: tuple = (1.05, 1.13)
+
 
 @dataclass(frozen=True)
 class HalfCarQuantities:

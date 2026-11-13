@@ -76,3 +76,17 @@ def test_geometry_from_assembly():
 def test_param_names_are_unchanged():
     assert PARAM_NAMES == ("drag_20_n", "car_weight_kg", "mu", "wheel_moi_kg_m2",
                            "time_coefficient", "com_height_m", "lift_20_n", "com_x_m")
+
+
+def test_drag_bias_divides_the_cfd_drag():
+    import numpy as np
+    from race_objective import build_smooth_sheet_model, race_value_and_grad
+    from physics_contract import DRAG_BIAS
+    m = build_smooth_sheet_model()
+    assert m.drag_bias == DRAG_BIAS == 1.09
+
+    def p(D):
+        return np.array([D, 0.0482 + 0.02115, 0.010, 1.39e-7, 1.0, 0.030, 0.0, 0.110])
+    t_corrected, _ = race_value_and_grad(p(0.40 * 1.09), m)
+    t_plain, _ = race_value_and_grad(p(0.40), m._replace(drag_bias=1.0))
+    assert t_corrected == pytest.approx(t_plain, rel=1e-9)
