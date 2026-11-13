@@ -154,7 +154,7 @@ def build_one(c: dict) -> dict:
     try:
         S = rc.main(args)
         row["failed"] = [k for k in S["legality"]["summary"]["failed"] if k not in IGNORED]
-        row["notes"] = {k: S["legality"]["checks"][k]["note"][:80] for k in row["failed"]}
+        row["notes"] = {k: S["legality"]["checks"][k]["note"][:2000] for k in row["failed"]}
         row["mass_g"] = S["mass"].get("manufactured_mass_g")
         row["status"] = "legal" if not row["failed"] else "illegal"
     except (Exception, SystemExit) as exc:  # noqa: BLE001 -- a car that will not build is the result
