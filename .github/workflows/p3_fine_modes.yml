@@ -1,0 +1,95 @@
+name: p3_fine_modes
+run-name: "Part 3: fine-mesh compass check (${{ inputs.label }}: ${{ inputs.items }} link ${{ inputs.link }})"
+
+# Q11: the same car's compass modes on the FINE mesh, to compare with its medium-mesh map.
+# Every timing is one job. A fine solve longer than a job saves its case at the time budget
+# (CHECKPOINTS in part2 openfoam_case) and this workflow dispatches itself to continue it
+# (link + 1). When the base car finishes, it dispatches the mode cars on its mesh.
+on:
+  workflow_dispatch:
+    inputs:
+      label: { required: true }
+      skin_mm: { default: "3.95" }
+      items: { default: '["base"]' }                 # JSON list of car_modes items
+      next_items: { default: '[]' }                  # mode items to start once the base car is done
+      base_run: { default: "" }                      # run holding artifact fine-base
+      resume_run: { default: "" }                    # run holding this item's saved case
+      link: { default: "1" }
+      max_links: { default: "8" }
+      parallel: { default: "4" }
+
+permissions: { contents: read, actions: write }
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+  OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+  OMPI_MCA_rmaps_base_oversubscribe: "1"
+  P3_SKIN_MM: ${{ inputs.skin_mm }}
+  P3_RES: fine
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  car:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.parallel) }}
+      matrix:
+        item: ${{ fromJSON(inputs.items) }}
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 30
+        shell: bash
+        run: |
+          (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; sleep 20; done) || true
+          for i in 1 2 3 4 5 6; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; done
+          for i in 1 2 3 4 5; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 30; done
+          test -d /usr/lib/openfoam/openfoam2412/tutorials
+          pip install $PY_DEPS
+      - if: inputs.base_run != ''
+        run: gh run download ${{ inputs.base_run }} -R ${{ github.repository }} -n fine-base -D base
+      - if: inputs.resume_run != ''
+        run: |
+          gh run download ${{ inputs.resume_run }} -R ${{ github.repository }} -n "ckpt-$(echo '${{ matrix.item }}' | tr '+' 'p')" -D /tmp/ckpt
+          mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case
+          echo "P2_RESUME_CASE=/tmp/case/run" >> "$GITHUB_ENV"
+      - id: solve
+        shell: bash
+        working-directory: part5-simulation
+        run: |
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          ref=-; [ "${{ matrix.item }}" = base ] || ref=../base/refmesh
+          set +e
+          python -W ignore -u ../part3-simulation/checks/car_modes.py run $ref ../out "${{ matrix.item }}" 2>&1 | grep --line-buffered -E '^LAB|Traceback|Error|^  File|failed'
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "safe=$(echo '${{ matrix.item }}' | tr '+' 'p')" >> "$GITHUB_OUTPUT"
+          if [ $rc = 3 ]; then
+            r=$(cat ../ckpt_path.txt)
+            mkdir -p ../ckpt && tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            echo "chained=true" >> "$GITHUB_OUTPUT"
+            if [ ${{ inputs.link }} -ge ${{ inputs.max_links }} ]; then echo "not finished after ${{ inputs.max_links }} links"; exit 1; fi
+            exit 0
+          fi
+          exit $rc
+      - if: steps.solve.outputs.chained == 'true'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-${{ steps.solve.outputs.safe }}", path: ckpt/case.tar, retention-days: 3 }
+      - if: steps.solve.outputs.chained == 'true'
+        run: >
+          gh workflow run p3_fine_modes.yml -R ${{ github.repository }} --ref ${{ github.ref_name }}
+          -f label="${{ inputs.label }}" -f skin_mm=${{ inputs.skin_mm }} -f items='["${{ matrix.item }}"]'
+          -f next_items='${{ inputs.next_items }}' -f base_run="${{ inputs.base_run }}"
+          -f resume_run=${{ github.run_id }} -f link=$(( ${{ inputs.link }} + 1 )) -f max_links=${{ inputs.max_links }}
+      - if: steps.solve.outcome == 'success' && steps.solve.outputs.chained != 'true'
+        uses: actions/upload-artifact@v4
+        with: { name: "fine-${{ steps.solve.outputs.safe }}", path: out }
+      - if: steps.solve.outcome == 'success' && steps.solve.outputs.chained != 'true' && matrix.item == 'base' && inputs.next_items != '[]'
+        run: >
+          gh workflow run p3_fine_modes.yml -R ${{ github.repository }} --ref ${{ github.ref_name }}
+          -f label="${{ inputs.label }}" -f skin_mm=${{ inputs.skin_mm }} -f items='${{ inputs.next_items }}'
+          -f base_run=${{ github.run_id }} -f max_links=${{ inputs.max_links }} -f parallel=${{ inputs.parallel }}

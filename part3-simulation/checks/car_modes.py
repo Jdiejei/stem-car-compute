@@ -134,10 +134,15 @@ def run_car(item: str, ref: str | None, out: Path) -> Path:
            "--keep-runs", "--cfd-json", json.dumps(opt)]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
+        marker = os.environ.get("P2_CHECKPOINT_FILE")
+        if marker and Path(marker).exists():          # solve hit its time budget; case saved (CHECKPOINTS)
+            print(f"LAB {item}: solve saved at its time budget; the next link continues it", flush=True)
+            raise SystemExit(3)
         print(p.stdout[-3000:], p.stderr[-3000:])
         raise RuntimeError(f"run_car failed on {item}")
     (o / "field.npy").unlink()
-    run = next(runs.iterdir())
+    resumed = os.environ.get("P2_RESUME_CASE")
+    run = Path(resumed) if resumed else next(runs.iterdir())
     if item == "base":
         dst = out / "refmesh"
         shutil.rmtree(dst, ignore_errors=True)
