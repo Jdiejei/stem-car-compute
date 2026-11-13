@@ -25,10 +25,12 @@ jobs:
       - run: pip install numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1 meshio
       - working-directory: part5-simulation
         run: |
-          python -W ignore ../part2-simulation/rank_study.py car ${{ inputs.car }} --res ${{ inputs.res }} --np 2 --iters 3 --cfd-json '{"keep_run_dir": true}' --out ../out/car 2>&1 | tail -8 || true
+          python -W ignore ../part2-simulation/rank_study.py car ${{ inputs.car }} --res ${{ inputs.res }} --np 1 --iters 3 --cfd-json '{"keep_run_dir": true}' --out ../out/car 2>&1 | tail -8 || true
       - name: Cells, quality and pictures
         run: |
-          D=$(dirname $(dirname $(find out -path '*constant/polyMesh/owner' | head -1)))
+          find / -path '*polyMesh/owner' -not -path '/proc/*' 2>/dev/null | grep -v -E 'tutorials|/usr/lib/openfoam' | head -5
+          O=$(find / -path '*constant/polyMesh/owner' -not -path '/proc/*' 2>/dev/null | grep -v -E 'tutorials|/usr/lib/openfoam|processor' | head -1)
+          D=$(dirname $(dirname $(dirname "$O")))
           echo "case: $D"
           source /usr/lib/openfoam/openfoam2412/etc/bashrc || true
           cd "$D"; checkMesh -latestTime 2>&1 | grep -E "cells:|faces:|Max non-orth|Max skewness|Mesh OK|Failed" | tee -a $GITHUB_STEP_SUMMARY
