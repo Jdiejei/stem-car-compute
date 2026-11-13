@@ -209,6 +209,10 @@ No published measured value exists for F1 in Schools rolling friction, wheel ine
 
 Every car gets the same values, so they shift all times together and the ranking holds; the friction check at 0.005 and 0.020 tests that. The team's spin-down and slope tests replace them when they arrive.
 
+## Fine mesh: the one highly skewed face
+
+Car C0 on the fine mesh (shawshanker18/stem-racing-compute 43441210212): max skewness 4.81, one face over the limit, face 13235499. The `car` patch (the machined body) holds faces 13234965–13287897, so the face is on the body surface, about the 534th body face; not on a wing, nose, support or wheel. One face out of 13.3 million, on a wall where the wall function sets the flow, so it is not expected to move the drag. Its exact position needs the face set written as points; that step did not find the file and is to be fixed if the face starts to matter.
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
