@@ -1,0 +1,130 @@
+name: p2_chain_test
+run-name: "Part 2: chained solve vs unbroken solve (${{ inputs.label }})"
+
+# Proof for checkpoint chaining (openfoam_case CHECKPOINTS): the same car, from
+# the frozen reference case, solved once without a break and once cut into
+# links (the first link stops after `budget_s` seconds of solving, saves the
+# case, and the next job continues it). The two drags must be identical.
+on:
+  workflow_dispatch:
+    inputs:
+      label: { required: true }
+      iters: { default: "1000" }
+      np: { default: "2" }
+      budget_s: { default: "600" }
+      ref_tag: { default: "p2-ref-3945" }
+      skin: { default: "3.945" }
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+  OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+  OMPI_MCA_rmaps_base_oversubscribe: "1"
+
+jobs:
+  solve:
+    name: ${{ inputs.label }} ${{ matrix.link }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        link: ["unbroken", "link1"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 45
+        run: |
+          ((for i in 1 2 3; do timeout 120 sudo apt-get update -q && break; sleep 20; done) || true)
+          for i in 1 2 3 4; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; done
+          for i in 1 2 3 4; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 60; done
+      - run: pip install $PY_DEPS
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download ${{ inputs.ref_tag }} -R shawshanker18/stem-racing-car -p "*.zip" -D dl
+          mkdir -p /tmp/refmesh && unzip -q dl/*.zip -d /tmp/refmesh
+      - if: matrix.link == 'link2'
+        uses: actions/download-artifact@v4
+        with: { name: "chain-${{ inputs.label }}-link1", path: /tmp/ckpt }
+      - name: Solve
+        working-directory: part5-simulation
+        run: |
+          opt='{"layer_overrides": {"nSurfaceLayers": 0}, "morph_from": "/tmp/refmesh", "warm_from": "/tmp/refmesh"}'
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ "${{ matrix.link }}" = link1 ]; then export P2_SOLVE_BUDGET_S=${{ inputs.budget_s }}; fi
+          if [ "${{ matrix.link }}" = link2 ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case
+            export P2_RESUME_CASE=/tmp/case/run
+          fi
+          python -W ignore run_car.py --out ../out/c --body-json '{}' --skin-mm ${{ inputs.skin }} --cfd \
+            --cfd-iters ${{ inputs.iters }} --res medium --np ${{ inputs.np }} --keep-runs --cfd-json "$opt" 2>&1 | tail -5 || true
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt); echo "CHECKPOINT at $r"; ls "$r"
+            mkdir -p ../ckpt && tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            du -sh ../ckpt/case.tar
+          else
+            python - <<'EOF'
+          import json
+          c = json.load(open("../out/c/summary.json"))["cfd_initial"]
+          print("CHAINRESULT ${{ matrix.link }}", json.dumps({k: c.get(k) for k in ("D20_N", "L_N", "T_at_target_s", "converged", "stderr", "drift")}))
+          EOF
+          fi
+      - if: matrix.link == 'link1'
+        uses: actions/upload-artifact@v4
+        with: { name: "chain-${{ inputs.label }}-link1", path: ckpt/case.tar, retention-days: 3 }
+
+  link2:
+    needs: solve
+    name: ${{ inputs.label }} ${{ matrix.link }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      matrix:
+        link: ["link2"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - timeout-minutes: 45
+        run: |
+          ((for i in 1 2 3; do timeout 120 sudo apt-get update -q && break; sleep 20; done) || true)
+          for i in 1 2 3 4; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; done
+          for i in 1 2 3 4; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 60; done
+      - run: pip install $PY_DEPS
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download ${{ inputs.ref_tag }} -R shawshanker18/stem-racing-car -p "*.zip" -D dl
+          mkdir -p /tmp/refmesh && unzip -q dl/*.zip -d /tmp/refmesh
+      - if: matrix.link == 'link2'
+        uses: actions/download-artifact@v4
+        with: { name: "chain-${{ inputs.label }}-link1", path: /tmp/ckpt }
+      - name: Solve
+        working-directory: part5-simulation
+        run: |
+          opt='{"layer_overrides": {"nSurfaceLayers": 0}, "morph_from": "/tmp/refmesh", "warm_from": "/tmp/refmesh"}'
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ "${{ matrix.link }}" = link1 ]; then export P2_SOLVE_BUDGET_S=${{ inputs.budget_s }}; fi
+          if [ "${{ matrix.link }}" = link2 ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case
+            export P2_RESUME_CASE=/tmp/case/run
+          fi
+          python -W ignore run_car.py --out ../out/c --body-json '{}' --skin-mm ${{ inputs.skin }} --cfd \
+            --cfd-iters ${{ inputs.iters }} --res medium --np ${{ inputs.np }} --keep-runs --cfd-json "$opt" 2>&1 | tail -5 || true
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt); echo "CHECKPOINT at $r"; ls "$r"
+            mkdir -p ../ckpt && tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            du -sh ../ckpt/case.tar
+          else
+            python - <<'EOF'
+          import json
+          c = json.load(open("../out/c/summary.json"))["cfd_initial"]
+          print("CHAINRESULT ${{ matrix.link }}", json.dumps({k: c.get(k) for k in ("D20_N", "L_N", "T_at_target_s", "converged", "stderr", "drift")}))
+          EOF
+          fi
+      - if: matrix.link == 'link1'
+        uses: actions/upload-artifact@v4
+        with: { name: "chain-${{ inputs.label }}-link1", path: ckpt/case.tar, retention-days: 3 }
+

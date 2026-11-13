@@ -638,3 +638,38 @@ def test_scale_stl_y_widens_only_across_the_car():
         assert v[0] == [0.1, 0.02 * 1.001, 0.03] and v[1][1] == 0.0 and v[2][1] == 0.04 * 1.001
         assert p.read_text().startswith("solid car")
     assert OpenFOAMRunConfig().body_scale_y == 1.0
+
+
+def test_restart_segments_join_into_one_force_history():
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d) / "forces"
+        (root / "0").mkdir(parents=True)
+        (root / "600").mkdir()
+        (root / "0" / "force.dat").write_text("# Time total\n1 (1 0 0)\n2 (2 0 0)\n600 (6 0 0)\n")
+        (root / "600" / "force.dat").write_text("# Time total\n600 (6 0 0)\n601 (7 0 0)\n")
+        rows = [l for l in oc.read_merged_dat(root, ("force.dat",)).splitlines() if not l.startswith("#")]
+        assert rows == ["1 (1 0 0)", "2 (2 0 0)", "600 (6 0 0)", "601 (7 0 0)"]
+        assert oc.read_merged_dat(root, ("moment.dat",)) is None
+
+
+def test_a_short_solve_saves_a_checkpoint(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        run = Path(d)
+        (run / "system").mkdir()
+        (run / "system" / "controlDict").write_text("x\nstartFrom       startTime;\nstopAt          writeNow;\n")
+        (run / "0").mkdir()
+        (run / "412").mkdir()
+        marker = run / "ckpt.txt"
+        monkeypatch.setenv("P2_CHECKPOINT_FILE", str(marker))
+        cfg = OpenFOAMRunConfig(max_iterations=1000)
+        try:
+            oc._checkpoint_if_short(run, cfg)
+            raise AssertionError("no checkpoint raised")
+        except oc.CFDCheckpoint:
+            pass
+        assert marker.read_text() == str(run.resolve())
+        assert "stopAt          endTime;" in (run / "system" / "controlDict").read_text()
+        (run / "1000").mkdir()
+        oc._checkpoint_if_short(run, cfg)          # finished: no checkpoint
+        oc._set_control(run, startFrom="latestTime")
+        assert "startFrom       latestTime;" in (run / "system" / "controlDict").read_text()

@@ -31,6 +31,7 @@ Contract: `invoke()` returns exactly the dict keys cfd_wrapper expects:
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -1256,9 +1257,9 @@ def read_group_forces(run_dir: str, cfg) -> dict:
     """{patch: {"D_half_N", "L_half_N"}} for car + every extra surface."""
     out = {}
     for g in ["car"] + extra_surface_names(cfg):
-        f = _find_latest(Path(run_dir) / "postProcessing" / f"forces_{g}", ("force.dat",))
-        if f is not None:
-            fx, _fy, fz = parse_total_vector_dat(f.read_text(errors="replace"))
+        t = read_merged_dat(Path(run_dir) / "postProcessing" / f"forces_{g}", ("force.dat",))
+        if t is not None:
+            fx, _fy, fz = parse_total_vector_dat(t)
             out[g] = {"D_half_N": fx, "L_half_N": fz}
     return out
 
@@ -1757,7 +1758,7 @@ def _mesh(run: Path, cfg: OpenFOAMRunConfig, bashrc: str, timeout_s: int) -> str
 
 
 def run_stages(run_dir: str, cfg: OpenFOAMRunConfig, bashrc: str,
-               timeout_s: Optional[int] = None) -> dict:
+               timeout_s: Optional[int] = None, resume: bool = False) -> dict:
     """Execute mesh + solve stages in order and return parsed logs.
 
     Stages (SPEC "Solver path"): surfaceFeatureExtract → blockMesh →
@@ -1766,8 +1767,12 @@ def run_stages(run_dir: str, cfg: OpenFOAMRunConfig, bashrc: str,
     timeout_s = cfg.stage_timeout_s if timeout_s is None else timeout_s
     run = Path(run_dir)
     solver = "simpleFoam"
-    _run("surfaceFeatureExtract", run, bashrc, "surfaceFeatureExtract.log", timeout_s)
-    _run("blockMesh", run, bashrc, "blockMesh.log", timeout_s)
+    resume = bool(resume)
+    if resume:                          # a saved link: continue from its latest time
+        _set_control(run, startFrom="latestTime", stopAt="endTime")
+    else:
+        _run("surfaceFeatureExtract", run, bashrc, "surfaceFeatureExtract.log", timeout_s)
+        _run("blockMesh", run, bashrc, "blockMesh.log", timeout_s)
     if cfg.n_subdomains > 1:
         # MESH SERIALLY, THEN DECOMPOSE. The obvious ordering -- decomposePar,
         # then snappyHexMesh -parallel -- is what the tutorials do, but it only
@@ -1787,15 +1792,134 @@ def run_stages(run_dir: str, cfg: OpenFOAMRunConfig, bashrc: str,
         # (measured 13.7 s on 4 ranks, so tens of seconds serially) against a
         # solve measured in tens of minutes -- a trade worth taking for a stage
         # that is not the bottleneck.
-        checkmesh = _mesh(run, cfg, bashrc, timeout_s)
-        _run("decomposePar -force", run, bashrc, "decomposePar.log", timeout_s)
-        solver_log = _run(f"mpirun -np {cfg.n_subdomains} {solver} -parallel",
-                          run, bashrc, "solver.log", timeout_s)
+        if resume:
+            checkmesh = (run / "logs" / "checkMesh.log").read_text(errors="replace")
+        else:
+            checkmesh = _mesh(run, cfg, bashrc, timeout_s)
+            _run("decomposePar -force", run, bashrc, "decomposePar.log", timeout_s)
+        solver_log = _solve_with_budget(f"mpirun -np {cfg.n_subdomains} {solver} -parallel",
+                                        run, bashrc, "solver.log", timeout_s)
+        _checkpoint_if_short(run, cfg)
         _run("reconstructPar -latestTime", run, bashrc, "reconstructPar.log", timeout_s)
     else:
-        checkmesh = _mesh(run, cfg, bashrc, timeout_s)
-        solver_log = _run(solver, run, bashrc, "solver.log", timeout_s)
+        if resume:
+            checkmesh = (run / "logs" / "checkMesh.log").read_text(errors="replace")
+        else:
+            checkmesh = _mesh(run, cfg, bashrc, timeout_s)
+        solver_log = _solve_with_budget(solver, run, bashrc, "solver.log", timeout_s)
+        _checkpoint_if_short(run, cfg)
     return {"checkmesh_log": checkmesh, "solver_log": solver_log}
+
+
+def read_merged_dat(root: Path, names: tuple[str, ...]) -> Optional[str]:
+    """Text of the first name found under root, with every restart segment
+    joined. A chained run (CHECKPOINTS below) restarts the solver, and the
+    function objects then start a new postProcessing/<group>/<restartTime>/
+    file; the force average needs the whole history, exactly as one unbroken
+    run would have written it. Segments are joined in start-time order and a
+    row whose time is not after the previous segment's last row is dropped."""
+    if not root.is_dir():
+        return None
+    for name in names:
+        files = list(root.rglob(name))
+        if not files:
+            continue
+
+        def start(p: Path) -> float:
+            try:
+                return float(p.parent.name)
+            except ValueError:
+                return -1.0
+        out, last_t = [], -math.inf
+        for i, f in enumerate(sorted(files, key=start)):
+            for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                s = line.strip()
+                if not s or s.startswith("#"):
+                    if i == 0:
+                        out.append(line)
+                    continue
+                try:
+                    t = float(s.split()[0])
+                except ValueError:
+                    continue
+                if t > last_t:
+                    out.append(line)
+                    last_t = t
+        return "\n".join(out) + "\n"
+    return None
+
+
+# --------------------------------------------------------------------- CHECKPOINTS
+# A solve longer than one GitHub job (hard 6 h limit) is cut into links.
+# P2_SOLVE_BUDGET_S: seconds the solver may run in THIS job; when they are up,
+#   controlDict gets `stopAt writeNow` (runTimeModifiable), the solver writes
+#   its fields (binary, so the restart is exact) and stops, and invoke() raises
+#   CFDCheckpoint after writing the run folder's path to P2_CHECKPOINT_FILE.
+# P2_JOB_DEADLINE: epoch seconds the job must end by; the budget is then what
+#   is left minus 30 min for writing and saving.
+# P2_RESUME_CASE: a run folder saved that way; invoke() continues it from its
+#   latest time with the mesh, decomposition and settings it already has.
+class CFDCheckpoint(RuntimeError):
+    """The solve stopped at its time budget and saved a restartable case."""
+
+
+def _latest_time(run: Path) -> float:
+    base = run / "processor0" if (run / "processor0").is_dir() else run
+    times = []
+    for d in base.iterdir():
+        try:
+            times.append(float(d.name))
+        except ValueError:
+            pass
+    return max(times) if times else 0.0
+
+
+def _set_control(run: Path, **entries) -> None:
+    p = run / "system" / "controlDict"
+    text = p.read_text()
+    for k, v in entries.items():
+        text = re.sub(rf"\n{k}\s+[^;\n]+;", f"\n{k:<16}{v};", text, count=1)
+    p.write_text(text)
+
+
+def _solve_with_budget(cmd: str, run: Path, bashrc: str, log_name: str,
+                       timeout_s: int) -> str:
+    """Run the solver; with P2_SOLVE_BUDGET_S set, ask it to write and stop when
+    the budget is spent. Earlier segments' logs are kept as solver.log.<n>."""
+    log = run / "logs" / log_name
+    if log.exists():
+        n = 1
+        while (run / "logs" / f"{log_name}.{n}").exists():
+            n += 1
+        log.rename(run / "logs" / f"{log_name}.{n}")
+    budget = float(os.environ.get("P2_SOLVE_BUDGET_S") or 0)
+    deadline = float(os.environ.get("P2_JOB_DEADLINE") or 0)   # epoch s; keep 30 min to save
+    if deadline:
+        import time
+        left = deadline - time.time() - 1800
+        budget = min(budget, left) if budget else left
+        budget = max(budget, 60.0)
+    timer = None
+    if budget > 0:
+        import threading
+        timer = threading.Timer(budget, lambda: _set_control(run, stopAt="writeNow"))
+        timer.daemon = True
+        timer.start()
+    try:
+        return _run(cmd, run, bashrc, log_name, timeout_s)
+    finally:
+        if timer is not None:
+            timer.cancel()
+
+
+def _checkpoint_if_short(run: Path, cfg) -> None:
+    if _latest_time(run) + 0.5 < cfg.max_iterations:
+        _set_control(run, stopAt="endTime")
+        marker = os.environ.get("P2_CHECKPOINT_FILE")
+        if marker:
+            Path(marker).write_text(str(run.resolve()))
+        raise CFDCheckpoint(f"solve stopped at {_latest_time(run):g} of "
+                            f"{cfg.max_iterations} iterations; case saved in {run}")
 
 
 def _find_latest(root: Path, names: tuple[str, ...]) -> Optional[Path]:
@@ -1815,13 +1939,11 @@ def read_force_oscillation(run_dir: str) -> Optional[float]:
     root = Path(run_dir) / "postProcessing" / "forces"
     if not root.is_dir():
         return None
-    force_f = _find_latest(root, ("force.dat",)) or _find_latest(root, ("forces.dat",))
-    if force_f is None:
+    text = read_merged_dat(root, ("force.dat", "forces.dat"))
+    if text is None:
         return None
     try:
-        return force_oscillation_fraction(
-            force_f.read_text(encoding="utf-8", errors="replace")
-        )
+        return force_oscillation_fraction(text)
     except ValueError:
         return None
 
@@ -1835,13 +1957,11 @@ def read_force_mean_convergence(run_dir: str) -> tuple[Optional[float], Optional
     root = Path(run_dir) / "postProcessing" / "forces"
     if not root.is_dir():
         return None, None
-    force_f = _find_latest(root, ("force.dat",)) or _find_latest(root, ("forces.dat",))
-    if force_f is None:
+    text = read_merged_dat(root, ("force.dat", "forces.dat"))
+    if text is None:
         return None, None
     try:
-        return force_mean_convergence(
-            force_f.read_text(encoding="utf-8", errors="replace")
-        )
+        return force_mean_convergence(text)
     except ValueError:
         return None, None
 
@@ -1856,12 +1976,10 @@ def read_force_and_moment(run_dir: str) -> tuple[tuple[float, float, float], tup
     root = Path(run_dir) / "postProcessing" / "forces"
     if not root.is_dir():
         raise FileNotFoundError("postProcessing/forces not found — solve produced no forces")
-    force_f = _find_latest(root, ("force.dat",))
-    moment_f = _find_latest(root, ("moment.dat",))
-    if force_f and moment_f:
-        f = parse_total_vector_dat(force_f.read_text(encoding="utf-8", errors="replace"))
-        m = parse_total_vector_dat(moment_f.read_text(encoding="utf-8", errors="replace"))
-        return f, m
+    force_t = read_merged_dat(root, ("force.dat",))
+    moment_t = read_merged_dat(root, ("moment.dat",))
+    if force_t and moment_t:
+        return parse_total_vector_dat(force_t), parse_total_vector_dat(moment_t)
     # NB: the combined-forces.dat fallback below still reads a single row. It is
     # a legacy path for builds that do not write force.dat/moment.dat; if it
     # ever becomes the live path, give it the same averaging treatment.
@@ -1957,11 +2075,17 @@ def invoke(stl_path: str, case_dir: str, cfg: Optional[OpenFOAMRunConfig] = None
             "This build targets openfoam.com (ESI) so the adjoint solver is "
             "available; the Foundation (.org) build will not provide it."
         )
-    run_dir = str(Path(case_dir) / "runs" / new_run_dir_name())
-    meta = build_case(run_dir, stl_path, cfg)
+    resume_dir = os.environ.get("P2_RESUME_CASE")
+    if resume_dir:                    # continue a saved link (CHECKPOINTS)
+        run_dir = str(Path(resume_dir).resolve())
+        meta = json.loads((Path(run_dir) / "case_meta.json").read_text())
+    else:
+        run_dir = str(Path(case_dir) / "runs" / new_run_dir_name())
+        meta = build_case(run_dir, stl_path, cfg)
+        (Path(run_dir) / "case_meta.json").write_text(json.dumps(meta, default=str))
     succeeded = False
     try:
-        logs = run_stages(run_dir, cfg, resolved_bashrc)
+        logs = run_stages(run_dir, cfg, resolved_bashrc, resume=bool(resume_dir))
         neg = parse_negative_volume_cells(logs["checkmesh_log"])
         residual = parse_final_p_residual(logs["solver_log"])
         courant = parse_max_courant(logs["solver_log"])
