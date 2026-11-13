@@ -1124,15 +1124,21 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
         pts = pts[pts[:, 2] > 0.0005]                    # above the track
         # Wings are exported as concatenated shells (wing + flap + mount), so
         # test each closed piece; an open piece cannot be tested and is named.
-        hit, skipped = 0, []
+        hit, skipped, blocked = 0, [], {}
         for name, m in [("body", body)] + [(n, m) for n, m in parts.items()
                                            if not n.startswith("wheel")]:
             for piece in m.split(only_watertight=False):
                 if piece.is_watertight:
-                    hit += int(_contains(piece, pts).sum())
+                    inside = _contains(piece, pts)
+                    if inside.any():
+                        hit += int(inside.sum())
+                        blocked.setdefault(name, []).extend(
+                            np.round(pts[inside] * 1e3, 2).tolist())
                 else:
                     skipped.append(name)
         note = f"{hit} of {len(pts)} claw points blocked"
+        if blocked:
+            note += f"; blocked by {sorted(blocked)}; points mm {blocked}"
         if skipped:
             note += f"; open meshes not tested: {sorted(set(skipped))}"
         r[f"T7.13_{tag}_claw_clearance"] = _entry(0.0 if hit == 0 and not skipped else -1.0, note)
