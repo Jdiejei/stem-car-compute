@@ -39,6 +39,11 @@ jobs:
         item: ${{ fromJSON(inputs.items) }}
     steps:
       - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - name: room (free disk, 8 GB swap)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo fallocate -l 8G /swapfile2 && sudo chmod 600 /swapfile2 && sudo mkswap /swapfile2 && sudo swapon /swapfile2
+          free -m; df -h /
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
@@ -63,8 +68,9 @@ jobs:
         run: |
           export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
           ref=-; [ "${{ matrix.item }}" = base ] || ref=../base/refmesh
+          ( while true; do echo "ROOM $(date -u +%H:%M) mem $(free -m | awk '/Mem/{print $3"/"$2}') MB, swap $(free -m | awk '/Swap/{print $3}') MB, disk $(df -h / | awk 'NR==2{print $3" used "$4" free"}')"; sleep 300; done ) & trap "kill $! 2>/dev/null" EXIT
           set +e
-          python -W ignore -u ../part3-simulation/checks/car_modes.py run $ref ../out "${{ matrix.item }}" 2>&1 | grep --line-buffered -E '^LAB|Traceback|Error|^  File|failed'
+          python -W ignore -u ../part3-simulation/checks/car_modes.py run $ref ../out "${{ matrix.item }}" 2>&1 | grep --line-buffered -E '^LAB|^ROOM|Traceback|Error|^  File|failed'
           rc=${PIPESTATUS[0]}
           set -e
           echo "safe=$(echo '${{ matrix.item }}' | tr '+' 'p')" >> "$GITHUB_OUTPUT"
