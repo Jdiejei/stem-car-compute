@@ -1,0 +1,33 @@
+name: car_view
+run-name: "Car pictures (body + parts) on the current code"
+on:
+  workflow_dispatch:
+    inputs:
+      cars:
+        default: '["0 0","11 2","23 4","37 6"]'
+permissions:
+  contents: read
+jobs:
+  car:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        car: ${{ fromJSON(inputs.cars) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: (for i in 1 2 3 4 5 6; do timeout 90 sudo apt-get update -q && break; done; true) && sudo apt-get install --no-install-recommends -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+      - run: pip install numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+      - working-directory: part5-simulation
+        run: |
+          python -W ignore ../.github/lab/render_lab.py ${{ matrix.car }} 2>&1 | tail -5
+      - id: n
+        run: echo "n=$(echo '${{ matrix.car }}' | tr ' ' '_')" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: car-${{ steps.n.outputs.n }}
+          path: part5-simulation/render
