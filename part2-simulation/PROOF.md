@@ -171,6 +171,19 @@ The 20 stress cars on the search mesh (medium, 2 cores; shawshanker18/stem-racin
 
 Stats: shawshanker18/stem-racing-car 43358478921, 43358483537. Pass marks 0.9 and 90 %.
 
+## Race model against the measured facts (shawshanker18/stem-racing-car 43359829638; 68 race-model tests pass)
+
+| fact (CONTEXT.md) | measured | model | 
+| --- | --- | --- |
+| thrust peak | 8.99 N at 59 ms | 8.986 N at 0.059 s |
+| total impulse | 2.15 N·s | data 2.1542, fit 2.1533 N·s (fit 0–2 s 2.1534) |
+| thrust fit error | | rms 0.083 N; largest 1.98 N at t = 0 (the first sample), 0.26 N after 10 ms |
+| mass | 48.2 g target, 21.15 g cartridge shell | used as given |
+
+Sensitivities on the measured thrust (times x 0.802, relative only), best search car of 2026-11-08 (D20 0.380 N; lift and COM assumed): **0.199 ms per mN of drag, 7.51 ms per g of mass**. The old 0.48 ms/mN and 16.6 ms/g were on the invented thrust curve and are replaced. Model time 0.946 s raw, 0.759 s calibrated; real top cars run 1.0–1.1 s, and model times are for comparison only.
+
+**Still team placeholders, not measured:** rolling friction (mu 0.010), wheel spin-down / inertia (1.39e-7 kg m²), tether and guide friction (mu_guide), bearing load law, tether drag (not modelled), real part weights, and the timed track run that would set the time coefficient. These cannot be checked until the team measures them (CONTEXT.md section 12).
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
