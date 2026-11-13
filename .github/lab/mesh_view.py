@@ -1,14 +1,24 @@
 """Draw the real CFD cells of one meshed case: symmetry plane (side view of the cells
 around the car) and the car surface faces. Usage: mesh_view.py <vtk_dir> <label> <outdir>"""
-import sys, glob, os, numpy as np, meshio, matplotlib
+import sys, glob, os, numpy as np, matplotlib
 matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 vdir, label, out = sys.argv[1:4]; os.makedirs(out, exist_ok=True)
+def read_polydata(path):
+    """Legacy ASCII VTK POLYDATA: POINTS then POLYGONS (n i0 i1 ...)."""
+    tok = open(path).read().split(); i = tok.index("POINTS"); n = int(tok[i + 1])
+    P = np.array(tok[i + 3:i + 3 + 3 * n], float).reshape(n, 3); j = tok.index("POLYGONS"); nc = int(tok[j + 1])
+    k = j + 3; cells = []
+    if tok[k] == "OFFSETS":                      # VTK 5.1 layout: OFFSETS ... CONNECTIVITY ...
+        no = nc + 1 if False else int(tok[j + 1]); off = np.array(tok[k + 2:k + 2 + no], int); c0 = tok.index("CONNECTIVITY", k)
+        con = np.array(tok[c0 + 2:c0 + 2 + off[-1]], int); cells = [con[off[a]:off[a + 1]] for a in range(no - 1)]
+    else:
+        for _ in range(nc):
+            m_ = int(tok[k]); cells.append(np.array(tok[k + 1:k + 1 + m_], int)); k += m_ + 1
+    return P, cells
 def polys(path, drop):
-    m = meshio.read(path); P = m.points * 1000.0; res = []
-    for cb in m.cells:
-        for c in cb.data: res.append(np.delete(P[c], drop, axis=1))
-    return res, P
+    P, cells = read_polydata(path); P = P * 1000.0
+    return [np.delete(P[c], drop, axis=1) for c in cells], P
 sym = [f for f in glob.glob(vdir + "/**/*.vtk", recursive=True) if "symmetry" in os.path.basename(os.path.dirname(f)) or "symmetry" in os.path.basename(f)]
 car = [f for f in glob.glob(vdir + "/**/*.vtk", recursive=True) if os.path.basename(os.path.dirname(f)) == "car" or os.path.basename(f).startswith("car")]
 print("files", sym, car)
