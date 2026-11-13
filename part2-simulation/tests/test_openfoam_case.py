@@ -12,6 +12,8 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import openfoam_case as oc
@@ -673,3 +675,15 @@ def test_a_short_solve_saves_a_checkpoint(monkeypatch):
         oc._checkpoint_if_short(run, cfg)          # finished: no checkpoint
         oc._set_control(run, startFrom="latestTime")
         assert "startFrom       latestTime;" in (run / "system" / "controlDict").read_text()
+
+
+def test_medium_plus_box_sits_behind_the_body():
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "car.stl"
+        p.write_text("solid car\n facet normal 0 0 1\n  outer loop\n"
+                     "   vertex 0 0 0\n   vertex 0.2 0.03 0\n   vertex 0.1 0.02 0.05\n"
+                     "  endloop\n endfacet\nendsolid car\n")
+        assert oc.plus_wake_box(str(p), OpenFOAMRunConfig(), 4) == ()
+        (name, (lo, hi), lvl), = oc.plus_wake_box(str(p), OpenFOAMRunConfig(plus_wake_m=0.03), 4)
+        assert name == "wakePlus" and lvl == 5
+        assert lo[0] < 0.2 < hi[0] and hi[0] == pytest.approx(0.23)

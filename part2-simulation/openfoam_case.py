@@ -190,6 +190,11 @@ class OpenFOAMRunConfig:
     # the shape in grid cells (6 of 16 cars in run mw7 carry ~0.035 g less body),
     # so it is not a smooth truth; a width stretch is. 1.0 = untouched.
     body_scale_y: float = 1.0
+    # "Medium-plus" (reviewer, 2026-11-13): these extra surfaces (wings, nose,
+    # supports) refined to level (5 5), and a box plus_wake_m long behind the
+    # body base one level finer than the near wake. Empty / 0 = plain recipe.
+    plus_surfaces: tuple = ()
+    plus_wake_m: float = 0.0
 
     @property
     def resolved(self) -> bool:
@@ -456,6 +461,16 @@ def resolved_layer_controls(cfg, surface_cell_m: float) -> dict:
          "nOuterIter": 3}
     c.update(cfg.layer_overrides or {})
     return c
+
+
+def plus_wake_box(stl_path: str, cfg, wake_level: int) -> tuple:
+    """Medium-plus: one box from the body base to plus_wake_m behind it, the
+    body's height and half-width plus 25 %, one level finer than the near wake."""
+    if not getattr(cfg, "plus_wake_m", 0):
+        return ()
+    (x0, _y0, _z0), (x1, y1, z1) = stl_bounds(stl_path)
+    return (("wakePlus", ((x1 - 0.005, 0.0, 0.0), (x1 + cfg.plus_wake_m, 1.25 * y1, 1.25 * z1)),
+             wake_level + 1),)
 
 
 def wake_boxes(bounds, surface_min_level: int) -> tuple:
@@ -1203,9 +1218,15 @@ def apply_extra_surfaces(run: Path, cfg, resolution_levels: tuple,
         f'    {n}\n    {{\n        type triSurfaceMesh;\n        file "{n}.stl";\n    }}\n'
         for n in names))
     rs = "    refinementSurfaces\n    {\n"
+    plus = set(getattr(cfg, "plus_surfaces", ()) or ())
+
+    def lv(s):
+        if s["name"] in plus:                       # medium-plus: feature-edge parts
+            return 5, 5
+        return (hi + 1 if s.get("rotating") and lo == hi else lo,
+                hi + (1 if s.get("rotating") else 0))
     t = t.replace(rs, rs + "".join(
-        f"        {s['name']} {{ level ({hi + 1 if s.get('rotating') and lo == hi else lo} "
-        f"{hi + (1 if s.get('rotating') else 0)}); "
+        f"        {s['name']} {{ level ({lv(s)[0]} {lv(s)[1]}); "
         f"patchInfo {{ type wall; }} }}\n" for s in surfs))
     feat = f'        {{ file "car.eMesh"; level {hi}; }}\n'
     t = t.replace(feat, feat + "".join(f'        {{ file "{n}.eMesh"; level {hi}; }}\n'
@@ -1305,7 +1326,8 @@ def build_case(run_dir: str, stl_path: str, cfg: OpenFOAMRunConfig) -> dict:
                              # cells plus the layers; one more level there is 2.5 M cells
                              underbody_extra_levels=(0 if cfg.resolution == "resolved"
                                                      else cfg.underbody_refinement_level),
-                             boxes=wake_boxes(bounds, wake_level) if cfg.wake_refinement else (),
+                             boxes=(wake_boxes(bounds, wake_level) if cfg.wake_refinement else ())
+                             + plus_wake_box(stl_path, cfg, wake_level),
                              layer_controls=layer_controls,
                              layer_overrides=None if cfg.resolved else cfg.layer_overrides))
     _write(run / "system" / "controlDict", build_control_dict(cfg, frontal_area_half))

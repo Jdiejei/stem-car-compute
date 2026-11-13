@@ -5,6 +5,8 @@ on:
     inputs:
       car:
         default: "C0"
+      cfd:
+        default: '{"keep_run_dir": true}'
       res:
         default: "medium"
 permissions: { contents: read }
@@ -25,7 +27,7 @@ jobs:
       - run: pip install numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1 meshio
       - working-directory: part5-simulation
         run: |
-          python -W ignore ../part2-simulation/rank_study.py car ${{ inputs.car }} --res ${{ inputs.res }} --np 1 --iters 3 --cfd-json '{"keep_run_dir": true}' --out ../out/car 2>&1 | tail -8 || true
+          python -W ignore ../part2-simulation/rank_study.py car ${{ inputs.car }} --res ${{ inputs.res }} --np 1 --iters 3 --cfd-json '${{ inputs.cfd }}' --out ../out/car 2>&1 | tail -8 || true
       - name: Cells, quality and pictures
         run: |
           find / -path '*polyMesh/owner' -not -path '/proc/*' 2>/dev/null | grep -v -E 'tutorials|/usr/lib/openfoam' | head -5
