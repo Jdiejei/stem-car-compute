@@ -160,6 +160,17 @@ Start car at skin 3.95 mm, fresh search mesh, 1000 iterations, six GitHub machin
 - Two more checks failed to run: the time-accurate state choice timed out (0.15 s too long for the job; superseded by method A), and car L1 does not build on current main ("Mesh is not watertight after repair", Part 1 geometry) so the mesh study has 19 cars.
 - Skin ladders ref 3.930 (mxnviir 43066023520): 1.31 ms; ref 3.912 (mxnviir 43066015091): 0.67 ms.
 
+## Mesh convergence (ranking must not change with the mesh): PASS
+
+The 20 stress cars on the search mesh (medium, 2 cores; shawshanker18/stem-racing-car 43236112898, L1 rerun 43309030793 after Part 1 9984b8a) and the fine mesh (4 cores; blackwingftc-lang/stem-car-compute 43236121620, L1 43309051449). Fine missing: L9 (6 h job limit), C3 (failed).
+
+| set | cars | Spearman | pairs > 3 ms apart that agree |
+| --- | --- | --- | --- |
+| all with both meshes | 18 | 0.963 | 138 / 144 = 95.8 % |
+| converged on both | 11 | 0.973 | 50 / 51 = 98.0 % |
+
+Stats: shawshanker18/stem-racing-car 43358478921, 43358483537. Pass marks 0.9 and 90 %.
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
