@@ -903,6 +903,12 @@ def manufactured_checks(assembly: dict) -> dict:
         hm.apply_scale(1e3)
         lost = _volume_in(body, hm)
         r["T4.4.4_halo_fits_pocket"] = _absent(lost, f"{lost:.1f} mm3 of one half of the halo in the foam")
+        if not r["T4.4.4_halo_fits_pocket"]["pass"]:      # where, so the carver's zone can be fixed
+            i = trimesh.boolean.intersection([body, hm], engine="manifold")
+            if i is not None and not i.is_empty:
+                parts = [np.round(p.bounds, 2).tolist() for p in i.split(only_watertight=False)]
+                r["T4.4.4_halo_fits_pocket"]["note"] += (f"; halo bounds mm {np.round(hm.bounds, 2).tolist()}"
+                                                         f"; foam in halo, bounds mm {parts}")
     r.update(ballast_checks(body, halo_pocket_mm(assembly), float(assembly.get("ballast_g") or 0.0)))
     r.update(_visibility_checks(assembly, solids))
     nose_row = assembly["joints"]["parts"].get("nose")
