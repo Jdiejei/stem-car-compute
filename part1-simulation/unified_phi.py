@@ -383,7 +383,9 @@ def _marking_room_mask(region, cargo_solid, ref_A_mm: float, d_halo_mm: float):
     zf = HALO_MIN_Z_MM + fh.HALO_VISIBILITY_FILLET_MM
     xa = ref_A_mm + 3.0
     if x0 - 1.0 - xa >= 17.0:
-        m |= (X >= xa) & (X <= xa + 17.0) & (Y <= 5.5) & (Z <= zf - 1.0)   # down to the floor: a deck alone came out as a second piece (44016/0)
+        m |= (X >= xa) & (X <= x0 + 2.0) & (Y <= 5.5) & (Z <= zf - 1.0)
+        # back to the halo pocket and down to the floor: a 17 mm deck carved free of the
+        # body (which began at x 55, deck 35-52) came out as a second piece on 44016/0
     return m
 
 
