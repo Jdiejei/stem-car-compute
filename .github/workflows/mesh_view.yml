@@ -3,8 +3,10 @@ run-name: "Mesh pictures: ${{ inputs.car }} on ${{ inputs.res }}"
 on:
   workflow_dispatch:
     inputs:
-      car: { default: "C0" }
-      res: { default: "medium" }
+      car:
+        default: "C0"
+      res:
+        default: "medium"
 permissions: { contents: read }
 jobs:
   mesh:
@@ -33,4 +35,6 @@ jobs:
           foamToVTK -latestTime -noInternal -patches '(symmetry car)' > /dev/null 2>&1 || foamToVTK -noInternal > /dev/null
           cd - ; python .github/lab/mesh_view.py "$D/VTK" "${{ inputs.res }}" pics
       - uses: actions/upload-artifact@v4
-        with: { name: "mesh-${{ inputs.car }}-${{ inputs.res }}", path: pics }
+        with:
+          name: "mesh-${{ inputs.car }}-${{ inputs.res }}"
+          path: pics
