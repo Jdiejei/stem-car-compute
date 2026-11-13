@@ -361,6 +361,32 @@ def _zone_masks(
     return zones
 
 
+def _marking_room_mask(region, cargo_solid, ref_A_mm: float, d_halo_mm: float):
+    """Body the carve must keep for the markings. T4.6: a 33 x 17 mm flat side wall (the
+    30 x 15 mm decal plus a cell each way) over the middle of the cargo, as wide as the
+    cargo. T4.7: a 17 x 11 mm deck (8 x 14 mm number plus margin) on the centreline between
+    Ref A and the halo, its top under the halo's front shadow. Carving down to the cargo
+    left a 10 mm side (44028/0) and no number deck (44016/0) on 54906c4 (2026-11-13)."""
+    import fixed_hardware as fh
+    import halo_pocket as hp
+    from geometry_contract import HALO_MIN_Z_MM
+    d = GRID_SPACING_M * 1e3
+    o = np.asarray(region.origin_m) * 1e3
+    x, y, z = (o[k] + d * np.arange(region.shape[k]) for k in range(3))
+    X, Y, Z = np.meshgrid(x, np.abs(y), z, indexing="ij")
+    m = np.zeros(region.shape, bool)
+    i, j, k = np.nonzero(cargo_solid)
+    if len(i):
+        xc, zc, yo = x[i].mean(), z[k].mean(), np.abs(y[j]).max()
+        m |= (np.abs(X - xc) <= 16.5) & (np.abs(Z - zc) <= 8.5) & (Y <= yo)
+    x0 = hp.compute_halo_pocket_box_m(ref_A_mm / 1e3, d_halo_mm)["x_min_m"] * 1e3
+    zf = HALO_MIN_Z_MM + fh.HALO_VISIBILITY_FILLET_MM
+    xa = ref_A_mm + 3.0
+    if x0 - 1.0 - xa >= 17.0:
+        m |= (X >= xa) & (X <= xa + 17.0) & (Y <= 5.5) & (Z >= zf - 8.0) & (Z <= zf - 1.0)
+    return m
+
+
 def measure_cargo_erosion(cargo_solid, hard_air, region, ref_plane_A_m,
                           d_halo_mm) -> tuple[int, int]:
     """(eaten, requested) interior cargo cells lost to forced-air regions.
@@ -602,6 +628,7 @@ def build_unified_geometry(
         hard_solid |= build_virtual_cargo_solid_mask(
             region.origin_m, region.shape, placement["x_start_m"], z_base,
             flip=placement.get("flip", False), grow_cells=1)
+        hard_solid |= _marking_room_mask(region, cargo_solid, bv.ref_plane_A_m * 1e3, d_halo_mm)
 
     # T5.5's safety zone: model block that must remain around the chamber.
     # Without it the optimiser carved the pocket away and left the cartridge
