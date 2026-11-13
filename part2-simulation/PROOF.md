@@ -195,6 +195,20 @@ The solver stops at a time budget, writes its fields (binary), and the next job 
 
 Not bit-identical: on one machine the restart moves the time by 0.0005 ms, 200 times below the 0.1 ms repeat mark and 20 times below the 0.01 ms machine-to-machine spread. **Pass mark (within 0.1 %): PASS** (0.0003 % on drag). The whole-car test now runs its fine and resolved cars this way (tests.yml long_fine_1..3, long_resolved_1..3).
 
+## Fixed constants: wheels, friction, tether (user decision 2026-11-13: the same for every car)
+
+No published measured value exists for F1 in Schools rolling friction, wheel inertia or tether drag (searched 2026-11-13). The best public source is a team engineering report (Hydron, Australia: https://offthetrack.net/img/t41_hydron_australia_engineering_compressed.pdf), which models wheel, aero and tether friction separately but publishes no coefficients. So these are stated engineering values, the same for every car:
+
+| constant | value | basis |
+| --- | --- | --- |
+| rolling friction mu | 0.010 | between ball-bearing wheels on a smooth track (Engineering ToolBox rolling-resistance tables, low-resistance wheels 0.002–0.005 plus bearing and guide drag) |
+| low / high for Part 3 | 0.005 / 0.020 | half and double the central value |
+| wheel mass | 1.15 g front, 1.29 g rear (Part 4 parts) | consistent with a hollow 2 mm-wall PLA wheel of about 1.8 g (PCBWay worked example) |
+| wheel inertia | 1.39e-7 kg m² per wheel | from those parts |
+| tether drag | 0 (not modelled) | no published value; the guide friction mu_guide stays a placeholder |
+
+Every car gets the same values, so they shift all times together and the ranking holds; the friction check at 0.005 and 0.020 tests that. The team's spin-down and slope tests replace them when they arrive.
+
 ## Still to prove
 
 - Ahmed body benchmarks: 35° reported (RANS limit); 25° and the cube are the pass cases (decision 2026-11-09).
