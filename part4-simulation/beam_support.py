@@ -70,6 +70,7 @@ TOOL_R_MM = 3.125
 STUB_D_MM = 3.0               # the journal: the 3x6x2.5 bearing's bore
 BEARING_W_MM = 2.5
 RIM_INNER_R_MM = 13.72        # the team wheel's rim, inside (measured on the STL)
+CLAW_LIP_MM = 1.5             # T7.13 hang-test claw lip (regulation figure, p.34; legality.py)
 
 # Loads and limits (see the module docstring)
 LOAD_RADIAL_N = 3.0
@@ -363,13 +364,28 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
     prof += line + [(0.0, y_tip)]
     # with a pod the plate stops a lap inside it: the pod's roof carries on
     y_plate0 = max(0.0, channel["y_body_at_plate_mm"] - bs.plate_lap_mm) if pod else 0.0
-    parts = [_extrude_xz(section(bs_sized), y_plate0, y_beam_end + 0.05, xc, zc),
-             _revolve_y(prof, x_axle_mm, z_axle_mm)]
+    plate = _extrude_xz(section(bs_sized), y_plate0, y_beam_end + 0.05, xc, zc)
+    # T7.13: the claw hooks the wheel's inner corner (CLAW_LIP_MM in from the inner
+    # face, over the outer CLAW_LIP_MM of radius). Inside that band the plate keeps
+    # within R - lip of the axle, so a pod-high plate steps down to the disc there.
+    y_claw = y_inner_mm - CLAW_LIP_MM - 0.1
+    if y_beam_end + 0.05 > y_claw:
+        keep = _revolve_y([(0.0, y_claw), (R_mm - CLAW_LIP_MM - 0.1, y_claw),
+                           (R_mm - CLAW_LIP_MM - 0.1, y_beam_end + 1.0), (0.0, y_beam_end + 1.0)],
+                          x_axle_mm, z_axle_mm)
+        inboard = _extrude_xz(section(bs_sized), y_plate0, y_claw, xc, zc)
+        outboard = trimesh.boolean.intersection([plate, keep], engine="manifold")
+        plate = trimesh.boolean.union([inboard, outboard], engine="manifold")
+    parts = [plate, _revolve_y(prof, x_axle_mm, z_axle_mm)]
     if pod and bs.strip:
         parts.append(_extrude_xz(section(dataclasses.replace(bs, beam_w_mm=bs.strip_w_mm,
                                                              beam_h_mm=bs.strip_h_mm)),
                                  0.0, y_beam_end + 0.05, x_axle_mm, z_strip))
     part = trimesh.boolean.union(parts, engine="manifold")
+    v = part.vertices * 1e3                                  # metres, like gates()
+    band = v[(v[:, 1] > y_inner_mm - CLAW_LIP_MM) & (v[:, 1] < y_inner_mm)]
+    st["claw_band_r_mm"] = float(np.hypot(band[:, 0] - x_axle_mm, band[:, 2] - z_axle_mm).max()) if len(band) else 0.0
+    st["claw_band_limit_mm"] = R_mm - CLAW_LIP_MM
     cap = None
     if bs.hubcap:
         # a plate flush with the wheel's outer face, on a short hub that the
@@ -392,6 +408,8 @@ def gates(bs: BeamSupport, meshes: dict, x_axle_mm: float, z_axle_mm: float, R_m
          # loads: margins in MPa and mm
          f"load_{tag}_stub_stress": st["allow_mpa"] - st["stress_mpa"],
          f"load_{tag}_bearing_sag": SAG_MAX_MM - st["sag_mm"]}
+    if "claw_band_r_mm" in st:
+        g[f"T7.13_{tag}_support_clear_of_claw"] = st["claw_band_limit_mm"] - st["claw_band_r_mm"]
     if "frame_stress_mpa" in st:
         g[f"load_{tag}_frame_stress"] = st["allow_mpa"] - st["frame_stress_mpa"]
     if "disc_stress_mpa" in st:
