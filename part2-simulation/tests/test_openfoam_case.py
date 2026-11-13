@@ -687,3 +687,12 @@ def test_medium_plus_box_sits_behind_the_body():
         (name, (lo, hi), lvl), = oc.plus_wake_box(str(p), OpenFOAMRunConfig(plus_wake_m=0.03), 4)
         assert name == "wakePlus" and lvl == 5
         assert lo[0] < 0.2 < hi[0] and hi[0] == pytest.approx(0.23)
+
+
+def test_fine_and_resolved_keep_only_the_latest_write(monkeypatch):
+    monkeypatch.delenv("P2_SLIM", raising=False)
+    assert "purgeWrite      0;" in oc.build_control_dict(OpenFOAMRunConfig(resolution="medium"), 1e-3)
+    for res in ("fine", "resolved"):
+        assert "purgeWrite      1;" in oc.build_control_dict(OpenFOAMRunConfig(resolution=res), 1e-3)
+    monkeypatch.setenv("P2_SLIM", "1")
+    assert oc.slim_disk(OpenFOAMRunConfig(resolution="medium"))

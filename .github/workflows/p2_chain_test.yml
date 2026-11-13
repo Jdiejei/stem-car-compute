@@ -27,6 +27,7 @@ env:
 jobs:
   solve:
     name: ${{ inputs.label }} ${{ matrix.link }}
+    if: inputs.samebox != 'slim'
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     strategy:
@@ -133,7 +134,7 @@ jobs:
   samebox:
     # Restart exactness without machine-to-machine noise: unbroken, then link 1
     # and link 2, all three in ONE job on one machine.
-    if: inputs.samebox == 'true'
+    if: inputs.samebox != 'false'
     name: ${{ inputs.label }} same machine
     runs-on: ubuntu-24.04
     timeout-minutes: 350
@@ -158,9 +159,10 @@ jobs:
           go() { python -W ignore run_car.py --out ../out/$1 --body-json '{}' --skin-mm ${{ inputs.skin }} --cfd \
             --cfd-iters ${{ inputs.iters }} --res medium --np ${{ inputs.np }} --keep-runs --cfd-json "$opt" 2>&1 | tail -3 || true; }
           go u
+          if [ "${{ inputs.samebox }}" = slim ]; then P2_SLIM=1 go l2; else
           export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
           P2_SOLVE_BUDGET_S=${{ inputs.budget_s }} go l1
-          P2_RESUME_CASE=$(cat ../ckpt_path.txt) go l2
+          P2_RESUME_CASE=$(cat ../ckpt_path.txt) go l2; fi
           python - <<'PYEOF'
           import json
           for k in ("u", "l2"):

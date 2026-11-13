@@ -176,7 +176,7 @@ jobs:
           mkdir -p ../out
           export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
           if [ -f /tmp/ckpt/case.tar ]; then
-            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
             echo "continuing the saved case"
           fi
           set +e
@@ -275,7 +275,7 @@ jobs:
           mkdir -p ../out
           export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
           if [ -f /tmp/ckpt/case.tar ]; then
-            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
             echo "continuing the saved case"
           fi
           set +e
@@ -374,7 +374,7 @@ jobs:
           mkdir -p ../out
           export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
           if [ -f /tmp/ckpt/case.tar ]; then
-            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
             echo "continuing the saved case"
           fi
           set +e
@@ -472,7 +472,7 @@ jobs:
           mkdir -p ../out
           export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
           if [ -f /tmp/ckpt/case.tar ]; then
-            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
             echo "continuing the saved case"
           fi
           set +e
@@ -571,7 +571,7 @@ jobs:
           mkdir -p ../out
           export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
           if [ -f /tmp/ckpt/case.tar ]; then
-            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
             echo "continuing the saved case"
           fi
           set +e
@@ -670,7 +670,7 @@ jobs:
           mkdir -p ../out
           export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
           if [ -f /tmp/ckpt/case.tar ]; then
-            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && export P2_RESUME_CASE=/tmp/case/run
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
             echo "continuing the saved case"
           fi
           set +e

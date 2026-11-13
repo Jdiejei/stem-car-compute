@@ -747,6 +747,14 @@ mergeTolerance 1e-6;
 """
 
 
+def slim_disk(cfg) -> bool:
+    """Fine and resolved cases fill a public runner's disk (a fine run died 2 h in,
+    2026-11-13): keep only the latest field write (purgeWrite 1) and drop the
+    processor folders once the result is reconstructed. Nothing read changes.
+    P2_SLIM=1 forces it on any mesh (for the before/after check)."""
+    return cfg.resolution in ("fine", "resolved") or os.environ.get("P2_SLIM") == "1"
+
+
 def build_control_dict(cfg: OpenFOAMRunConfig, ref_area_half: float) -> str:
     """controlDict with the force + forceCoeffs + yPlus function objects the
     spec's Extract step needs (D20, L, pitching moment, y+)."""
@@ -774,7 +782,7 @@ deltaT          1;
 // every step; they are what invoke() actually parses.
 writeControl    timeStep;
 writeInterval   {cfg.max_iterations};
-purgeWrite      0;
+purgeWrite      {1 if slim_disk(cfg) else 0};
 writeFormat     binary;
 writePrecision  8;
 writeCompression off;
@@ -1823,6 +1831,9 @@ def run_stages(run_dir: str, cfg: OpenFOAMRunConfig, bashrc: str,
                                         run, bashrc, "solver.log", timeout_s)
         _checkpoint_if_short(run, cfg)
         _run("reconstructPar -latestTime", run, bashrc, "reconstructPar.log", timeout_s)
+        if slim_disk(cfg):
+            for d in run.glob("processor*"):
+                shutil.rmtree(d, ignore_errors=True)
     else:
         if resume:
             checkmesh = (run / "logs" / "checkMesh.log").read_text(errors="replace")
