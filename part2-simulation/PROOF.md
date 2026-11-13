@@ -205,7 +205,7 @@ No published measured value exists for F1 in Schools rolling friction, wheel ine
 | low / high for Part 3 | 0.005 / 0.020 | half and double the central value |
 | wheel mass | 1.15 g front, 1.29 g rear (Part 4 parts) | consistent with a hollow 2 mm-wall PLA wheel of about 1.8 g (PCBWay worked example) |
 | wheel inertia | 1.39e-7 kg m² per wheel | from those parts |
-| tether drag | 0 (not modelled) | no published value; the guide friction mu_guide stays a placeholder |
+| tether drag | 0 (not modelled) | no published value; accepted by the reviewer (2026-11-14) because it is the same constant for every car (user decision), so it shifts all times equally and cannot change the order; mu_guide stays a placeholder |
 
 Every car gets the same values, so they shift all times together and the ranking holds; the friction check at 0.005 and 0.020 tests that. The team's spin-down and slope tests replace them when they arrive.
 
