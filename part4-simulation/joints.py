@@ -330,6 +330,19 @@ DENSITY_G_CM3 = {"supports": 1.01, "fwing": 1.24, "rwing": 1.24, "tethers": 1.24
                  "nose": 1.01}
 
 
+def density_source(rho_g_cm3: float) -> tuple:
+    """Where a part's density comes from, and whether the team has weighed it yet.
+    No printed part has been weighed: every printed density is a material datasheet
+    value until the team gives its real print weights."""
+    if abs(rho_g_cm3 - FOAM_G_CM3) < 1e-9:
+        return "foam block, team spec (geometry_contract.DENSITY_BODY_KGM3 = 163)", False
+    if abs(rho_g_cm3 - 1.01) < 1e-9:
+        return "SLS PA12 datasheet 1.01 g/cm3 (team material spec 2026-09-27)", False
+    if abs(rho_g_cm3 - 1.24) < 1e-9:
+        return "PLA datasheet 1.24 g/cm3 (component_contract.DENSITY_G_CM3), solid print", False
+    return f"{rho_g_cm3} g/cm3, no source recorded", False
+
+
 def nose_part(body_half, x_ref_a_mm: float, tenon_mm: float = 8.0, tenon_half_w_mm: float = 4.0):
     """The printed nose: the body ahead of Ref A plus a tenon reaching
     `tenon_mm` aft of it (8 mm wide: the cutter needs >= 6.25)."""
@@ -529,7 +542,9 @@ def make_all(body_half, assembly: dict, x_ref_a_mm: float, rear_face_mm: float,
     for name, m in P.items():
         made[f"printed_{name}"] = (m, DENSITY_G_CM3.get(name, 1.24),
                                    2 if name == "tethers" else 1)
-    report["manufactured"] = {k: {"cm3": abs(m.volume) * 1e6, "g": abs(m.volume) * 1e6 * rho,
+    report["manufactured"] = {k: {"cm3": abs(m.volume) * 1e6, "g": abs(m.volume) * 1e6 * rho, "g_cm3": rho,
+                                  "density_source": density_source(rho)[0],
+                                  "weighed": density_source(rho)[1],
                                   "pieces_expected": n} for k, (m, rho, n) in made.items()}
     report["manufactured_g"] = float(sum(v["g"] for v in report["manufactured"].values()))
     if out_dir is not None:

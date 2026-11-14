@@ -349,8 +349,12 @@ def write_mass_report(asm: dict, path) -> dict:
         "cartridge_axis_z_mm": jr.get("bore_axis_z_mm"),
         # The tether line through the guides' centres (T6), as built.
         "tether_line_z_mm": (guides[0]["bottom_mm"] + guides[0]["od_mm"] / 2.0) if guides else None,
-        "parts": {k: {"g": g, "com_mm": c} for k, (g, c) in rows.items()},
-        "placeholders": "densities of the printed parts and the wheel masses are not yet weighed",
+        "parts": {k: {"g": g, "com_mm": c, **{f: asm["joints"]["manufactured"][k][f]
+                                              for f in ("cm3", "g_cm3", "density_source", "weighed")
+                                              if f in asm["joints"]["manufactured"].get(k, {})}}
+                  for k, (g, c) in rows.items()},
+        "placeholders": "printed-part masses are volume x datasheet density (each row names its source); "
+                        "none is weighed yet, nor the wheels: replace with the team's real print weights",
     }
     Path(path).write_text(json.dumps(report, indent=1))
     return report
