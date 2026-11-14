@@ -200,6 +200,22 @@ def advance(state: dict, results: dict, prior_sigma: float) -> None:
             c["status"] = "out_of_rounds"
 
 
+def to_start(state: dict, results: dict, running: set, free: int) -> list:
+    """The next timings to dispatch on the farm: what needed() lists, minus what is done or
+    running, at most `free` of them, taken round-robin across chains so N chains share a short
+    farm evenly and no chain waits behind another's whole round (slots fill gradually)."""
+    per = {}
+    for k in needed(state):
+        if k not in results and k not in running:
+            per.setdefault(k.split("_")[1], []).append(k)
+    out, queues = [], [per[c] for c in sorted(per)]
+    while len(out) < free and any(queues):
+        for q in queues:
+            if q and len(out) < free:
+                out.append(q.pop(0))
+    return out
+
+
 def run_local(state: dict, direction, step, measure, prior_sigma: float) -> dict:
     """The whole loop with an immediate stopwatch (the fake bench); the farm does the same with
     needed/advance across GitHub jobs."""
