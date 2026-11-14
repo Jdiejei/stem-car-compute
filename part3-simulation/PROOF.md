@@ -187,5 +187,9 @@ Part 2's fine-mesh noise once it is posted; nothing here is re-sized until then.
   legal through p1_carve_stress on the same code. The loop builds and judges every car through
   one path, the referee's. Seeds 50047 and 50027 are re-judged through exactly that path before
   their compass maps start, and nothing starts until Part 4 says whether the two paths agree.
+  Part 4 answered: the two paths differ (stress_cars.carve_field vs cutter.cut give different
+  bodies for one seed). 50047 and 50027 were judged legal through p4_assembly, so their base
+  cars are built through exactly that path, and every loop car through the one canonical path
+  Part 1 names. Still held until Part 1 names it.
 - Each chain gets its own fine compass map before its first step. Slots are shared round-robin
   between chains (`carve_loop.to_start`, `tests/test_carve_chains.py`).
