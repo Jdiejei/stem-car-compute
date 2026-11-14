@@ -93,6 +93,24 @@ def centres(V, N):
     return P[pick]
 
 
+def coverage(V, N, r=None):
+    """How well the modes tile the half body: (fraction of surface points within r of a centre at
+    NMODES, largest gap in mm, centres needed so every point is within r). Farthest-point order, so
+    adding modes only appends centres and never renumbers the existing ones."""
+    r = R_M if r is None else r
+    P = V[N[:, 1] > -0.9]
+    pick = [int(np.argmin(P[:, 0]))]
+    d = np.linalg.norm(P - P[pick[0]], axis=1)
+    at_n = None
+    while True:
+        if len(pick) == NMODES:
+            at_n = (float(np.mean(d <= r)), float(d.max() * 1e3))
+        if d.max() <= r and len(pick) >= NMODES:
+            return at_n[0], at_n[1], len(pick)
+        pick.append(int(np.argmax(d)))
+        d = np.minimum(d, np.linalg.norm(P - P[pick[-1]], axis=1))
+
+
 def grid_xyz(g):
     r = g.region
     from geometry_contract import GRID_SPACING_M as dx     # set by start_block (1 mm)
@@ -264,13 +282,18 @@ def judge(d: Path):
 if __name__ == "__main__":
     sys.path[:0] = [".", str(Path(__file__).resolve().parent)]
     cmd = sys.argv[1]
-    if cmd == "run":
+    if cmd in ("run", "coverage"):
         import pattern, solver                          # noqa: E402,F401  (these put the other parts on the path)
     if cmd == "plan":
         its = items()
         print(json.dumps([" ".join(its[i:i + CHUNK]) for i in range(0, len(its), CHUNK)]))
     elif cmd == "run":
         run(None if sys.argv[2] == "-" else str(Path(sys.argv[2]).resolve()), Path(sys.argv[3]), sys.argv[4:])
+    elif cmd == "coverage":                              # do the modes tile the whole half body?
+        _, V, N = surface(block())
+        f, gap, need = coverage(V, N)
+        print(f"LAB coverage: {NMODES} modes of radius {R_M * 1e3:g} mm cover {100 * f:.1f} % of the half body; "
+              f"largest gap {gap:.1f} mm; {need} modes put every point within one radius", flush=True)
     elif cmd == "judge":
         judge(Path(sys.argv[2]))
     else:

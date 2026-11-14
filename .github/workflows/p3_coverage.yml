@@ -1,0 +1,22 @@
+name: p3_coverage
+run-name: "Part 3: do the compass modes tile the whole half body? (radius ${{ inputs.r_mm }} mm)"
+on:
+  workflow_dispatch:
+    inputs:
+      r_mm: { default: "10" }
+      nmodes: { default: "60" }
+permissions: { contents: read }
+jobs:
+  coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0
+          pip install numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+      - working-directory: part5-simulation
+        env: { P3_MODE_R_MM: "${{ inputs.r_mm }}", P3_NMODES: "${{ inputs.nmodes }}" }
+        run: python -W ignore -u ../part3-simulation/checks/car_modes.py coverage
