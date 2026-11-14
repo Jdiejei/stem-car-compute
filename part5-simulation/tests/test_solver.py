@@ -164,6 +164,7 @@ def test_a_layout_step_that_wins_is_kept(tmp_state):
 
 def test_an_illegal_car_is_a_result_without_any_cfd(tmp_state, monkeypatch):
     import run_car as rc
+    monkeypatch.setenv("P5_RES", "fine")          # loop timings need an explicit fine/resolved mesh
     solver.init(1)
     seen = {}
 
