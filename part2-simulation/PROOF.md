@@ -3,6 +3,19 @@
 Every number here comes from a GitHub run (or a Codespace, where stated). Run IDs
 are in the repo named with them. Model times are model times, not track times.
 
+## Summary (2026-11-14)
+
+| BUILD_SPEC section 8 test | result | mark |
+| --- | --- | --- |
+| Timing noise (16 cars, smooth ladder, each car timed from both frozen airflow states) | **PASS 0.091 ms, confirmed 0.087 ms** | ≤ 0.3 ms |
+| Repeatability (same car, 9 machines, 2 cores, frozen reference) | **PASS 0.01 ms** | ≤ 0.1 ms |
+| Ranking, search vs fine mesh | **PASS** Spearman 0.963–0.973, pairs 95.8–98.0 % | ≥ 0.9, ≥ 90 % |
+| Chained long runs | **PASS** 0.0005 ms on one machine | within 0.1 % |
+| Disk-saving change on fine/resolved | bit-identical on one core (slim2) | identical |
+| Whole-car test with chained fine and resolved cars | **green**, shawshanker18/stem-racing-compute 43397841507 on 30d92d0 | all jobs pass |
+
+Race model on the measured thrust; drag corrected by 1/1.09 ± 0.04 (Q11); friction, wheels and tether are stated constants (below). Model times are relative, not track times. Still open: drag-bias re-rank at 1.05/1.13 and friction 0.005/0.020 once Part 5 has top cars; noise and repeat on the fine mesh (the search now runs on fine); model vs a real timed run.
+
 ## Ranking agreement (Step 3): PASS
 
 | | value | pass mark |
@@ -208,6 +221,10 @@ No published measured value exists for F1 in Schools rolling friction, wheel ine
 | tether drag | 0 (not modelled) | no published value; accepted by the reviewer (2026-11-14) because it is the same constant for every car (user decision), so it shifts all times equally and cannot change the order; mu_guide stays a placeholder |
 
 Every car gets the same values, so they shift all times together and the ranking holds; the friction check at 0.005 and 0.020 tests that. The team's spin-down and slope tests replace them when they arrive.
+
+## Disk-saving change on fine and resolved meshes (66de290)
+
+One medium car solved twice in one job on ONE core, before and with the change forced on (P2_SLIM=1; shawshanker18/stem-racing-compute 43503249158): T 1.5390140296698798 s and D20 0.41139534964 N both times, **bit-identical**. On 2 cores the same pair differed by 0.008 ms (43475203170), the known 2-core run-to-run floor.
 
 ## Fine mesh: the one highly skewed face
 
