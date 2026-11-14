@@ -173,6 +173,15 @@ Part 2's fine-mesh noise once it is posted; nothing here is re-sized until then.
 - **Chains 2 and 3:** two legal bodies from Part 1's 2,000-body test on p1-stage-a-1, chosen to
   be far apart in shape (front width, nose position, halo distance) and not lumpy: bodies with
   few settings moved, or small moves, are preferred, because a random stress body would spend
-  steps undoing its own lumps. Chosen when that test posts; ids and reasons recorded here.
+  steps undoing its own lumps. Chosen from batch 1 (run 43561978552, seeds 50000-50059, 59 legal):
+  - **Chain 2: seed 50047** (legal, 59.4 g). The widest smooth body: W 126.8 mm (start 120.3).
+    Only one other setting moved (support strip width 7.5 mm). One carve step, bias −0.92 mm.
+  - **Chain 3: seed 50027** (legal, 50.3 g). A different direction: the front moved back
+    (x_front 51.7 mm, start 46.0) with a longer, blunter nose (nose length 18.2 mm, nose.p 2.54).
+    No layout width or halo change. Two carve steps, bias −1.29 mm.
+  - Why these: among the 60 bodies, these have the fewest settings moved and the fewest carve
+    steps (1 or 2) while each changes a different part of the shape (width vs nose and front),
+    so the three chains start apart. Seed 50032 (one carve step, halo moved back to 64.8 mm) was
+    the runner-up; it was passed over because it also moves five wing and support settings.
 - Each chain gets its own fine compass map before its first step. Slots are shared round-robin
   between chains (`carve_loop.to_start`, `tests/test_carve_chains.py`).
