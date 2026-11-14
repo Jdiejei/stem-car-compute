@@ -94,6 +94,9 @@ centre-of-mass redistribution term. 18 unit tests pass, including finite differe
 - **Scoring:** only cuts whose change is at least 3 × the noise of a difference
   (3 × 0.36 × √2 = 1.53 ms), with the BUILD_SPEC 12.4 marks.
 
+**Method only:** the medium cars' modes were bumps added straight onto the field, not carved
+through Part 1's carve path, so they test the method and are not car results.
+
 **Status (2026-11-14):** 45 carved cars (skins 3.76 to 3.95 mm) on 2 cores, one car per run,
 spread over Part 3's accounts. None is judged yet. Cars 1 and 2 ran on 4 cores before Part 2's
 4-core check failed (spread 0.12 ms against a 0.01 ms limit, run 43279305307); cars 6 and 7
@@ -119,7 +122,11 @@ medium, then compared mode by mode (sign agreement and correlation):
   communication"; likely memory or disk). It was rerun with an 8 GB swapfile, about 20 GB of disk
   freed, and a memory and disk log every 5 minutes; later runs also use Part 2's slimmer disk use
   (66de290). It has not recurred.
-- Modes 0 to 11 (±) are being timed on each car, 4 at a time. Result: pending.
+- Modes were timed with bumps added straight onto the field (no rule zones or milling), so the
+  body timed was not the judged body. On 2026-11-14 the running and queued mode runs were cancelled
+  (31 runs). Finished ones are kept only as a labelled bare-field comparison and never seed the
+  loop. The four fine start cars stand (an unchanged start car is the same either way). Modes are
+  redone through Part 1's one carve path (carve.carve).
 
 ## 5. Step test plan and its power (BUILD_SPEC 7 step 6)
 
@@ -162,7 +169,10 @@ Part 2's fine-mesh noise once it is posted; nothing here is re-sized until then.
   more candidates slower).
 - **Timing a candidate:** a step is the start car plus a mix of compass modes (`s<name>` items
   in `p3_fine_modes.yml`), timed on the fine mesh and carried across 6-hour jobs.
-  End-to-end proof: run 43569631533 (mxnviir), one step on the 3.87 mm fine car. Result: pending.
+  End-to-end proof: run 43569631533 (mxnviir) saved its case and handed over to a second job
+  (43594273899), so the save-and-continue works. That step was built by adding bumps straight onto
+  the field, not through Part 1's carve path, so it was cancelled; the proof is rerun through
+  carve.carve. Result: pending.
 - **Starts when:** this proof and tests.yml cars=true pass, Part 2's fine gates pass, and Part 4
   is tagged. Part 1 is tagged (p1-stage-a-1, dd7427a, whole-car test 43453873060 green). Only
   the final run needs the user's go.
