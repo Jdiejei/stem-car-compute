@@ -59,6 +59,7 @@ def mesh() -> str:
     return RES
 SIGMA_S = float(os.environ.get("P3_SIGMA_MS", "0.36")) / 1e3
 CHUNK = int(os.environ.get("P3_CHUNK", "8"))
+SPACING_MM = float(os.environ.get("P3_SPACING_MM", "1.0"))   # block grid; tests use 2 mm
 
 
 def items():
@@ -67,7 +68,7 @@ def items():
 
 def block():
     import cutter
-    return cutter.start_block(LAYOUT)
+    return cutter.start_block(LAYOUT, spacing_mm=SPACING_MM)
 
 
 def surface(g):
@@ -129,7 +130,7 @@ def field(item: str) -> np.ndarray:
         depth = DEPTHS[j % len(DEPTHS)]
         edit = {"bumps": bumps, "unit": True, "trust_mm": depth}
         label = f"cut {j}: depth cap {depth:g} mm,"
-    g2, reps = carve.carve(LAYOUT, [edit])
+    g2, reps = carve.carve(LAYOUT, [edit], spacing_mm=SPACING_MM)
     rep = reps[0]
     print(f"LAB {label} status {rep.get('status')} {rep.get('reason', '')},"
           f" move p90 {1e3 * (rep.get('disp_p90_m') or 0):.3f} mm", flush=True)

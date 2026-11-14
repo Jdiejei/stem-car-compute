@@ -44,3 +44,26 @@ def test_solver_eval_refuses_low_mesh(monkeypatch, tmp_path, res):
     (tmp_path / "b.json").write_text('{"cases": [{"id": 0, "params": {}}]}')
     with pytest.raises(SystemExit):
         solver.evaluate(0, tmp_path)
+
+
+def test_modes_and_steps_go_through_carve(monkeypatch, tmp_path):
+    """car_modes' m and s items are carve.carve with the mode bumps: the same field, byte for byte."""
+    import hashlib
+    import json
+    import numpy as np
+    sys.path.insert(0, str(ROOT / "part1-simulation"))
+    monkeypatch.setenv("P3_SPACING_MM", "2.0")
+    (tmp_path / "steps.json").write_text(json.dumps({"s0": [[0, -0.5], [3, 0.5]]}))
+    monkeypatch.setenv("P5_STEPS", str(tmp_path / "steps.json"))
+    cm = _cm(monkeypatch, "fine", True)
+    import carve
+    h, V, N = cm.surface(cm.block())
+    C, a, r = cm.centres(V, N) * 1e3, cm.A_M * 1e3, cm.R_M * 1e3
+    sha = lambda x: hashlib.sha256(np.ascontiguousarray(np.asarray(x, np.float32)).tobytes()).hexdigest()
+    want = {"m3-": [{"c_mm": list(C[3]), "amp_mm": -a, "sigma_mm": r}],
+            "s0": [{"c_mm": list(C[0]), "amp_mm": -0.5 * a, "sigma_mm": r},
+                   {"c_mm": list(C[3]), "amp_mm": 0.5 * a, "sigma_mm": r}]}
+    for item, bumps in want.items():
+        g, rep = carve.carve(cm.LAYOUT, [{"bumps": bumps, "unit": False}], spacing_mm=2.0)
+        assert rep[0]["status"] == "ok"
+        assert sha(cm.field(item)) == sha(g.phi.grid)
