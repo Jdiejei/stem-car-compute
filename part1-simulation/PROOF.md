@@ -15,12 +15,12 @@ Frozen tag: **`p1-stage-a-1` = `dd7427a`** (2026-11-14).
 | 1 | Grid study: the same body cut at 1 mm and 0.5 mm | every body's mass within 0.5 %, rule margins of the same sign | 20 of 20 within 0.5 %. 10 more seeds (41381-41390) also within 0.5 % | 43026438679; 43118866738 (J) |
 | 2 | Weight sizing, 200 bodies | every reachable body within ±0.05 g, none under 48.0 g, at most 16 builds | reported green on 2026-11-13 (code before the tag); the per-body table is not reproduced here, so the binding result is the rerun on the tag (2') | 43142211899 (B), 43142217956 (J) |
 | 3 | Remap: a body moved to a new layout still passes the mesh check | mesh passes with no slivers | passes as is, no code change needed | 43066533385 (M) |
-| 4a | Carving, 200 random bodies | 0 crashes; every reject traced to its cause | 0 crashes. 197 legal on 6bcf377, 2 illegal (traced, now fixed, see below), 1 over the 900 s time limit (41608/1: not yet rebuilt; rebuilding on the tag, C 43570179438) | 43208030293 (J), 43208036651 (A), 43210156312 |
+| 4a | Carving, 200 random bodies | 0 crashes; every reject traced to its cause | 0 crashes. 197 legal on 6bcf377, 2 illegal (traced, now fixed, see below), 1 over the 900 s time limit (41608/1: legal when rebuilt on the tag, C 43570179438) | 43208030293 (J), 43208036651 (A), 43210156312 |
 | 4b | Repeatability: same input and same commit give the same verdict | identical verdicts and reject volumes on two runs | identical: 41594/8 and 41518/4 fail twice on 6bcf377 with the same mm³, and are legal twice on dd7427a | C 43475044495, 43475108989 (6bcf377); C 43475347878, 43475404245 (dd7427a) |
 | 4c | Every car of the two reject seeds on the final code | all legal | 14 of 14 legal (41594/0-8, 41518/0-4) | C 43454007507 |
 | 4d | Markings: the number and logo room kept by the carver | 0 number or logo rejects | 60 cars: 54 legal, 0 number/logo rejects, 0 body-piece faults. The 6 others belong to Part 4 (5 rear slot corner, fixed by Part 4 in aa08f57; 1 claw, which is Part 4's support part) | 43387299037 |
 | 5 | Whole-car test on the exact tag commit (`tests.yml cars=true`) | every job green, including the chained fine and resolved CFD cars | all jobs green on dd7427a | C 43453873060 |
-| 6 | 2,000-body test on the tag | 0 crashes, 0 illegal | **running**, one car per job, batch 1 of 34 | C 43561978552 |
+| 6 | 2,000-body test on the tag | 0 crashes, 0 illegal | **running**, one car per job. Batch 1: 59 legal, 1 illegal (50002/0, T7.12.1 rear support in cylinder: Part 4's support; the same car is legal in three lab builds of the same code), 0 crashes. Batches 2-3 queued | C 43561978552; C 43586226627, 43586228801 |
 | 2' | Weight sizing rerun on the tag | as gate 2 | **running** | C 43561981406 |
 
 ## How the last rejects were cleared
@@ -62,6 +62,7 @@ that cleared each one was found by building the same car on each commit in turn:
 - Gates 6 and 2' on the tag are running. This page is updated when they finish.
 - `p1-stage-a-2`: an explicit T7.13 claw-ring air zone. It changes no rule result (the wheel
   column already covers the ring), and 44130/0 and 44430/0 are legal with it (C 43562044181).
-  Before it is tagged, 20 bodies are hashed on both tags to show they are identical
-  (C 43569632670 on stage-a-1, C 43569652478 on stage-a-2), and then the whole-car test runs on
-  the merge commit.
+  Same-body proof, 20 bodies on both (C 43569632670 on stage-a-1, C 43569652478 on stage-a-2):
+  the carved field `carved.npy` and `body_half.stl` are identical for 20 of 20. The machined body
+  and support files differ only through Part 4's newer support commits (59c0d95, 4b183ff); no
+  Part 1 file but `exact_zones.py` changed. Next: claw-branch tests, merge, whole-car test, tag.
