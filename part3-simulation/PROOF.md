@@ -166,3 +166,13 @@ Part 2's fine-mesh noise once it is posted; nothing here is re-sized until then.
 - **Starts when:** this proof and tests.yml cars=true pass, Part 2's fine gates pass, and Part 4
   is tagged. Part 1 is tagged (p1-stage-a-1, dd7427a, whole-car test 43453873060 green). Only
   the final run needs the user's go.
+
+**Start cars (lead decision 2026-11-14: 3 chains).**
+- **Chain 1:** Part 1's plain start car (`cutter.start_block`, run_car's default layout), a
+  smooth baseline. Its fine compass map is the one being built in section 4b.
+- **Chains 2 and 3:** two legal bodies from Part 1's 2,000-body test on p1-stage-a-1, chosen to
+  be far apart in shape (front width, nose position, halo distance) and not lumpy: bodies with
+  few settings moved, or small moves, are preferred, because a random stress body would spend
+  steps undoing its own lumps. Chosen when that test posts; ids and reasons recorded here.
+- Each chain gets its own fine compass map before its first step. Slots are shared round-robin
+  between chains (`carve_loop.to_start`, `tests/test_carve_chains.py`).
