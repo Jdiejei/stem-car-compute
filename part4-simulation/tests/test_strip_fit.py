@@ -85,3 +85,40 @@ def test_a_loose_piece_stops_the_build():
     _, hub = wh.hub_span_mm()
     with pytest.raises(ValueError, match="pieces"):
         bsm.build(dataclasses.replace(bs, z_offset_mm=13.0), X, Z, Y_IN, W, False, hub_mm=hub, R_mm=R, channel={})
+
+
+def test_floor_high_car_is_built_milled_judged_and_timed_as_one_rod():
+    """A car with a pod at the front and a floor-high rod at the rear, through assembly and
+    joints: the rod's slot is milled into the body the referee judges, the rod sits in it
+    with no overlap, and the CFD surface (supports.stl) is the rod as built."""
+    import tempfile
+    import assembly
+    import joints
+    with tempfile.TemporaryDirectory() as td:
+        hi = trimesh.creation.box(bounds=[[0.030, -0.017, 0.0245], [0.222, 0.017, 0.040]])   # floor 24.5
+        lo = trimesh.creation.box(bounds=[[0.030, -0.017, 0.004], [0.090, 0.017, 0.040]])    # front: low floor
+        full = trimesh.boolean.union([hi, lo], engine="manifold")
+        body = trimesh.intersections.slice_mesh_plane(full, [0, 1, 0], [0, 0, 0], cap=True)
+        body.export(f"{td}/body.stl", file_type="stl_ascii")
+        a = assembly.build(120.3, 46.0, 43.72, f"{td}/body.stl", f"{td}/asm", support=bsm.BeamSupport())
+        g = a["gates"]
+        assert "front" in a["info"].get("pod", {}) and "rear" not in a["info"].get("pod", {})
+        assert g["fit_rear_floor_rod_embed"] >= 0 and g["load_rear_floor_rod_stress"] >= 0, g
+        assert g["T7.12.1_rear_support_in_cylinder"] >= 0.05 and g["T7.13_rear_support_clear_of_claw"] >= 0.05, g
+        # timed = judged: the CFD surface holds the rod, top 3 mm into the floor, inside R - 0.3
+        sup = trimesh.load(f"{td}/asm/supports.stl", force="mesh")
+        rear = [p for p in sup.split(only_watertight=False) if p.bounds[:, 0].mean() > 0.1][0]
+        assert abs(rear.bounds[1, 2] * 1e3 - (24.5 + bsm.FLOOR_EMBED_MM)) < 0.02, rear.bounds
+        rep = joints.make_all(body, a, 30.0, 222.0, f"{td}/mfg/manufacture")
+        made = rep["manufactured"]
+        for k, v in made.items():
+            assert v["closed"] and v["pieces"] == v["pieces_expected"], (k, v)
+        mb = trimesh.load(made["machined_body"]["file"], force="mesh")
+        sr = trimesh.load(made["printed_support_rear"]["file"], force="mesh")
+        # the slot is in the judged body: no foam where the rod is, and foam removed there
+        inter = joints._bool("intersection", [mb, sr])
+        assert inter is None or inter.is_empty or abs(inter.volume) < 1.0           # mm3
+        x = 166.3
+        cut = trimesh.creation.box(bounds=[[x - 4, -20, 24.5], [x + 4, 20, 27.5]])
+        foam = joints._bool("intersection", [mb, cut])
+        assert foam is None or abs(foam.volume) < 0.9 * 8 * 34 * 3.0               # some foam milled away there
