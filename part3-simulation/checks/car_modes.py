@@ -101,39 +101,40 @@ def grid_xyz(g):
 
 def field(item: str) -> np.ndarray:
     """The carved field (float32 metres, Part 1's save_field format) for one item."""
-    import cutter
+    import carve                                          # Part 1's one carve path: rule zones and milling kept
     g = block()
     if item == "base":
         return np.asarray(g.phi.grid, np.float32)
     h, V, N = surface(g)
-    if item[0] == "m":
+    C = centres(V, N) * 1e3                               # mm
+    a_mm, r_mm = A_M * 1e3, R_M * 1e3
+    if item[0] == "m":                                    # mode k: grow (+) or thin (-) by A at its centre
         k, s = int(item[1:-1]), (1.0 if item[-1] == "+" else -1.0)
-        c = centres(V, N)[k]
-        X, Y, Z = grid_xyz(g)
-        G = np.exp(-((X - c[0]) ** 2 + (np.abs(Y) - c[1]) ** 2 + (Z - c[2]) ** 2) / (2 * R_M ** 2))
-        return np.asarray(g.phi.grid - s * A_M * G, np.float32)          # phi < 0 inside: minus grows
-    if item[0] == "s":                                   # a loop step: base + sum a_k * mode k (P5_STEPS file)
+        edit = {"bumps": [{"c_mm": list(C[k]), "amp_mm": s * a_mm, "sigma_mm": r_mm}], "unit": False}
+        label = item
+    elif item[0] == "s":                                  # a loop step: sum a_k * mode k (P5_STEPS file)
         a = json.loads(Path(os.environ["P5_STEPS"]).read_text())[item]
-        X, Y, Z = grid_xyz(g)
-        C, out = centres(V, N), np.array(g.phi.grid, float)
-        for k, ak in a:
-            c = C[int(k)]
-            out -= ak * A_M * np.exp(-((X - c[0]) ** 2 + (np.abs(Y) - c[1]) ** 2 + (Z - c[2]) ** 2) / (2 * R_M ** 2))
-        return np.asarray(out, np.float32)
-    j = int(item[1:])
-    rng = np.random.default_rng(42000 + j)
-    ok = np.where(N[:, 1] > -0.9)[0]
-    s = np.zeros(len(V))
-    for _ in range(int(rng.integers(1, 4))):
-        c = V[rng.choice(ok)]
-        sig = rng.uniform(6e-3, 20e-3)
-        s += rng.choice([-1.0, 1.0]) * np.exp(-np.sum((V - c) ** 2, axis=1) / (2 * sig ** 2))
-    depth = DEPTHS[j % len(DEPTHS)] / 1e3
-    g2, rep = cutter.cut(g, s, h, step_m=1e3, max_substeps=6, trust_radius_m=depth)
-    print(f"LAB cut {j}: depth cap {depth * 1e3:g} mm, status {rep.get('status')} {rep.get('reason', '')},"
+        edit = {"bumps": [{"c_mm": list(C[int(k)]), "amp_mm": ak * a_mm, "sigma_mm": r_mm} for k, ak in a],
+                "unit": False}
+        label = item
+    else:                                                 # random test cut j: 1-3 patches, depth-capped
+        j = int(item[1:])
+        rng = np.random.default_rng(42000 + j)
+        ok = np.where(N[:, 1] > -0.9)[0]
+        bumps = []
+        for _ in range(int(rng.integers(1, 4))):
+            c = V[rng.choice(ok)] * 1e3
+            sig = rng.uniform(6.0, 20.0)
+            bumps.append({"c_mm": list(c), "amp_mm": rng.choice([-1.0, 1.0]), "sigma_mm": sig})
+        depth = DEPTHS[j % len(DEPTHS)]
+        edit = {"bumps": bumps, "unit": True, "trust_mm": depth}
+        label = f"cut {j}: depth cap {depth:g} mm,"
+    g2, reps = carve.carve(LAYOUT, [edit])
+    rep = reps[0]
+    print(f"LAB {label} status {rep.get('status')} {rep.get('reason', '')},"
           f" move p90 {1e3 * (rep.get('disp_p90_m') or 0):.3f} mm", flush=True)
     if rep.get("status") != "ok":
-        raise RuntimeError(f"cut {j} refused: {rep.get('reason')}")
+        raise RuntimeError(f"{item} refused: {rep.get('reason')}")
     return np.asarray(g2.phi.grid, np.float32)
 
 
