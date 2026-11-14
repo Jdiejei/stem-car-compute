@@ -107,7 +107,7 @@ jobs:
 
   ref_2:
     needs: ref_1
-    if: always() if: if:  inputs.kind == 'ref'
+    if: always() && inputs.kind == 'ref'
     name: ${{ inputs.label }} ref link 2 ${{ matrix.skin }}
     runs-on: ubuntu-24.04
     timeout-minutes: 350
@@ -186,7 +186,7 @@ jobs:
 
   ref_3:
     needs: ref_2
-    if: always() if: if:  inputs.kind == 'ref'
+    if: always() && inputs.kind == 'ref'
     name: ${{ inputs.label }} ref link 3 ${{ matrix.skin }}
     runs-on: ubuntu-24.04
     timeout-minutes: 350
@@ -343,7 +343,7 @@ jobs:
 
   car_2:
     needs: car_1
-    if: always() if: if:  inputs.kind == 'car'
+    if: always() && inputs.kind == 'car'
     name: ${{ inputs.label }} car link 2 ${{ matrix.skin }}
     runs-on: ubuntu-24.04
     timeout-minutes: 350
@@ -422,7 +422,7 @@ jobs:
 
   car_3:
     needs: car_2
-    if: always() if: if:  inputs.kind == 'car'
+    if: always() && inputs.kind == 'car'
     name: ${{ inputs.label }} car link 3 ${{ matrix.skin }}
     runs-on: ubuntu-24.04
     timeout-minutes: 350
