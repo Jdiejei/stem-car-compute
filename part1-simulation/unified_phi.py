@@ -361,6 +361,28 @@ def _zone_masks(
     return zones
 
 
+# Support-design limit, TEMPORARY (Part 4 via BIG DON, 2026-11-14): Part 4's pod support puts its
+# strip 2.5 mm above the body's floor at each axle and under a plate whose underside is at
+# 18.65 mm less its 0.7-0.8 mm thickness, so the floor there must be <= 14.9 mm; the pod roof
+# needs the body's top >= 23 mm. Kept as body on the centreline (|y| <= 1.5 mm), x_axle +- 7 mm,
+# z 14.0-23.0 mm. Referee gate fit_<front|rear>_strip_under_plate_on_disc (015d2e0); cases
+# 44130/0 (floor 24.5) and 50002/0 (26.6). Relax to the rule ceiling (floor <= ~24.6 mm, T7.12.1)
+# when Part 4's floor-high support is on main.
+AXLE_SUPPORT_HALF_X_MM, AXLE_SUPPORT_HALF_Y_MM, AXLE_SUPPORT_Z_MM = 7.0, 1.5, (14.0, 23.0)
+
+
+def _axle_support_mask(region, x_front_mm: float, W_mm: float):
+    d = GRID_SPACING_M * 1e3
+    o = np.asarray(region.origin_m) * 1e3
+    x, y, z = (o[k] + d * np.arange(region.shape[k]) for k in range(3))
+    m = np.zeros(region.shape, bool)
+    yz = (np.abs(y) <= AXLE_SUPPORT_HALF_Y_MM)[:, None] & \
+         ((z >= AXLE_SUPPORT_Z_MM[0]) & (z <= AXLE_SUPPORT_Z_MM[1]))[None, :]
+    for ax in (x_front_mm, x_front_mm + W_mm):
+        m[np.abs(x - ax) <= AXLE_SUPPORT_HALF_X_MM] |= yz
+    return m
+
+
 def _marking_room_mask(region, cargo_solid, ref_A_mm: float, d_halo_mm: float):
     """Body the carve must keep for the markings. T4.6: a 33 x 17 mm flat side wall (the
     30 x 15 mm decal plus a cell each way) over the middle of the cargo, as wide as the
@@ -631,6 +653,7 @@ def build_unified_geometry(
             region.origin_m, region.shape, placement["x_start_m"], z_base,
             flip=placement.get("flip", False), grow_cells=1)
         hard_solid |= _marking_room_mask(region, cargo_solid, bv.ref_plane_A_m * 1e3, d_halo_mm)
+        hard_solid |= _axle_support_mask(region, x_front_mm, W_mm)
 
     # T5.5's safety zone: model block that must remain around the chamber.
     # Without it the optimiser carved the pocket away and left the cartridge
