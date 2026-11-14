@@ -102,3 +102,53 @@ start, round2 and parts: **162 checks, 0 failed** each, with no box-cut fallback
 - The two T4.2 cars, rebuilt with files kept: the missing cargo is a thin skin on both slanted side faces of the cargo shape (x 81-123.5, |y| 10.2-27.5, z 14-23.9), 2.5-5.1 mm3 per side over about 400 mm2, so the carved side wall sits on average 6-13 um inside the cargo. It is there before the remesh too (5.25 / 10.32 mm3), so it comes from the carved body: the carve takes the side walls right down to the cargo outline with grid round-off, the same kind of miss as the slot rim and the pocket floor. Both cars carve hard (carve_bias -2.35 mm). A real reject; the referee is not changed. Sent to Part 1.
 - Lofted cars that failed T4.2 on fef4130, rebuilt on 5fef8eb: all three now pass every check stress_cars counts (43700/9, 43701/0, 43701/2). Correction: an earlier note here said 43701/0 and /2 failed T3.6 mass; that was a misread. The line read was run_car's own list, and stress cars are built at one fixed skin and not sized, so stress_cars ignores T3.6 (IGNORED in stress_cars.py). On fef4130 the same two cars also showed T3.6 in run_car's list (45.74 g and 41.65 g) beside T4.2, and so do most legal lofted cars there.
 - Part 1 has since moved the pocket floor and slot draw again (eae7198) and will ask for the final recheck on its green commit; this run is a trial only.
+
+## Stage C: carved cars, one car per job (2026-11-13 / 14)
+
+Every car below was carved, assembled and judged on GitHub (`p4_assembly.yml`, one car per job, the referee `part5-simulation/legality.py`). "Legal" means every check passed.
+
+| Commit | Runs | Cars | Legal | Crashes | Rejects |
+| --- | --- | --- | --- | --- | --- |
+| 54906c4 | rejudge | 40 | 36 | 0 | (before the rear-slot fix) |
+| 1a33a87 | mxnviir + main | 150 | 113 | 0 | (before the rear-slot fix) |
+| aa08f57 | main | 120 | 98 | 0 | logo 14, number 12, halo pocket 1 (44294), manufacture_files_are_solids 1 (44310); rear slot 0 |
+| 30d92d0 | stem-racing-compute 43398668448, 43398742837; stem-racing-car 43394214089 | 180 | 143 | 0 | logo/number 33, halo pocket 3 (44408, 44411, 44473), T7.13 rear claw 1 (44430) |
+| 4d594f6 | stem-racing-compute 43561652849, 43561682124, 43561711541 | 180 | queued | | |
+
+Whole-car tests (`tests.yml`, cars=true) on 30d92d0: stem-racing-compute 43398821646, **every job green**. The resolved CFD car ran in two links (Part 2's checkpoint chaining): link 2 restored link 1's saved case, finished it, and ran Solver logs, Rule checks and "Fail if any rule check failed", all green; link 3 only runs when link 2 itself chains again.
+
+### Reject causes and fixes
+
+- **Rear support slot corner** (P4.machining_rear_slot_corner_radius): a bare beam's section had a corner tighter than the 3.125 mm ball (car 44027/0: 17.214 x 3.96 mm ellipse, corner 0.46 mm). The beam is now grown to the lightest section the ball can follow, a rounded rectangle with corners of the ball's radius (aa08f57; `tests/test_slot_corner.py`). 44004, 44079, 44113 and 44115 then passed; 0 slot rejects in 300 cars since.
+- **Logo (T4.6) and number (T4.7) room**: the carved body left too little flat surface. Part 1's carving; Part 1 added the keep-out zones (6d86afd, 60 cars with 0 marking rejects on its check). The 33 on 30d92d0 ran before that fix; the fresh 180 on 4d594f6 checks it.
+- **Halo pocket** (T4.4.4, foam inside the real halo+helmet mesh): 44408, 44411 and 44473 failed on 30d92d0 and are all legal on 5e7fe6b (with 6d86afd). Part 4's halo front is exactly Part 1's pocket front (`hardware_geometry.build_halo` places it at `compute_halo_pocket_box_m`'s x_min). The check now writes where foam meets the halo (5e7fe6b) for any future case.
+- **T7.13 rear claw** (44130/0, 44430/0): **open.** The same 12 claw points are blocked in both cars (x 163.94-168.66, y 14.80-16.20, z 27.22-27.43, the top of the rear wheel's claw ring, ring radius about 13.6 mm), by the referee's `supports` mesh, which is `supports.stl` (Part 4's beam support), not the body; the body is clear in the same check, and Part 1's wheel column keeps the carved body out of that band. A trim of the plate inside the claw band (59c0d95, sized as a plate-plus-web neck in 4b183ff, new gates `T7.13_<tag>_support_clear_of_claw` and `load_<tag>_claw_neck_stress`) did not clear it: the same points stay blocked, so the blocking piece is not yet identified. The referee now writes the blocking piece's bounds (8bab2ea); trace run stem-racing-compute 43561847205. No fix until the trace names the piece.
+- **manufacture_files_are_solids** (44310): open, to trace.
+- **T4.4.2 halo from the front + block_body_inside_official_block** (44200, 44226) and **T7.13** (44130 on aa08f57): from earlier batches; to rejudge on the current commit.
+
+The referee was not loosened for any of these. Every change to it only added detail to a failing check's note: ba4331a (T7.13 names the blocking part and points), 8bab2ea (the piece's bounds), 5e7fe6b (T4.4.4 location). `checks/stress_cars.py` used to cut every note to 80 characters, which hid the coordinates; it now keeps 2,000 (0eebad5).
+
+## Part setting ranges (`part_ranges.py`, 4d594f6; test fix 51a6c64)
+
+The legal range of every part setting Part 5's loop may tune, found **on the car** by bisection from the default outwards on the part's own gates (the same gates the assembly and the referee apply). Several limits (wing height, clear air, overhang) depend on the body and layout, so a fixed table would be wrong on other cars. `legal_range(part, setting, car)` returns the bounds, and for each bound the gate that ends it; `RULES` names the regulation behind each setting.
+
+| Part | Settings | Rules they run into |
+| --- | --- | --- |
+| front wing | chord, t_frac, aoa, half span, chord-line height, flap chord, flap aoa, gap to wheel | T8.6.1-3, T8.5.2, T8.7, T7.9.1, T8.2 |
+| rear wing | chord, t_frac, aoa, half span, LE behind Ref B | T9.4.1-3, T9.5.1-3, T9.6 |
+| nose | length, k, p | T8.2, T8.5.1 |
+| supports | disc radius, plate chord | T7.12.1, rim fit, T7.13, T3.7 |
+
+`tests/test_part_ranges.py`: every bound is checked 0.03 mm (or 0.03 of the setting's unit) just inside (all of the part's gates pass) and just outside (the gate named for that bound fails). p4_tests stem-racing-compute 43567587748 on 51a6c64: passed. (43561445886 on 4d594f6: 45 passed, 3 failed. The nose's default broke T8.5.1 on the plain-box test car because the cone's root copies the body's section at Ref A + 1, which on the box is 40 mm tall and 50 mm wide. The test car got a low nose block, as a real body has. On real bodies the default nose cannot break T8.5.1: Part 1's t851_cap keeps everything ahead of Ref A + 1 within z ≤ 24.45 and |y| ≤ 14.45, and its envelope keeps the body's bottom at ≥ 1.55 mm, so the cone tops out at ≤ 24.5. Of the 180 cars on 30d92d0, 30 kept the default nose and none failed a T8 rule.)
+
+## Part weights (4d594f6)
+
+Each made part's mass is its file's volume times its material's density. Every row of `joints` `manufactured` and of `mass_report.json` now carries `cm3`, `g_cm3`, `density_source` and `weighed`:
+
+| Material | Density | Source | Weighed |
+| --- | --- | --- | --- |
+| Foam block (machined body) | 0.163 g/cm3 | team spec (`geometry_contract.DENSITY_BODY_KGM3` = 163) | no |
+| SLS PA12 (supports, hubcaps, nose / front assembly, wheels) | 1.01 g/cm3 | material datasheet; team material spec 2026-09-27 | no |
+| PLA (wings, tether guides) | 1.24 g/cm3 | material datasheet (`component_contract.DENSITY_G_CM3`), solid print | no |
+
+**Flag for the team:** no printed part has been weighed. These are datasheet densities, which assume a solid part; a real print's weight depends on the printer's infill and powder. Replace each with the team's real print weight when the parts are made.
