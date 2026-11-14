@@ -131,3 +131,79 @@ def legal_range(part: str, setting: str, car: Car, base=None, tol: float = 0.01)
 
 def all_ranges(car: Car) -> dict:
     return {p: {s: legal_range(p, s, car) for s in SETTINGS[p]} for p in SETTINGS}
+
+
+# ---- for the loop: bounds every step, and a projection back inside -----------------
+#
+# The loop moves every part setting at once, so a setting's range is taken at the
+# CURRENT values of the others (not the defaults), and a projected point is checked as
+# a whole. Warm-started from the last step's bounds, a setting whose bounds did not move
+# costs two builds per side (one just inside, one just outside), not a full bisection.
+
+def _edge(part, base, setting, car, good, bad, tol):
+    """good passes, bad fails: bisect to tol; return (last good, first failing gate)."""
+    while abs(bad - good) > tol:
+        mid = 0.5 * (good + bad)
+        if _first_fail(part, base, setting, mid, car) is None:
+            good = mid
+        else:
+            bad = mid
+    return good, _first_fail(part, base, setting, bad, car)
+
+
+def bounds(car: Car, current: dict, prev: dict | None = None, tol: float = 0.02) -> dict:
+    """{(part, setting): (lo, hi)} on this car with the other settings at `current`
+    ({part: dataclass instance}, which must itself be legal). `prev` is the last step's
+    result: a bound that still holds within tol is kept after two builds."""
+    out = {}
+    for part, names in SETTINGS.items():
+        base = current[part]
+        for s in names:
+            v0 = getattr(base, s)
+            a, b = SETTINGS[part][s]
+            lo_hi = []
+            for side, end in ((0, a), (1, b)):
+                sign = -1 if side == 0 else 1
+                p = prev.get((part, s)) if prev else None
+                if p is not None:
+                    q = p[side]
+                    inside, outside = q - sign * tol, q + sign * tol
+                    ok_in = (sign * (inside - v0) <= 0) or _first_fail(part, base, s, inside, car) is None
+                    if ok_in and sign * (outside - end) < 0 and _first_fail(part, base, s, outside, car) is not None:
+                        lo_hi.append(q)
+                        continue
+                if _first_fail(part, base, s, end, car) is None:
+                    lo_hi.append(end)                       # no rule limit inside the window
+                    continue
+                lo_hi.append(_edge(part, base, s, car, v0, end, tol)[0])
+            cap = builder_cap(part, s, base, car) if s == "beam_w_mm" else None
+            hi = min(lo_hi[1], cap) if cap is not None else lo_hi[1]
+            out[(part, s)] = (min(lo_hi[0], v0), max(hi, v0))
+    return out
+
+
+def project(car: Car, current: dict, proposed: dict, bnds: dict | None = None) -> dict:
+    """Clip each proposed setting into its bounds, then check each part as a whole; a
+    part that still breaks a rule moves only as far along the step as stays legal
+    (bisection on the step length). Returns {part: dataclass instance}, all legal."""
+    bnds = bnds or bounds(car, current)
+    out = {}
+    for part in SETTINGS:
+        cur, new = current[part], proposed.get(part, current[part])
+        clip = {s: float(np.clip(getattr(new, s), *bnds[(part, s)])) for s in SETTINGS[part]}
+        cand = dataclasses.replace(new, **clip)
+        if not [m for m in gates(part, cand, car).values() if m < -1e-9]:
+            out[part] = cand
+            continue
+        t_good, t_bad = 0.0, 1.0
+        for _ in range(12):
+            t = 0.5 * (t_good + t_bad)
+            mix = dataclasses.replace(cand, **{s: getattr(cur, s) + t * (clip[s] - getattr(cur, s))
+                                                for s in SETTINGS[part]})
+            if [m for m in gates(part, mix, car).values() if m < -1e-9]:
+                t_bad = t
+            else:
+                t_good = t
+        out[part] = dataclasses.replace(cand, **{s: getattr(cur, s) + t_good * (clip[s] - getattr(cur, s))
+                                                 for s in SETTINGS[part]})
+    return out

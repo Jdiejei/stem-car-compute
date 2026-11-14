@@ -48,3 +48,26 @@ def test_every_density_has_a_source_and_is_flagged_unweighed():
     for rho in set(joints.DENSITY_G_CM3.values()) | {joints.FOAM_G_CM3}:
         src, weighed = joints.density_source(rho)
         assert "no source" not in src and weighed is False
+
+
+def test_loop_bounds_warm_start_and_projection_stays_legal():
+    import time
+    car = _car()
+    cur = {p: pr.DEFAULTS[p]() for p in pr.SETTINGS}
+    t0 = time.time()
+    b1 = pr.bounds(car, cur)
+    t_cold = time.time() - t0
+    t0 = time.time()
+    b2 = pr.bounds(car, cur, prev=b1)
+    t_warm = time.time() - t0
+    for k in b1:
+        assert abs(b1[k][0] - b2[k][0]) <= 0.05 and abs(b1[k][1] - b2[k][1]) <= 0.05, (k, b1[k], b2[k])
+    assert t_warm < t_cold
+    print(f"bounds: cold {t_cold:.1f} s, warm {t_warm:.1f} s for {len(b1)} settings")
+    # a step far outside on every setting comes back legal, part by part
+    import dataclasses as dc
+    wild = {p: dc.replace(cur[p], **{s: pr.SETTINGS[p][s][1] for s in pr.SETTINGS[p]}) for p in pr.SETTINGS}
+    proj = pr.project(car, cur, wild, b2)
+    for p, obj in proj.items():
+        bad = {k: m for k, m in pr.gates(p, obj, car).items() if m < -1e-9}
+        assert not bad, (p, bad)
