@@ -379,6 +379,18 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
             plate_h *= 1.1
         st.update(frame_stress_mpa=fr["stress_mpa"], sag_mm=st["sag_mm"] + fr["sag_mm"],
                   plate_h_mm=plate_h, plate_h_asked_mm=bs.beam_h_mm, span_mm=span)
+        if bs.strip:
+            # The strip must lie under the plate, and on the disc that ties the frame.
+            # A carved body whose floor at the axle is high put it above the pod's roof,
+            # off the disc, as a loose slab out to the wheel (44130/0: floor 24.5 mm, the
+            # strip at z 27.0-27.7 in the T7.13 claw band; 50002/0: floor 26.6, strip at
+            # 29.1-29.8, 16.08 mm from the axle against R 14.12). Then no strip is built,
+            # and the margin below says why the car is not legal.
+            tie = (bs.disc_r_mm if disc else root_d / 2) - abs(z_strip - z_axle_mm) - bs.strip_h_mm / 2
+            room = (zc - plate_h / 2) - (z_strip + bs.strip_h_mm / 2)
+            st["strip_fit_mm"] = min(tie, room)
+            st["strip_fit_note"] = (f"body floor at the axle z {channel['z_floor_mm']:.2f} puts the strip at "
+                                    f"z {z_strip:.2f}: {room:.2f} mm under the plate, {tie:.2f} mm on the disc")
     bs_sized = dataclasses.replace(bs, beam_h_mm=plate_h)
     if not pod and min_curvature_radius_mm(bs_sized) < TOOL_R_MM:
         # a bare beam sits in a slot of its own, cut by the ball: grow it to the
@@ -422,11 +434,18 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
         outboard = trimesh.boolean.intersection([body, keep], engine="manifold")
         plate = trimesh.boolean.union([inboard, outboard], engine="manifold")
     parts = [plate, _revolve_y(prof, x_axle_mm, z_axle_mm)]
-    if pod and bs.strip:
+    if pod and bs.strip and st["strip_fit_mm"] >= 0:
         parts.append(_extrude_xz(section(dataclasses.replace(bs, beam_w_mm=bs.strip_w_mm,
                                                              beam_h_mm=bs.strip_h_mm)),
                                  0.0, y_beam_end + 0.05, x_axle_mm, z_strip))
     part = trimesh.boolean.union(parts, engine="manifold")
+    # Guard: the support is ONE solid. A loose piece is a builder bug, never a design
+    # choice, so it stops the build here instead of reaching the files (reach and claw
+    # clearance stay gates: a too-wide setting is an illegal car, not a crash).
+    pieces = part.split(only_watertight=False)
+    if len(pieces) != 1:
+        raise ValueError(f"beam_support.build: the support came out in {len(pieces)} pieces "
+                         f"(bounds mm {[np.round(p.bounds * 1e3, 2).tolist() for p in pieces]})")
     v = part.vertices * 1e3                                  # metres, like gates()
     band = v[(v[:, 1] > y_inner_mm - CLAW_LIP_MM) & (v[:, 1] < y_inner_mm)]
     st["claw_band_r_mm"] = float(np.hypot(band[:, 0] - x_axle_mm, band[:, 2] - z_axle_mm).max()) if len(band) else 0.0
@@ -453,6 +472,8 @@ def gates(bs: BeamSupport, meshes: dict, x_axle_mm: float, z_axle_mm: float, R_m
          # loads: margins in MPa and mm
          f"load_{tag}_stub_stress": st["allow_mpa"] - st["stress_mpa"],
          f"load_{tag}_bearing_sag": SAG_MAX_MM - st["sag_mm"]}
+    if "strip_fit_mm" in st:
+        g[f"fit_{tag}_strip_under_plate_on_disc"] = st["strip_fit_mm"]
     if "claw_band_r_mm" in st:
         g[f"T7.13_{tag}_support_clear_of_claw"] = st["claw_band_limit_mm"] - st["claw_band_r_mm"]
     if "claw_neck_stress_mpa" in st:
