@@ -39,7 +39,7 @@ Race model on the measured thrust; drag corrected by 1/1.09 ± 0.04 (Q11); frict
 - Ranked on `T_at_target_s` (each car's race time at the mass target), so the order
   is set by aerodynamics, not by mass differences between the cars.
 
-## Reshaped meshes on carved shapes (remesh limit, in progress)
+## Reshaped meshes on carved shapes (remesh limit)
 
 Six local cuts from Part 1's cutter on the start block (nose, sidepod side, tail
 top; 0.5 and 2 mm deep, Gaussian patch sigma 8 mm), each timed on a mesh reshaped
@@ -65,7 +65,7 @@ run 42804229269, `cut_cars.py`, `p2_reshape_cuts.yml`):
   over 0.5 mm removed the point-to-point jumps at sharp edges. A reference mesh
   reshaped onto itself (zero move) gives the identical drag (+0.04 mN, run 42767113050).
 
-## Timing noise (Step 2, in progress; pass mark 0.3 ms)
+## Timing noise (Step 2; pass mark 0.3 ms): PASS on the search (medium) mesh — 0.091 ms, confirmed 0.087 ms (method A, below); fine mesh being measured
 
 Residual SD of race time about a fitted line, ≥ 15 converged cars at skins
 0.006–0.01 mm apart, search mesh (medium, no layers), with the 95 % chi-square
@@ -139,7 +139,7 @@ interval and the part explained by each car's own averaging error
 - **Confirmed on fresh machines: 0.119 ms (95 % 0.087–0.187)**, mxnviir/stem-car-compute 43142206299 (same set-up, 4 cores).
 - **Smooth-change test meets the 0.3 ms mark: 0.20 ms** (upper 95 % bound 0.32). With a shape that truly changes smoothly, the stopwatch noise is 0.20 ms; the larger figures on skin ladders include real body-grid shape steps. Confirmation run ms5 (same set-up, fresh machines) and a no-warm-start variant ms4 are running.
 
-## Repeatability (1 car x 6 machines; pass mark spread ≤ 0.1 ms): FAIL so far
+## Repeatability (1 car x 6+ machines; pass mark spread ≤ 0.1 ms): PASS 0.01 ms on the frozen reference (history of the earlier failures kept below); fine mesh being measured
 
 Start car at skin 3.95 mm, fresh search mesh, 1000 iterations, six GitHub machines
 (shawshanker18/stem-racing-car run 42864304133): T_at_target 1.57259, 1.57293,
@@ -207,6 +207,19 @@ The solver stops at a time budget, writes its fields (binary), and the next job 
 | unbroken vs chained, all on one machine (43388406547) | 0.41695037 vs 0.41694927 | 1.5577175 vs 1.5577170 | 0.001 mN, 0.0005 ms |
 
 Not bit-identical: on one machine the restart moves the time by 0.0005 ms, 200 times below the 0.1 ms repeat mark and 20 times below the 0.01 ms machine-to-machine spread. **Pass mark (within 0.1 %): PASS** (0.0003 % on drag). The whole-car test now runs its fine and resolved cars this way (tests.yml long_fine_1..3, long_resolved_1..3).
+
+## Drag bias against the wind tunnel (reviewer Q11 = A)
+
+| benchmark | our Cd | published | gap |
+| --- | --- | --- | --- |
+| Ahmed 25°, fine mesh, still floor | 0.312 | 0.285 (Lienhart) | +9.5 % |
+| Ahmed 25°, upstream ground plate | 0.321 | 0.285 | +12.6 % |
+| Ahmed 25°, rolling floor, medium | 0.294 | 0.285 | +3.2 % |
+| Ahmed 25°, wall-resolved mesh | 0.323 | 0.285 | +13.3 % |
+| Ahmed 35°, wall-resolved mesh | 0.274 | 0.26 | +5.4 % |
+| cube (Cd 1.05, Hoerner) | not finished | | |
+
+The finer, wall-resolved mesh does not reduce the gap, so it is taken as the known k-omega SST over-prediction of the slant separation (a RANS limit), not a mesh error. The benchmark runs were on teammate accounts that are now suspended, so their run pages can no longer be opened. **Decision (Q11 = A): the race model uses D_true = D_cfd / 1.09, error bar ± 0.04** (`physics_contract.DRAG_BIAS`, `DRAG_BIAS_RANGE`; `race_objective.SmoothSheetModel.drag_bias`; test `test_drag_bias_divides_the_cfd_drag`; commit 4563d0b). Because the Ahmed bias may not carry over to the car, the top cars are to be re-ranked at 1.05 and 1.13 with the race model only; if the best body changes, that is reported.
 
 ## Fixed constants: wheels, friction, tether (user decision 2026-11-13: the same for every car)
 
