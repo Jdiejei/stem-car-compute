@@ -2,8 +2,12 @@
 
 Every number here comes from a GitHub Actions run in `<account>/stem-racing-car`
 (account named when it isn't shawshanker18). Marks are the BUILD_SPEC section 8 marks and
-have not been changed. Status on 2026-11-11: **not done**. The wing tests and unit tests are
-finished; the car tests are running or waiting on Part 1's tag and Part 2's noise mark.
+have not been changed. Status on 2026-11-14: **not done**. The wing tests and unit tests are
+finished. The fast (adjoint) map was dropped on 2026-11-13 because it failed the known-answer
+test on every setting (section 1); the measured map is the compass. The car tests are running:
+the medium-mesh method test (section 4) and the fine-mesh check (section 4b). Every compass
+result that counts and every carving-loop step is on the fine mesh, and finalists are confirmed
+on the resolved mesh (user decision, 2026-11-13).
 
 | Test (BUILD_SPEC 8) | Mark | Result | Evidence |
 | --- | --- | --- | --- |
@@ -11,8 +15,10 @@ finished; the car tests are running or waiting on Part 1's tag and Part 2's nois
 | Known-answer wing, measured map | same | **PASS** (r 0.977, signs 95 %) | 42705451545 |
 | Measured map, wing shapes outside its modes | sign ≥ 80 %, r ≥ 0.8 | **PASS** (r 0.952, signs 90 %) | 42705451545; finer mesh mxnviir 42705489756 |
 | Chain rule to race time | within 1 % of Part 2 finite differences | **PASS** (18 tests) | 42668820158 |
-| Compass test on cars | sign ≥ 80 %, r ≥ 0.8, ≥ 25 qualifying, sign not fitted | running (measured map) | p3_car_modes.yml, below |
-| Step test, 5 fresh cars | ≥ 4 of 5 faster by > 2 × noise | waiting (Part 1 tag) | below |
+| Compass test on cars (medium mesh, method test only) | sign ≥ 80 %, r ≥ 0.8, ≥ 25 qualifying, sign not fitted | running, none judged | p3_car_modes.yml, section 4 |
+| Compass on the fine mesh vs its medium twin | per-mode sign agreement, correlation | running; chaining proven | p3_fine_modes.yml, section 4b |
+| Loop timings only on fine or resolved | test fails on coarse, medium or unset | written; tests.yml cars=true 43569628984 running | tests/test_loop_mesh.py |
+| Step test, 5 fresh cars | ≥ 4 of 5 faster by > 2 × noise | waiting (fine compass) | section 5 |
 
 ## 1. Known-answer wing (BUILD_SPEC 12.5)
 
@@ -88,6 +94,33 @@ centre-of-mass redistribution term. 18 unit tests pass, including finite differe
 - **Scoring:** only cuts whose change is at least 3 × the noise of a difference
   (3 × 0.36 × √2 = 1.53 ms), with the BUILD_SPEC 12.4 marks.
 
+**Status (2026-11-14):** 45 carved cars (skins 3.76 to 3.95 mm) on 2 cores, one car per run,
+spread over Part 3's accounts. None is judged yet. Cars 1 and 2 ran on 4 cores before Part 2's
+4-core check failed (spread 0.12 ms against a 0.01 ms limit, run 43279305307); cars 6 and 7
+repeat them on 2 cores. The lead decided (Q11) that these medium cars are a **method test
+only**: they show whether the measured map can pass the marks on a car, but they are not car
+results, because the medium mesh may bend the directions near the nose, wings and supports.
+
+## 4b. Fine-mesh check (Q11)
+
+`p3_fine_modes.yml`. The same measured map on the fine mesh, for 3 cars that also run on
+medium, then compared mode by mode (sign agreement and correlation):
+
+| fine car | medium twin | account | start car |
+| --- | --- | --- | --- |
+| 3.95 mm | car 6 | Jdiejei | done, 2 linked jobs (43427583689, 43487558208) |
+| 3.90 mm | car 7 | Jdiejei | done, 2 linked jobs (43474797135, 43524963070) |
+| 3.87 mm | car 37 | mxnviir | done, 2 linked jobs (43512261897, 43548319825) |
+
+- A fine solve is longer than GitHub's 6-hour job. Each timing stops at its time budget, saves
+  its case (Part 2's checkpoints), and starts the next job from it. All three start cars
+  finished this way, so the chaining works.
+- The first 3.90 mm try lost its machine after 2 h 13 min (43427795268, "runner lost
+  communication"; likely memory or disk). It was rerun with an 8 GB swapfile, about 20 GB of disk
+  freed, and a memory and disk log every 5 minutes; later runs also use Part 2's slimmer disk use
+  (66de290). It has not recurred.
+- Modes 0 to 11 (±) are being timed on each car, 4 at a time. Result: pending.
+
 ## 5. Step test plan and its power (BUILD_SPEC 7 step 6)
 
 - **Noise of one before/after pair:** σ√2 = 0.51 ms, with σ = 0.36 ms from Part 2 (reshaped
@@ -105,3 +138,31 @@ centre-of-mass redistribution term. 18 unit tests pass, including finite differe
   noise is the spread across nearby shapes, which σ already measures.
 - **Sizes needed:** the real ms per mm comes from section 4. The step sizes will be set from
   it and written here before the step test is run.
+
+**Open point:** σ = 0.36 ms is Part 2's medium-mesh noise. Steps and marks on the fine mesh use
+Part 2's fine-mesh noise once it is posted; nothing here is re-sized until then.
+
+## 6. Part 5 carving loop plan (Stage E)
+
+`part5-simulation/carve_loop.py` decides; the fine-mesh workflow times.
+- **Mesh:** every loop timing is fine; finalists are confirmed on resolved. A timing with no mesh,
+  or a loop timing on coarse or medium, stops with an error (`car_modes.mesh()`,
+  `solver.evaluate`), and `tests/test_loop_mesh.py` fails if that guard is removed.
+- **Chains:** one search chain, as only 4 working accounts are left. Two more only if extra
+  compute is added.
+- **Each round:** the current car is timed (twice the first time, so its noise is known), plus
+  one candidate per step size (0.25, 0.5, 1 and 2 × the chain's trust) along the compass.
+- **Keep rule:** the best candidate is re-timed on fresh runs (2, then 4, up to 256 while it
+  looks better but is not yet clear). It is kept only if its fresh mean beats the current car by
+  z·σ, with z Bonferroni-corrected over the candidates and σ pooled from the chain's own repeat
+  pairs. Choosing and keeping use different runs, so the luckiest candidate is not rewarded.
+- **Direction:** along the compass, bent by the chain's own kept steps (L-BFGS). Trust doubles
+  after a keep at the largest size and halves after none. The chain stops below 1/64 trust,
+  after 25 rounds (40 while it is still keeping), or when the compass looks wrong (90 % of 12 or
+  more candidates slower).
+- **Timing a candidate:** a step is the start car plus a mix of compass modes (`s<name>` items
+  in `p3_fine_modes.yml`), timed on the fine mesh and carried across 6-hour jobs.
+  End-to-end proof: run 43569631533 (mxnviir), one step on the 3.87 mm fine car. Result: pending.
+- **Starts when:** this proof and tests.yml cars=true pass, Part 2's fine gates pass, and Part 4
+  is tagged. Part 1 is tagged (p1-stage-a-1, dd7427a, whole-car test 43453873060 green). Only
+  the final run needs the user's go.
