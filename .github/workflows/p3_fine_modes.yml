@@ -17,6 +17,7 @@ on:
       link: { default: "1" }
       max_links: { default: "8" }
       parallel: { default: "4" }
+      steps: { default: "{}" }                       # loop step items "s<name>": {"s0": [[mode, amplitude], ...]}
 
 permissions: { contents: read, actions: write }
 
@@ -26,6 +27,8 @@ env:
   OMPI_MCA_rmaps_base_oversubscribe: "1"
   P3_SKIN_MM: ${{ inputs.skin_mm }}
   P3_RES: fine
+  P5_LOOP: ${{ inputs.steps != '{}' && '1' || '' }}
+  P5_STEPS: ${{ github.workspace }}/steps.json
   GH_TOKEN: ${{ github.token }}
 
 jobs:
@@ -67,6 +70,7 @@ jobs:
         working-directory: part5-simulation
         run: |
           export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          echo '${{ inputs.steps }}' > "$P5_STEPS"
           ref=-; [ "${{ matrix.item }}" = base ] || ref=../base/refmesh
           ( while true; do echo "ROOM $(date -u +%H:%M) mem $(free -m | awk '/Mem/{print $3"/"$2}') MB, swap $(free -m | awk '/Swap/{print $3}') MB, disk $(df -h / | awk 'NR==2{print $3" used "$4" free"}')"; sleep 300; done ) & trap "kill $! 2>/dev/null" EXIT
           set +e
@@ -90,7 +94,7 @@ jobs:
           gh workflow run p3_fine_modes.yml -R ${{ github.repository }} --ref ${{ github.ref_name }}
           -f label="${{ inputs.label }}" -f skin_mm=${{ inputs.skin_mm }} -f items='["${{ matrix.item }}"]'
           -f next_items='${{ inputs.next_items }}' -f base_run="${{ inputs.base_run }}"
-          -f resume_run=${{ github.run_id }} -f link=$(( ${{ inputs.link }} + 1 )) -f max_links=${{ inputs.max_links }}
+          -f steps='${{ inputs.steps }}' -f resume_run=${{ github.run_id }} -f link=$(( ${{ inputs.link }} + 1 )) -f max_links=${{ inputs.max_links }}
       - if: steps.solve.outcome == 'success' && steps.solve.outputs.chained != 'true'
         uses: actions/upload-artifact@v4
         with: { name: "fine-${{ steps.solve.outputs.safe }}", path: out }
@@ -98,4 +102,4 @@ jobs:
         run: >
           gh workflow run p3_fine_modes.yml -R ${{ github.repository }} --ref ${{ github.ref_name }}
           -f label="${{ inputs.label }}" -f skin_mm=${{ inputs.skin_mm }} -f items='${{ inputs.next_items }}'
-          -f base_run=${{ github.run_id }} -f max_links=${{ inputs.max_links }} -f parallel=${{ inputs.parallel }}
+          -f steps='${{ inputs.steps }}' -f base_run=${{ github.run_id }} -f max_links=${{ inputs.max_links }} -f parallel=${{ inputs.parallel }}

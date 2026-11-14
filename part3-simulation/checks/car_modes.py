@@ -46,7 +46,17 @@ NCUTS = int(os.environ.get("P3_NCUTS", "40"))
 DEPTHS = [float(t) for t in os.environ.get("P3_CUT_DEPTHS", "1 1.5").split()]
 SKIN = os.environ.get("P3_SKIN_MM", "3.95")
 ITERS = os.environ.get("P3_CFD_ITERS", "1000")
-RES = os.environ.get("P3_RES", "medium")  # quick mesh = coarse; finalists stay on medium
+RES = os.environ.get("P3_RES", "")       # required, no default mesh (user 2026-11-13: high mesh)
+LOOP_MESHES = ("fine", "resolved")       # a carving-loop timing (P5_LOOP=1) may only use these
+
+
+def mesh() -> str:
+    """The mesh for this timing: P3_RES must be set, and a loop timing must be fine or resolved."""
+    if not RES:
+        raise SystemExit("P3_RES is not set: choose the mesh explicitly")
+    if os.environ.get("P5_LOOP") == "1" and RES not in LOOP_MESHES:
+        raise SystemExit(f"carving-loop timing on {RES!r}: the loop runs on fine or resolved only")
+    return RES
 SIGMA_S = float(os.environ.get("P3_SIGMA_MS", "0.36")) / 1e3
 CHUNK = int(os.environ.get("P3_CHUNK", "8"))
 
@@ -102,6 +112,14 @@ def field(item: str) -> np.ndarray:
         X, Y, Z = grid_xyz(g)
         G = np.exp(-((X - c[0]) ** 2 + (np.abs(Y) - c[1]) ** 2 + (Z - c[2]) ** 2) / (2 * R_M ** 2))
         return np.asarray(g.phi.grid - s * A_M * G, np.float32)          # phi < 0 inside: minus grows
+    if item[0] == "s":                                   # a loop step: base + sum a_k * mode k (P5_STEPS file)
+        a = json.loads(Path(os.environ["P5_STEPS"]).read_text())[item]
+        X, Y, Z = grid_xyz(g)
+        C, out = centres(V, N), np.array(g.phi.grid, float)
+        for k, ak in a:
+            c = C[int(k)]
+            out -= ak * A_M * np.exp(-((X - c[0]) ** 2 + (np.abs(Y) - c[1]) ** 2 + (Z - c[2]) ** 2) / (2 * R_M ** 2))
+        return np.asarray(out, np.float32)
     j = int(item[1:])
     rng = np.random.default_rng(42000 + j)
     ok = np.where(N[:, 1] > -0.9)[0]
@@ -130,7 +148,7 @@ def run_car(item: str, ref: str | None, out: Path) -> Path:
     runs = Path("../part2-simulation/cfd_case_template/runs")
     shutil.rmtree(runs, ignore_errors=True)
     cmd = [sys.executable, "-W", "ignore", "run_car.py", "--out", str(o), "--skin-mm", SKIN, "--support", "beam",
-           "--phi-npy", str(o / "field.npy"), "--cfd", "--cfd-iters", ITERS, "--res", RES, "--np", "2",
+           "--phi-npy", str(o / "field.npy"), "--cfd", "--cfd-iters", ITERS, "--res", mesh(), "--np", "2",
            "--keep-runs", "--cfd-json", json.dumps(opt)]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
