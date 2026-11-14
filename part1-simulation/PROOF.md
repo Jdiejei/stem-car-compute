@@ -20,7 +20,7 @@ Frozen tag: **`p1-stage-a-1` = `dd7427a`** (2026-11-14).
 | 4c | Every car of the two reject seeds on the final code | all legal | 14 of 14 legal (41594/0-8, 41518/0-4) | C 43454007507 |
 | 4d | Markings: the number and logo room kept by the carver | 0 number or logo rejects | 60 cars: 54 legal, 0 number/logo rejects, 0 body-piece faults. The 6 others belong to Part 4 (5 rear slot corner, fixed by Part 4 in aa08f57; 1 claw, which is Part 4's support part) | 43387299037 |
 | 5 | Whole-car test on the exact tag commit (`tests.yml cars=true`) | every job green, including the chained fine and resolved CFD cars | all jobs green on dd7427a | C 43453873060 |
-| 6 | 2,000-body test on the tag | 0 crashes, 0 illegal | **running**, one car per job. Batch 1: 59 legal, 1 illegal (50002/0, T7.12.1 rear support in cylinder: Part 4's support; the same car is legal in three lab builds of the same code), 0 crashes. Batches 2-3 queued | C 43561978552; C 43586226627, 43586228801 |
+| 6 | 2,000-body test through the one carve path | 0 crashes, 0 illegal | **restarting on the carve.py merge commit**. The first 360 cars (p4_assembly on p1-stage-a-1: 356 legal, 4 illegal, all four Part 4 parts, 0 crashes) were carved by raw Hamilton-Jacobi moves, not the cutter, so they do not count; see "One carve path" below. The 12 cars on anasssssssss1 (all legal) used the cutter recipe | C 43561978552, 43586226627, 43586228801, 43594704123, 43594737950, 43594768846 (old path); A 43599729626 |
 | 2' | Weight sizing rerun on the tag | as gate 2 | **running** | C 43561981406 |
 
 ## How the last rejects were cleared
@@ -56,6 +56,31 @@ that cleared each one was found by building the same car on each commit in turn:
 - Nose root (Part 4's nose cone copies the body section at Ref A + 1 mm): the carver's T8.5.1 cap
   keeps that section 24.45 mm high and 14.45 mm half-wide at most. The T3.7 floor (1.5 mm plus a
   0.05 mm margin) limits the cone's lift to 0.05 mm, so it stays under 25 mm.
+
+## One carve path (2026-11-14)
+
+Part 4 found that the same seed built two different bodies. The search turned up four carve
+paths in all:
+
+1. `stress_cars.carve_field`, used by the p4_assembly batches: raw Hamilton-Jacobi moves of the
+   field, not the cutter.
+2. The Part 1 lab `p1_carve_stress`: `cutter.cut`.
+3. The loop and compass step items (`car_modes` m and s items): Gaussians added straight onto the
+   field, which skips the rule zones and the milling.
+4. `stress_cars --only` (`_describe`): a rebuild from `--body-json`, not the carved field.
+
+So a body that was timed was not always the body that was judged. The fix is one function,
+`part1-simulation/carve.py`: `carve(layout, edits)` and `save(layout, edits, path)`. Each edit
+is one `cutter.cut`, so every rule zone, the milling, symmetry and one-piece hold on every step.
+Paths 1, 2 and 4 now call it (commit 7af8bc5, branch p1-carve). Path 3 is Part 3's file and
+switches to it as Part 3's change.
+
+Proof:
+- `tests/test_carve.py`: the same edits give the same field hash on two runs; `carve.save`
+  writes exactly the field `carve.carve` returns; `stress_cars.carve_field` is byte for byte
+  `carve.save` with the stress recipe. Run C 43605323009.
+- 20 bodies hashed through the new path (C 43605325775) are compared with the same 20 built by
+  the old lab path (C 43569632670), which used the same recipe.
 
 ## Open
 
