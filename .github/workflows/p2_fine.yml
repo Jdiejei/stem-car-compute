@@ -89,13 +89,13 @@ jobs:
             r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
             tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
             echo "chained=1" >> "$GITHUB_OUTPUT"
-            [ 1 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+            if [ 1 = 3 ]; then echo "not finished after 3 links"; exit 1; fi
           elif [ ref = ref ]; then
             r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
             mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
             cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
           fi
-      - if: steps.build.outputs.chained == '1'
+      - if: always() && steps.build.outputs.chained == '1'
         uses: actions/upload-artifact@v4
         with: { name: "ckpt-${{ inputs.label }}-ref-${{ matrix.skin }}-1", path: ckpt/case.tar, retention-days: 2 }
       - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'ref' == 'car'
@@ -168,13 +168,13 @@ jobs:
             r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
             tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
             echo "chained=1" >> "$GITHUB_OUTPUT"
-            [ 2 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+            if [ 2 = 3 ]; then echo "not finished after 3 links"; exit 1; fi
           elif [ ref = ref ]; then
             r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
             mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
             cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
           fi
-      - if: steps.build.outputs.chained == '1'
+      - if: always() && steps.build.outputs.chained == '1'
         uses: actions/upload-artifact@v4
         with: { name: "ckpt-${{ inputs.label }}-ref-${{ matrix.skin }}-2", path: ckpt/case.tar, retention-days: 2 }
       - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'ref' == 'car'
@@ -247,13 +247,13 @@ jobs:
             r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
             tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
             echo "chained=1" >> "$GITHUB_OUTPUT"
-            [ 3 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+            if [ 3 = 3 ]; then echo "not finished after 3 links"; exit 1; fi
           elif [ ref = ref ]; then
             r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
             mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
             cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
           fi
-      - if: steps.build.outputs.chained == '1'
+      - if: always() && steps.build.outputs.chained == '1'
         uses: actions/upload-artifact@v4
         with: { name: "ckpt-${{ inputs.label }}-ref-${{ matrix.skin }}-3", path: ckpt/case.tar, retention-days: 2 }
       - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'ref' == 'car'
@@ -325,13 +325,13 @@ jobs:
             r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
             tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
             echo "chained=1" >> "$GITHUB_OUTPUT"
-            [ 1 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+            if [ 1 = 3 ]; then echo "not finished after 3 links"; exit 1; fi
           elif [ car = ref ]; then
             r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
             mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
             cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
           fi
-      - if: steps.build.outputs.chained == '1'
+      - if: always() && steps.build.outputs.chained == '1'
         uses: actions/upload-artifact@v4
         with: { name: "ckpt-${{ inputs.label }}-car-${{ matrix.skin }}-1", path: ckpt/case.tar, retention-days: 2 }
       - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'car' == 'car'
@@ -404,13 +404,13 @@ jobs:
             r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
             tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
             echo "chained=1" >> "$GITHUB_OUTPUT"
-            [ 2 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+            if [ 2 = 3 ]; then echo "not finished after 3 links"; exit 1; fi
           elif [ car = ref ]; then
             r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
             mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
             cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
           fi
-      - if: steps.build.outputs.chained == '1'
+      - if: always() && steps.build.outputs.chained == '1'
         uses: actions/upload-artifact@v4
         with: { name: "ckpt-${{ inputs.label }}-car-${{ matrix.skin }}-2", path: ckpt/case.tar, retention-days: 2 }
       - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'car' == 'car'
@@ -483,13 +483,13 @@ jobs:
             r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
             tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
             echo "chained=1" >> "$GITHUB_OUTPUT"
-            [ 3 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+            if [ 3 = 3 ]; then echo "not finished after 3 links"; exit 1; fi
           elif [ car = ref ]; then
             r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
             mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
             cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
           fi
-      - if: steps.build.outputs.chained == '1'
+      - if: always() && steps.build.outputs.chained == '1'
         uses: actions/upload-artifact@v4
         with: { name: "ckpt-${{ inputs.label }}-car-${{ matrix.skin }}-3", path: ckpt/case.tar, retention-days: 2 }
       - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'car' == 'car'
