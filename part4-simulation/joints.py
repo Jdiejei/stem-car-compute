@@ -265,6 +265,19 @@ def pod_joint(part, body_half, channels: dict, keep_out=None) -> Joint | None:
     pocket = _bool("intersection", [plug, body_half])
     if pocket is None or pocket.is_empty or abs(pocket.volume) < 1e-12:
         return None
+    # An axle without a pod (a floor-high rod, beam_support FLOOR_EMBED_MM) still sits in
+    # the foam: it gets its own slot milled from below, filled by the printed part.
+    rest = _bool("difference", [part, plug])
+    rest_in = None if rest is None or rest.is_empty else _bool("intersection", [rest, body_half])
+    keel = None
+    if rest_in is not None and not rest_in.is_empty and abs(rest_in.volume) > 1e-9:     # > 1 mm3
+        jr = cut("supports", rest, body_half, "bottom", keep_out, embed_mm=None)
+        if jr is not None:
+            plug = _bool("union", [plug, jr.plug])
+            plug_full = _bool("union", [plug_full, jr.plug_full])
+            cut_full = _bool("union", [cut_full, jr.cut_full])
+            pocket = _bool("intersection", [plug, body_half])
+            keel = _full(jr.pocket)
     body_full = man(_full(body_half))
     shells = []
     for ch in channels.values():
@@ -287,7 +300,8 @@ def pod_joint(part, body_half, channels: dict, keep_out=None) -> Joint | None:
             cx = (bb[0] + bb[3]) / 2
             shell = shell - inner.translate((-cx, 0, 0)).scale((4.0, 1.0, 1.0)).translate((cx, 0, 0))
         shells.append(shell)
-    whole = m3.Manifold.batch_boolean(shells + [man(_full(part))], m3.OpType.Add)
+    whole = m3.Manifold.batch_boolean(shells + [man(_full(part))] + ([man(keel)] if keel is not None else []),
+                                      m3.OpType.Add)
     # crumbs (under 1 mm3) the hollowing leaves where the wall is thinner than itself
     whole = m3.Manifold.batch_boolean([c for c in whole.decompose() if c.volume() > 1e-9 * 1e-3],
                                       m3.OpType.Add)

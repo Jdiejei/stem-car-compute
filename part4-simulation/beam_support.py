@@ -70,7 +70,9 @@ TOOL_R_MM = 3.125
 STUB_D_MM = 3.0               # the journal: the 3x6x2.5 bearing's bore
 BEARING_W_MM = 2.5
 RIM_INNER_R_MM = 13.72        # the team wheel's rim, inside (measured on the STL)
-CLAW_LIP_MM = 1.5             # T7.13 hang-test claw lip (regulation figure, p.34; legality.py)
+FLOOR_EMBED_MM = 3.0          # a floor-high rod's top this far into the foam: a glue pocket
+#                               the 3.125 mm ball can mill (support-design choice, not a rule)
+CLAW_LIP_MM = 1.5            # T7.13 hang-test claw lip (regulation figure, p.34; legality.py)
 
 # Loads and limits (see the module docstring)
 LOAD_RADIAL_N = 3.0
@@ -363,6 +365,7 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
     plate_h, xc = bs.beam_h_mm, x_axle_mm + bs.x_offset_mm
     zc = z_axle_mm + bs.z_offset_mm
     z_strip = None
+    floor_high = False
     if pod:
         # the plate lies in the pod's roof (its top half a wall into it); raise
         # its thickness until the frame carries the loads and the bearing sags
@@ -391,6 +394,29 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
             st["strip_fit_mm"] = min(tie, room)
             st["strip_fit_note"] = (f"body floor at the axle z {channel['z_floor_mm']:.2f} puts the strip at "
                                     f"z {z_strip:.2f}: {room:.2f} mm under the plate, {tie:.2f} mm on the disc")
+            if st["strip_fit_mm"] < 0:
+                # FLOOR-HIGH: the pod frame does not fit under this body, so a round rod in a
+                # slot milled up into the body's floor, its top FLOOR_EMBED_MM into the foam
+                # but inside the wheel's cylinder (T7.12.1); the neck below joins it to the
+                # disc. No support of any kind can hold a floor above z_axle + (R - 0.3) -
+                # FLOOR_EMBED_MM; fit_<tag>_floor_rod_embed says so (44130/0, 50002/0).
+                pod, floor_high, z_strip = False, True, None
+                for k in ("frame_stress_mpa", "strip_fit_mm", "strip_fit_note", "plate_h_asked_mm", "span_mm"):
+                    st.pop(k, None)
+                st["sag_mm"] -= fr["sag_mm"]
+                r = TOOL_R_MM + 0.01
+                top = min(channel["z_floor_mm"] + FLOOR_EMBED_MM, z_axle_mm + R_mm - 0.3)
+                zc, xc = top - r, x_axle_mm
+                bs = dataclasses.replace(bs, beam_w_mm=2 * r + 0.02, beam_h_mm=2 * r + 0.02, p=2.0,
+                                         round_r_mm=r, x_offset_mm=0.0)          # a rod: corners = the ball
+                plate_h = st["plate_h_mm"] = 2 * r + 0.02
+                # the rod carries the stub's moment out of the body; taken at the centreline (worst arm)
+                st["floor_rod_stress_mpa"] = ((LOAD_RADIAL_N * y_bear + LOAD_AXIAL_N * R_mm)
+                                              / (math.pi * (2 * r) ** 3 / 32))
+                st["floor_embed_mm"] = top - channel["z_floor_mm"]
+                st["floor_embed_note"] = (f"body floor at the axle z {channel['z_floor_mm']:.2f}: the rod's top "
+                                          f"z {top:.2f} is {st['floor_embed_mm']:.2f} mm into the foam "
+                                          f"(at most z {z_axle_mm + R_mm - 0.3:.2f} inside the wheel's cylinder)")
     bs_sized = dataclasses.replace(bs, beam_h_mm=plate_h)
     if not pod and min_curvature_radius_mm(bs_sized) < TOOL_R_MM:
         # a bare beam sits in a slot of its own, cut by the ball: grow it to the
@@ -419,7 +445,7 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
         neck, _web_xz = claw_neck(bs_sized, xc - x_axle_mm, zc - z_axle_mm, rk)
         M = LOAD_RADIAL_N * (y_bear - y_claw) + LOAD_AXIAL_N * R_mm          # N mm
         st["claw_neck_stress_mpa"] = M / neck_section_modulus_mm3(neck)
-        keep = _revolve_y([(0.0, y_claw), (rk, y_claw), (rk, y_beam_end + 1.0), (0.0, y_beam_end + 1.0)],
+        keep = _revolve_y([(0.0, y_claw - 0.1), (rk, y_claw - 0.1), (rk, y_beam_end + 1.0), (0.0, y_beam_end + 1.0)],
                           x_axle_mm, z_axle_mm)
         inboard = _extrude_xz(section(bs_sized), y_plate0, y_claw, xc, zc)
         body = plate
@@ -429,7 +455,7 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
             # half-way between the axle and the plate, which mirroring leaves unchanged
             a = bs_sized.beam_w_mm / 2
             web = _extrude_xz([(-a, -abs(dz) / 2), (a, -abs(dz) / 2), (a, abs(dz) / 2), (-a, abs(dz) / 2)],
-                              y_claw, y_beam_end + 0.05, xc, z_axle_mm + dz / 2)
+                              y_claw - 0.1, y_beam_end + 0.05, xc, z_axle_mm + dz / 2)
             body = trimesh.boolean.union([plate, web], engine="manifold")
         outboard = trimesh.boolean.intersection([body, keep], engine="manifold")
         plate = trimesh.boolean.union([inboard, outboard], engine="manifold")
@@ -459,7 +485,7 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
                           (hub_r, y_tip - hub_len), (hub_r, y_tip), (bs.hubcap_r_mm, y_tip),
                           (bs.hubcap_r_mm, y_out), (0.0, y_out)], x_axle_mm, z_axle_mm)
     return {"support": part, "hubcap": cap, "_section_centre_mm": (xc, zc), "_struct": st, "_bs": bs_sized,
-            "_pod": pod}
+            "_pod": pod, "_floor_high": floor_high}
 
 
 def gates(bs: BeamSupport, meshes: dict, x_axle_mm: float, z_axle_mm: float, R_mm: float,
@@ -472,6 +498,9 @@ def gates(bs: BeamSupport, meshes: dict, x_axle_mm: float, z_axle_mm: float, R_m
          # loads: margins in MPa and mm
          f"load_{tag}_stub_stress": st["allow_mpa"] - st["stress_mpa"],
          f"load_{tag}_bearing_sag": SAG_MAX_MM - st["sag_mm"]}
+    if "floor_embed_mm" in st:
+        g[f"fit_{tag}_floor_rod_embed"] = st["floor_embed_mm"] - FLOOR_EMBED_MM
+        g[f"load_{tag}_floor_rod_stress"] = st["allow_mpa"] - st["floor_rod_stress_mpa"]
     if "strip_fit_mm" in st:
         g[f"fit_{tag}_strip_under_plate_on_disc"] = st["strip_fit_mm"]
     if "claw_band_r_mm" in st:
