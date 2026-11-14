@@ -13,9 +13,10 @@ D = 0.03          # > 2 x the bisection tolerance (0.01)
 
 
 def _car():
-    b = trimesh.creation.box(extents=[0.18, 0.05, 0.04])
-    b.apply_translation([0.025 + 0.09, 0.0, 0.0015 + 0.02])
-    return pr.Car(body=b)
+    # a body box with a low nose block ahead (T8.5.1: the nose under 25 mm, within 15 mm of the centre)
+    b = trimesh.creation.box(bounds=[[0.045, -0.025, 0.0015], [0.205, 0.025, 0.0415]])
+    n = trimesh.creation.box(bounds=[[0.025, -0.012, 0.004], [0.050, 0.012, 0.020]])
+    return pr.Car(body=trimesh.boolean.union([b, n], engine="manifold"))
 
 
 CASES = [(p, s) for p in pr.SETTINGS for s in pr.SETTINGS[p]]

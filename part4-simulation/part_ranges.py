@@ -108,8 +108,9 @@ def _first_fail(part, base, setting, v, car):
 def legal_range(part: str, setting: str, car: Car, base=None, tol: float = 0.01) -> dict:
     base = base or DEFAULTS[part]()
     v0 = getattr(base, setting)
-    if _first_fail(part, base, setting, v0, car) is not None:
-        raise ValueError(f"{part}: the default {setting}={v0} is not legal on this car")
+    bad0 = _first_fail(part, base, setting, v0, car)
+    if bad0 is not None:
+        raise ValueError(f"{part}: the default {setting}={v0} is not legal on this car ({bad0})")
     a, b = SETTINGS[part][setting]
     out = {"default": v0, "rule": RULES.get((part, setting), "")}
     for side, end in (("lo", a), ("hi", b)):
