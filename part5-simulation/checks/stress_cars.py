@@ -163,6 +163,12 @@ def build_one(c: dict) -> dict:
         row["error"] = f"{type(exc).__name__}: {exc}"[:300]
         row["where"] = traceback.format_exc().strip().splitlines()[-3][:160]
     row["seconds"] = round(time.time() - t0, 1)
+    keep = os.environ.get("P4_KEEP_DIR")             # the car's files as built, for tracing a reject
+    if keep:
+        dst = Path(keep) / out.name
+        dst.mkdir(parents=True, exist_ok=True)
+        for p in list(out.rglob("*.stl")) + list(out.rglob("*.json")):
+            shutil.copy2(p, dst / p.name)
     shutil.rmtree(out, ignore_errors=True)
     return row
 
