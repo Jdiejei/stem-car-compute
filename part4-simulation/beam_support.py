@@ -404,15 +404,22 @@ def build(bs: BeamSupport, x_axle_mm: float, z_axle_mm: float, y_inner_mm: float
         # the trimmed end (the neck) is the plate plus a web down to the axle's level,
         # inside the circle; it carries the stub's moment at y_claw, so it is sized for it
         rk = R_mm - CLAW_LIP_MM - 0.1
-        neck, web_xz = claw_neck(bs_sized, xc - x_axle_mm, zc - z_axle_mm, rk)
+        neck, _web_xz = claw_neck(bs_sized, xc - x_axle_mm, zc - z_axle_mm, rk)
         M = LOAD_RADIAL_N * (y_bear - y_claw) + LOAD_AXIAL_N * R_mm          # N mm
         st["claw_neck_stress_mpa"] = M / neck_section_modulus_mm3(neck)
         keep = _revolve_y([(0.0, y_claw), (rk, y_claw), (rk, y_beam_end + 1.0), (0.0, y_beam_end + 1.0)],
                           x_axle_mm, z_axle_mm)
         inboard = _extrude_xz(section(bs_sized), y_plate0, y_claw, xc, zc)
-        web = _extrude_xz(web_xz, y_claw, y_beam_end + 0.05, x_axle_mm, z_axle_mm)
-        outboard = trimesh.boolean.intersection([trimesh.boolean.union([plate, web], engine="manifold"), keep],
-                                                engine="manifold")
+        body = plate
+        dz = zc - z_axle_mm
+        if abs(dz) > 0.05:       # a plate at the axle's level needs no web (and has none to extrude)
+            # _extrude_xz mirrors its outline in z, so the web goes in as a box centred
+            # half-way between the axle and the plate, which mirroring leaves unchanged
+            a = bs_sized.beam_w_mm / 2
+            web = _extrude_xz([(-a, -abs(dz) / 2), (a, -abs(dz) / 2), (a, abs(dz) / 2), (-a, abs(dz) / 2)],
+                              y_claw, y_beam_end + 0.05, xc, z_axle_mm + dz / 2)
+            body = trimesh.boolean.union([plate, web], engine="manifold")
+        outboard = trimesh.boolean.intersection([body, keep], engine="manifold")
         plate = trimesh.boolean.union([inboard, outboard], engine="manifold")
     parts = [plate, _revolve_y(prof, x_axle_mm, z_axle_mm)]
     if pod and bs.strip:
