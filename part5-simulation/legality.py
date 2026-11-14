@@ -1140,6 +1140,8 @@ def check(body_half_stl: str, assembly: dict, mass_state: dict | None = None,
                         hit += int(inside.sum())
                         blocked.setdefault(name, []).extend(
                             np.round(pts[inside] * 1e3, 2).tolist())
+                        blocked.setdefault(f"{name} piece bounds mm", []).append(
+                            np.round(piece.bounds * 1e3, 2).tolist())
                 else:
                     skipped.append(name)
         note = f"{hit} of {len(pts)} claw points blocked"
