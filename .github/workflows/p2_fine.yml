@@ -1,0 +1,515 @@
+name: p2_fine
+run-name: "Part 2: fine-mesh stopwatch, ${{ inputs.kind }} (${{ inputs.label }})"
+
+# The search runs on the FINE mesh, so its noise and repeat are measured there.
+# kind=ref: build a frozen fine reference case (one car, chained up to 3 links
+#   of < 6 h; result artifact fineref-<label>, then released by hand).
+# kind=car: cars reshaped from and started on a released fine reference
+#   (ref_tag), each its own job, chained up to 3 links; noise statistics at the end.
+on:
+  workflow_dispatch:
+    inputs:
+      label: { required: true }
+      kind: { default: "car", description: "ref or car" }
+      ref_skin: { default: "3.945" }
+      ref_tag: { default: "" }
+      iters: { default: "1000" }
+      opt: { default: '{"layer_overrides": {"nSurfaceLayers": 0}}' }
+      scales: { default: "" }
+      cars: { default: '["1.0"]', description: "JSON list: skins, or scale factors when scales is set" }
+
+permissions:
+  contents: read
+
+env:
+  PY_DEPS: numpy==2.4.6 scipy==1.17.1 pandas trimesh==5.2.0 scikit-image shapely rtree==1.4.1 mapbox-earcut manifold3d==3.5.4 fast_simplification==0.2.0 jax jaxlib matplotlib pymeshlab==2025.7.post1
+  OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: "1"
+  OMPI_MCA_rmaps_base_oversubscribe: "1"
+
+jobs:
+  ref_1:
+    if: inputs.kind == 'ref'
+    name: ${{ inputs.label }} ref link 1 ${{ matrix.skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        skin: ["ref"]
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Saved case from the previous link
+        if: 1 != 1
+        id: prev
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-ref-${{ matrix.skin }}-0", path: /tmp/ckpt }
+      - name: Anything to do?
+        id: go
+        run: |
+          if [ 1 = 1 ] || [ -f /tmp/ckpt/case.tar ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else echo "this car finished in an earlier link"; fi
+      - if: steps.go.outputs.go == '1'
+        timeout-minutes: 45
+        run: |
+          ((for i in 1 2 3; do timeout 120 sudo apt-get update -q && break; sleep 20; done) || true)
+          for i in 1 2 3 4; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; done
+          for i in 1 2 3 4; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 60; done
+      - if: steps.go.outputs.go == '1'
+        run: pip install $PY_DEPS
+      - if: steps.go.outputs.go == '1' && 'ref' == 'car'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download ${{ inputs.ref_tag }} -R shawshanker18/stem-racing-car -p "*.zip" -D dl
+          mkdir -p /tmp/refmesh && unzip -q dl/*.zip -d /tmp/refmesh && rm -rf dl
+      - name: Solve
+        id: build
+        if: steps.go.outputs.go == '1'
+        working-directory: part5-simulation
+        run: |
+          if [ ref = car ]; then
+            opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); d.update(morph_from='/tmp/refmesh', warm_from='/tmp/refmesh'); d.update({'body_scale_y': float(sys.argv[2])} if sys.argv[3] else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ matrix.skin }}' '${{ inputs.scales }}')
+            skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
+          else
+            opt='${{ inputs.opt }}'; skin=${{ inputs.ref_skin }}
+          fi
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
+          fi
+          lscpu | grep -m1 "Model name" | sed "s/^/CPU /"
+          set +e
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
+            --cfd --cfd-iters ${{ inputs.iters }} --res fine --np 2 --keep-runs --cfd-json "$opt" 2>&1 | tail -4
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
+            tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            echo "chained=1" >> "$GITHUB_OUTPUT"
+            [ 1 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+          elif [ ref = ref ]; then
+            r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
+            mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
+            cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
+          fi
+      - if: steps.build.outputs.chained == '1'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-ref-${{ matrix.skin }}-1", path: ckpt/case.tar, retention-days: 2 }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'ref' == 'car'
+        uses: actions/upload-artifact@v4
+        with: { name: "noise-${{ inputs.label }}-${{ matrix.skin }}", path: "out/s${{ matrix.skin }}/summary.json" }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'ref' == 'ref'
+        uses: actions/upload-artifact@v4
+        with: { name: "fineref-${{ inputs.label }}", path: refmesh, retention-days: 7 }
+
+  ref_2:
+    needs: ref_1
+    if: always() if: if:  inputs.kind == 'ref'
+    name: ${{ inputs.label }} ref link 2 ${{ matrix.skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        skin: ["ref"]
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Saved case from the previous link
+        if: 2 != 1
+        id: prev
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-ref-${{ matrix.skin }}-1", path: /tmp/ckpt }
+      - name: Anything to do?
+        id: go
+        run: |
+          if [ 2 = 1 ] || [ -f /tmp/ckpt/case.tar ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else echo "this car finished in an earlier link"; fi
+      - if: steps.go.outputs.go == '1'
+        timeout-minutes: 45
+        run: |
+          ((for i in 1 2 3; do timeout 120 sudo apt-get update -q && break; sleep 20; done) || true)
+          for i in 1 2 3 4; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; done
+          for i in 1 2 3 4; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 60; done
+      - if: steps.go.outputs.go == '1'
+        run: pip install $PY_DEPS
+      - if: steps.go.outputs.go == '1' && 'ref' == 'car'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download ${{ inputs.ref_tag }} -R shawshanker18/stem-racing-car -p "*.zip" -D dl
+          mkdir -p /tmp/refmesh && unzip -q dl/*.zip -d /tmp/refmesh && rm -rf dl
+      - name: Solve
+        id: build
+        if: steps.go.outputs.go == '1'
+        working-directory: part5-simulation
+        run: |
+          if [ ref = car ]; then
+            opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); d.update(morph_from='/tmp/refmesh', warm_from='/tmp/refmesh'); d.update({'body_scale_y': float(sys.argv[2])} if sys.argv[3] else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ matrix.skin }}' '${{ inputs.scales }}')
+            skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
+          else
+            opt='${{ inputs.opt }}'; skin=${{ inputs.ref_skin }}
+          fi
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
+          fi
+          lscpu | grep -m1 "Model name" | sed "s/^/CPU /"
+          set +e
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
+            --cfd --cfd-iters ${{ inputs.iters }} --res fine --np 2 --keep-runs --cfd-json "$opt" 2>&1 | tail -4
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
+            tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            echo "chained=1" >> "$GITHUB_OUTPUT"
+            [ 2 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+          elif [ ref = ref ]; then
+            r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
+            mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
+            cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
+          fi
+      - if: steps.build.outputs.chained == '1'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-ref-${{ matrix.skin }}-2", path: ckpt/case.tar, retention-days: 2 }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'ref' == 'car'
+        uses: actions/upload-artifact@v4
+        with: { name: "noise-${{ inputs.label }}-${{ matrix.skin }}", path: "out/s${{ matrix.skin }}/summary.json" }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'ref' == 'ref'
+        uses: actions/upload-artifact@v4
+        with: { name: "fineref-${{ inputs.label }}", path: refmesh, retention-days: 7 }
+
+  ref_3:
+    needs: ref_2
+    if: always() if: if:  inputs.kind == 'ref'
+    name: ${{ inputs.label }} ref link 3 ${{ matrix.skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        skin: ["ref"]
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Saved case from the previous link
+        if: 3 != 1
+        id: prev
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-ref-${{ matrix.skin }}-2", path: /tmp/ckpt }
+      - name: Anything to do?
+        id: go
+        run: |
+          if [ 3 = 1 ] || [ -f /tmp/ckpt/case.tar ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else echo "this car finished in an earlier link"; fi
+      - if: steps.go.outputs.go == '1'
+        timeout-minutes: 45
+        run: |
+          ((for i in 1 2 3; do timeout 120 sudo apt-get update -q && break; sleep 20; done) || true)
+          for i in 1 2 3 4; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; done
+          for i in 1 2 3 4; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 60; done
+      - if: steps.go.outputs.go == '1'
+        run: pip install $PY_DEPS
+      - if: steps.go.outputs.go == '1' && 'ref' == 'car'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download ${{ inputs.ref_tag }} -R shawshanker18/stem-racing-car -p "*.zip" -D dl
+          mkdir -p /tmp/refmesh && unzip -q dl/*.zip -d /tmp/refmesh && rm -rf dl
+      - name: Solve
+        id: build
+        if: steps.go.outputs.go == '1'
+        working-directory: part5-simulation
+        run: |
+          if [ ref = car ]; then
+            opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); d.update(morph_from='/tmp/refmesh', warm_from='/tmp/refmesh'); d.update({'body_scale_y': float(sys.argv[2])} if sys.argv[3] else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ matrix.skin }}' '${{ inputs.scales }}')
+            skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
+          else
+            opt='${{ inputs.opt }}'; skin=${{ inputs.ref_skin }}
+          fi
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
+          fi
+          lscpu | grep -m1 "Model name" | sed "s/^/CPU /"
+          set +e
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
+            --cfd --cfd-iters ${{ inputs.iters }} --res fine --np 2 --keep-runs --cfd-json "$opt" 2>&1 | tail -4
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
+            tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            echo "chained=1" >> "$GITHUB_OUTPUT"
+            [ 3 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+          elif [ ref = ref ]; then
+            r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
+            mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
+            cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
+          fi
+      - if: steps.build.outputs.chained == '1'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-ref-${{ matrix.skin }}-3", path: ckpt/case.tar, retention-days: 2 }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'ref' == 'car'
+        uses: actions/upload-artifact@v4
+        with: { name: "noise-${{ inputs.label }}-${{ matrix.skin }}", path: "out/s${{ matrix.skin }}/summary.json" }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'ref' == 'ref'
+        uses: actions/upload-artifact@v4
+        with: { name: "fineref-${{ inputs.label }}", path: refmesh, retention-days: 7 }
+
+  car_1:
+    if: inputs.kind == 'car'
+    name: ${{ inputs.label }} car link 1 ${{ matrix.skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        skin: ${{ fromJSON(inputs.scales != '' && inputs.scales || inputs.cars) }}
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Saved case from the previous link
+        if: 1 != 1
+        id: prev
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-car-${{ matrix.skin }}-0", path: /tmp/ckpt }
+      - name: Anything to do?
+        id: go
+        run: |
+          if [ 1 = 1 ] || [ -f /tmp/ckpt/case.tar ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else echo "this car finished in an earlier link"; fi
+      - if: steps.go.outputs.go == '1'
+        timeout-minutes: 45
+        run: |
+          ((for i in 1 2 3; do timeout 120 sudo apt-get update -q && break; sleep 20; done) || true)
+          for i in 1 2 3 4; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; done
+          for i in 1 2 3 4; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 60; done
+      - if: steps.go.outputs.go == '1'
+        run: pip install $PY_DEPS
+      - if: steps.go.outputs.go == '1' && 'car' == 'car'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download ${{ inputs.ref_tag }} -R shawshanker18/stem-racing-car -p "*.zip" -D dl
+          mkdir -p /tmp/refmesh && unzip -q dl/*.zip -d /tmp/refmesh && rm -rf dl
+      - name: Solve
+        id: build
+        if: steps.go.outputs.go == '1'
+        working-directory: part5-simulation
+        run: |
+          if [ car = car ]; then
+            opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); d.update(morph_from='/tmp/refmesh', warm_from='/tmp/refmesh'); d.update({'body_scale_y': float(sys.argv[2])} if sys.argv[3] else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ matrix.skin }}' '${{ inputs.scales }}')
+            skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
+          else
+            opt='${{ inputs.opt }}'; skin=${{ inputs.ref_skin }}
+          fi
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
+          fi
+          lscpu | grep -m1 "Model name" | sed "s/^/CPU /"
+          set +e
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
+            --cfd --cfd-iters ${{ inputs.iters }} --res fine --np 2 --keep-runs --cfd-json "$opt" 2>&1 | tail -4
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
+            tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            echo "chained=1" >> "$GITHUB_OUTPUT"
+            [ 1 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+          elif [ car = ref ]; then
+            r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
+            mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
+            cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
+          fi
+      - if: steps.build.outputs.chained == '1'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-car-${{ matrix.skin }}-1", path: ckpt/case.tar, retention-days: 2 }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'car' == 'car'
+        uses: actions/upload-artifact@v4
+        with: { name: "noise-${{ inputs.label }}-${{ matrix.skin }}", path: "out/s${{ matrix.skin }}/summary.json" }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'car' == 'ref'
+        uses: actions/upload-artifact@v4
+        with: { name: "fineref-${{ inputs.label }}", path: refmesh, retention-days: 7 }
+
+  car_2:
+    needs: car_1
+    if: always() if: if:  inputs.kind == 'car'
+    name: ${{ inputs.label }} car link 2 ${{ matrix.skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        skin: ${{ fromJSON(inputs.scales != '' && inputs.scales || inputs.cars) }}
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Saved case from the previous link
+        if: 2 != 1
+        id: prev
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-car-${{ matrix.skin }}-1", path: /tmp/ckpt }
+      - name: Anything to do?
+        id: go
+        run: |
+          if [ 2 = 1 ] || [ -f /tmp/ckpt/case.tar ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else echo "this car finished in an earlier link"; fi
+      - if: steps.go.outputs.go == '1'
+        timeout-minutes: 45
+        run: |
+          ((for i in 1 2 3; do timeout 120 sudo apt-get update -q && break; sleep 20; done) || true)
+          for i in 1 2 3 4; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; done
+          for i in 1 2 3 4; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 60; done
+      - if: steps.go.outputs.go == '1'
+        run: pip install $PY_DEPS
+      - if: steps.go.outputs.go == '1' && 'car' == 'car'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download ${{ inputs.ref_tag }} -R shawshanker18/stem-racing-car -p "*.zip" -D dl
+          mkdir -p /tmp/refmesh && unzip -q dl/*.zip -d /tmp/refmesh && rm -rf dl
+      - name: Solve
+        id: build
+        if: steps.go.outputs.go == '1'
+        working-directory: part5-simulation
+        run: |
+          if [ car = car ]; then
+            opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); d.update(morph_from='/tmp/refmesh', warm_from='/tmp/refmesh'); d.update({'body_scale_y': float(sys.argv[2])} if sys.argv[3] else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ matrix.skin }}' '${{ inputs.scales }}')
+            skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
+          else
+            opt='${{ inputs.opt }}'; skin=${{ inputs.ref_skin }}
+          fi
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
+          fi
+          lscpu | grep -m1 "Model name" | sed "s/^/CPU /"
+          set +e
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
+            --cfd --cfd-iters ${{ inputs.iters }} --res fine --np 2 --keep-runs --cfd-json "$opt" 2>&1 | tail -4
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
+            tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            echo "chained=1" >> "$GITHUB_OUTPUT"
+            [ 2 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+          elif [ car = ref ]; then
+            r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
+            mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
+            cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
+          fi
+      - if: steps.build.outputs.chained == '1'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-car-${{ matrix.skin }}-2", path: ckpt/case.tar, retention-days: 2 }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'car' == 'car'
+        uses: actions/upload-artifact@v4
+        with: { name: "noise-${{ inputs.label }}-${{ matrix.skin }}", path: "out/s${{ matrix.skin }}/summary.json" }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'car' == 'ref'
+        uses: actions/upload-artifact@v4
+        with: { name: "fineref-${{ inputs.label }}", path: refmesh, retention-days: 7 }
+
+  car_3:
+    needs: car_2
+    if: always() if: if:  inputs.kind == 'car'
+    name: ${{ inputs.label }} car link 3 ${{ matrix.skin }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        skin: ${{ fromJSON(inputs.scales != '' && inputs.scales || inputs.cars) }}
+    steps:
+      - run: echo "P2_JOB_DEADLINE=$(( $(date +%s) + 340*60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Saved case from the previous link
+        if: 3 != 1
+        id: prev
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-car-${{ matrix.skin }}-2", path: /tmp/ckpt }
+      - name: Anything to do?
+        id: go
+        run: |
+          if [ 3 = 1 ] || [ -f /tmp/ckpt/case.tar ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else echo "this car finished in an earlier link"; fi
+      - if: steps.go.outputs.go == '1'
+        timeout-minutes: 45
+        run: |
+          ((for i in 1 2 3; do timeout 120 sudo apt-get update -q && break; sleep 20; done) || true)
+          for i in 1 2 3 4; do sudo apt-get install -y -q libopengl0 libglu1-mesa libegl1 libgl1 libgomp1 libxkbcommon0 && break; sleep 60; done
+          for i in 1 2 3 4; do (curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash) && sudo apt-get install -y -q openfoam2412-default && break; sleep 60; done
+      - if: steps.go.outputs.go == '1'
+        run: pip install $PY_DEPS
+      - if: steps.go.outputs.go == '1' && 'car' == 'car'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download ${{ inputs.ref_tag }} -R shawshanker18/stem-racing-car -p "*.zip" -D dl
+          mkdir -p /tmp/refmesh && unzip -q dl/*.zip -d /tmp/refmesh && rm -rf dl
+      - name: Solve
+        id: build
+        if: steps.go.outputs.go == '1'
+        working-directory: part5-simulation
+        run: |
+          if [ car = car ]; then
+            opt=$(python -c "import json,sys; d=json.loads(sys.argv[1]); d.update(morph_from='/tmp/refmesh', warm_from='/tmp/refmesh'); d.update({'body_scale_y': float(sys.argv[2])} if sys.argv[3] else {}); print(json.dumps(d))" '${{ inputs.opt }}' '${{ matrix.skin }}' '${{ inputs.scales }}')
+            skin=${{ matrix.skin }}; [ -n '${{ inputs.scales }}' ] && skin=${{ inputs.ref_skin }}
+          else
+            opt='${{ inputs.opt }}'; skin=${{ inputs.ref_skin }}
+          fi
+          export P2_CHECKPOINT_FILE=$PWD/../ckpt_path.txt
+          if [ -f /tmp/ckpt/case.tar ]; then
+            mkdir -p /tmp/case && tar -xf /tmp/ckpt/case.tar -C /tmp/case && rm -f /tmp/ckpt/case.tar && export P2_RESUME_CASE=/tmp/case/run
+          fi
+          lscpu | grep -m1 "Model name" | sed "s/^/CPU /"
+          set +e
+          python -W ignore run_car.py --out ../out/s${{ matrix.skin }} --body-json '{}' --skin-mm $skin \
+            --cfd --cfd-iters ${{ inputs.iters }} --res fine --np 2 --keep-runs --cfd-json "$opt" 2>&1 | tail -4
+          set -e
+          if [ -f ../ckpt_path.txt ]; then
+            r=$(cat ../ckpt_path.txt); mkdir -p ../ckpt
+            tar -cf ../ckpt/case.tar -C "$(dirname "$r")" --transform "s|^$(basename "$r")|run|" "$(basename "$r")"
+            echo "chained=1" >> "$GITHUB_OUTPUT"
+            [ 3 = 3 ] && { echo "not finished after 3 links"; exit 1; }
+          elif [ car = ref ]; then
+            r=$(ls -d ${P2_RESUME_CASE:-../part2-simulation/cfd_case_template/runs/*/} | head -1)
+            mkdir -p ../refmesh && (cd "$r" && tar --exclude="processor*" --exclude=logs --exclude=postProcessing -cf - .) | tar -xf - -C ../refmesh
+            cp ../out/s${{ matrix.skin }}/summary.json ../refmesh/ref_summary.json
+          fi
+      - if: steps.build.outputs.chained == '1'
+        uses: actions/upload-artifact@v4
+        with: { name: "ckpt-${{ inputs.label }}-car-${{ matrix.skin }}-3", path: ckpt/case.tar, retention-days: 2 }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'car' == 'car'
+        uses: actions/upload-artifact@v4
+        with: { name: "noise-${{ inputs.label }}-${{ matrix.skin }}", path: "out/s${{ matrix.skin }}/summary.json" }
+      - if: steps.go.outputs.go == '1' && steps.build.outputs.chained != '1' && 'car' == 'ref'
+        uses: actions/upload-artifact@v4
+        with: { name: "fineref-${{ inputs.label }}", path: refmesh, retention-days: 7 }
+
+  noise:
+    needs: [car_1, car_2, car_3]
+    if: always() && inputs.kind == 'car'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install numpy==2.4.6 scipy==1.17.1
+      - uses: actions/download-artifact@v4
+        with: { pattern: "noise-${{ inputs.label }}-*", path: got }
+      - run: |
+          args=$(for d in got/noise-*; do s=${d##*-}; [ -f "$d/summary.json" ] && echo "$s=$d/summary.json"; done)
+          python part2-simulation/noise_stats.py $args | tee -a "$GITHUB_STEP_SUMMARY"
